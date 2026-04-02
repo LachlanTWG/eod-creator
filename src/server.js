@@ -285,6 +285,11 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Clean quote values: strip $ and commas, keep pipe-separated
+    const rawValue = String(body.quoteValue || '');
+    const cleanValues = rawValue.split('|').map(v => v.replace(/[$,\s]/g, '').trim()).filter(Boolean);
+    const quoteJobValue = cleanValues.join('|');
+
     const activityData = {
       date: companyToday(company),
       salesPerson: body.salesPerson || 'Unknown',
@@ -292,7 +297,7 @@ const server = http.createServer(async (req, res) => {
       eventType: 'Quote Sent',
       outcome: '',
       adSource: body.source || '',
-      quoteJobValue: String(body.quoteValue || ''),
+      quoteJobValue,
       contactAddress: body.contactAddress || '',
       contactId: body.contactId || '',
     };
