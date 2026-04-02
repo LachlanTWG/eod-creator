@@ -8,6 +8,7 @@ const {
   runAllEOD, runAllEOW, runAllEOM, runAllEOY, runMeetingDoc,
   loadCompanies,
 } = require('./runReports');
+const { logActivity } = require('./sheets/logActivity');
 
 const PORT = process.env.PORT || 3000;
 
@@ -129,6 +130,77 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // GHL webhook — logs activity from GoHighLevel CRM
+  if (pathname === '/webhook/ghl') {
+    const locationId = body.location?.id;
+    if (!locationId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing location.id' }));
+      return;
+    }
+
+    const { companies } = loadCompanies();
+    const company = companies.find(c => c.ghlLocationId === locationId);
+    if (!company) {
+      console.log(`[GHL] Unknown location: ${locationId}`);
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `No company for location ${locationId}` }));
+      return;
+    }
+
+    // Extract EOD fields
+    const eod1 = body['EOD 1 - Stage'] || '';
+    const eod2 = body['EOD 2 - Answered?'] || '';
+    const eod3 = body['EOD 3 - Standard Outcome'] || '';
+    const eod4 = body['EOD 4 - Custom Outcome'] || '';
+    const eod5 = body['EOD 5 - Contact Source'] || '';
+
+    if (!eod1 && !eod2 && !eod3) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'skipped', reason: 'No EOD fields populated' }));
+      return;
+    }
+
+    // Match sales person by first name from assigned_to
+    const assignedTo = body.customData?.assigned_to || '';
+    const assignedFirst = assignedTo.split(' ')[0].toLowerCase();
+    const activePeople = (company.salesPeople || []).filter(p => p.active);
+    const salesPerson = activePeople.find(p =>
+      p.name.split(' ')[0].toLowerCase() === assignedFirst
+    );
+    const salesPersonName = salesPerson?.name || assignedTo || 'Unknown';
+
+    // Build outcome string: "LeadType | Answered | Outcome | Notes | Source"
+    const outcome = [eod1, eod2, eod3, eod4, eod5]
+      .map(s => s.trim())
+      .join(' | ');
+
+    // Get today's date in company timezone
+    const tz = company.timezone || 'Australia/Sydney';
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+
+    const activityData = {
+      date: today,
+      salesPerson: salesPersonName,
+      contactName: body.full_name || body.contact_name || '',
+      eventType: 'EOD Update',
+      outcome,
+      adSource: eod5,
+      contactAddress: body.address1 || '',
+      contactId: body.contact_id || '',
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'logged', company: company.name, salesPerson: salesPersonName }));
+
+    logActivity(company.sheetId, activityData).then(() => {
+      console.log(`[GHL] Logged activity: ${company.name} / ${salesPersonName} / ${body.full_name || 'unknown contact'}`);
+    }).catch(e => {
+      console.error(`[GHL] Error logging activity for ${company.name}:`, e.message);
+    });
+    return;
+  }
+
   // Webhook endpoints — all companies
   const endpoints = {
     '/webhook/eod': () => runAllEOD(body.date),
@@ -225,6 +297,7 @@ function start() {
     console.log(`  POST /webhook/eom                          — All companies`);
     console.log(`  POST /webhook/eoy                          — All companies`);
     console.log(`  POST /webhook/meeting                      — Meeting doc`);
+    console.log(`  POST /webhook/ghl                          — GHL CRM activity log`);
     console.log(`  POST /webhook/eod/send/<company>           — Send EOD for one company`);
     console.log(`  POST /webhook/eod/archive/<company>        — Archive EOD for one company`);
     console.log(`  GET  /status                               — Status + schedules`);
