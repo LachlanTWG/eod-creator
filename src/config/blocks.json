@@ -1,0 +1,116 @@
+{
+  "eodBlocks": [
+    {
+      "name": "🎯 Lead Status",
+      "outcomes": ["New Leads", "Pre-Quote Follow Up", "Post Quote Follow Up"]
+    },
+    {
+      "name": "📞 Communication",
+      "outcomes": ["Answered", "Didn't Answer", "Total Calls"]
+    },
+    {
+      "name": "📍 Lead Sources",
+      "outcomes": [
+        "Facebook Ad Form", "Website Form", "Instagram Message", "Facebook Message",
+        "Direct Email", "Direct Phone Call", "Direct Text Message",
+        "Direct Lead passed on from Client", "Recommended Another Company"
+      ]
+    },
+    {
+      "name": "💰 Quotes Sent",
+      "outcomes": ["Quote Sent", "Pipeline Value", "Total Individual Quotes"]
+    },
+    {
+      "name": "🏠 Site Visits",
+      "outcomes": ["Site Visit Booked"]
+    },
+    {
+      "name": "✅ Job's Confirmed",
+      "outcomes": ["Job Won"]
+    },
+    {
+      "name": "📧 Email Sent",
+      "outcomes": ["Email Sent"]
+    },
+    {
+      "name": "📝 Action Lists",
+      "outcomes": [
+        "Not a Good Time to Talk", "Requires Quoting", "Passed Onto {owner}",
+        "Verbal Confirmation", "Book Site Visit"
+      ]
+    },
+    {
+      "name": "💔 Lost",
+      "outcomes": ["Lost - Price", "Lost - Time Related", "Lost - Priorities Changed"]
+    },
+    {
+      "name": "👻 Abandoned",
+      "outcomes": ["Abandoned - Not Responding", "Abandoned - Headache"]
+    },
+    {
+      "name": "🚫 Disqualified",
+      "outcomes": [
+        "DQ - Out of Service Area", "DQ - Price", "DQ - Extent of Works",
+        "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
+      ]
+    },
+    {
+      "name": "⏳ Not Ready",
+      "outcomes": ["Not Ready Yet - Pre-Quote", "Not Ready Yet - Post Quote"]
+    }
+  ],
+  "eowBlocks": [
+    {
+      "name": "📞 Activity & Top of Funnel",
+      "outcomes": ["New Leads", "Pre-Quote Follow Up", "Post Quote Follow Up", "Answered", "Didn't Answer", "Total Calls"]
+    },
+    {
+      "name": "🛠️ Pipeline Progress",
+      "outcomes": ["Requires Quoting", "Passed Onto {owner}", "Verbal Confirmation"]
+    },
+    {
+      "name": "📄 Quotes Sent",
+      "outcomes": ["Quote Sent", "Pipeline Value", "Total Individual Quotes"]
+    },
+    {
+      "name": "🏠 Site Visits",
+      "outcomes": ["Site Visit Booked"]
+    },
+    {
+      "name": "🏆 Wins",
+      "outcomes": ["Job Won"]
+    },
+    {
+      "name": "⏳ Not Ready",
+      "outcomes": ["Not Ready Yet - Pre-Quote", "Not Ready Yet - Post Quote"]
+    },
+    {
+      "name": "🔴 Losses & Abandoned",
+      "outcomes": ["Lost - Price", "Lost - Time Related", "Lost - Priorities Changed", "Abandoned - Not Responding", "Abandoned - Headache"]
+    },
+    {
+      "name": "🚫 Disqualified",
+      "outcomes": [
+        "DQ - Out of Service Area", "DQ - Price", "DQ - Extent of Works",
+        "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
+      ]
+    },
+    {
+      "name": "📣 Marketing Sources",
+      "outcomes": [
+        "Facebook Ad Form", "Website Form", "Instagram Message", "Facebook Message",
+        "Direct Email", "Direct Phone Call", "Direct Text Message",
+        "Direct Lead passed on from Client", "Recommended Another Company"
+      ]
+    },
+    {
+      "name": "⚡ Efficiency Rates",
+      "computed": [
+        { "name": "Spam/Lead Quality", "formula": "(DQ - Wrong Contact / Spam + DQ - Lead Looking for Work) / Total Calls * 100" },
+        { "name": "Pick Up Rate", "formula": "Answered / Total Calls * 100" },
+        { "name": "Site Visit Rate", "formula": "Site Visit Booked / Answered * 100" },
+        { "name": "Job Closing Rate", "formula": "Job Won / Total Calls * 100" }
+      ]
+    }
+  ]
+}

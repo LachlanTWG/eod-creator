@@ -1,0 +1,36 @@
+{
+  "formulaTypes": {
+    "1": { "name": "Hidden", "eodFormat": "", "eowFormat": "" },
+    "2": { "name": "Count Only", "eodFormat": "{name} - {count}", "eowFormat": "{name} - {count}" },
+    "3": { "name": "Total Count", "eodFormat": "{name}: {count}", "eowFormat": "{name}: {count}" },
+    "4": { "name": "Count + Names", "eodFormat": "- {name} - {count} - {names}", "eowFormat": "- {name} - {count}" },
+    "5": { "name": "Section Header", "eodFormat": "{name}: {count}", "eowFormat": "{name}: {count}" }
+  },
+  "outcomeFormulas": {
+    "New Leads": { "eod": 4, "eow": 3 },
+    "Follow Up": { "eod": 4, "eow": 3 },
+    "Answered": { "eod": 4, "eow": 3 },
+    "Didn't Answer": { "eod": 4, "eow": 3 },
+    "Total Contact Attempts": { "eod": 3, "eow": 3 },
+    "Not a Good Time to Talk": { "eod": 4, "eow": 3 },
+    "SMS Sent": { "eod": 4, "eow": 3 },
+    "Email Sent": { "eod": 4, "eow": 3 },
+    "Roadmap Booked": { "eod": 4, "eow": 3 },
+    "Roadmap Proposed": { "eod": 4, "eow": 3 },
+    "Deal Closed": { "eod": 4, "eow": 3 },
+    "Deal Value": { "eod": 1, "eow": 1 },
+    "Abandoned - Not Responding": { "eod": 4, "eow": 3 },
+    "DQ - Not Interested": { "eod": 4, "eow": 3 },
+    "DQ - Budget": { "eod": 4, "eow": 3 },
+    "DQ - Wrong Contact / Spam": { "eod": 4, "eow": 3 },
+    "Facebook Ad Form": { "eod": 2, "eow": 2 },
+    "Website Form": { "eod": 2, "eow": 2 },
+    "Instagram Message": { "eod": 2, "eow": 2 },
+    "Facebook Message": { "eod": 2, "eow": 2 },
+    "Direct Email": { "eod": 2, "eow": 2 },
+    "Direct Phone Call": { "eod": 2, "eow": 2 },
+    "Direct Text Message": { "eod": 2, "eow": 2 },
+    "Direct Lead passed on from Client": { "eod": 2, "eow": 2 },
+    "Recommended Another Company": { "eod": 2, "eow": 2 }
+  }
+}

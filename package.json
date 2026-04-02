@@ -1,0 +1,25 @@
+{
+  "name": "eod-creator",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "server": "TZ=Australia/Sydney node src/server.js",
+    "eod": "node src/runReports.js eod",
+    "eow": "node src/runReports.js eow",
+    "eom": "node src/runReports.js eom",
+    "eoy": "node src/runReports.js eoy",
+    "meeting": "node src/runReports.js meeting"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "google-auth-library": "^10.6.2",
+    "googleapis": "^171.4.0",
+    "node-cron": "^3.0.3"
+  }
+}

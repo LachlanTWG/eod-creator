@@ -1,0 +1,82 @@
+{
+  "eodBlocks": [
+    {
+      "name": "🎯 Lead Status",
+      "outcomes": ["New Leads", "Follow Up"]
+    },
+    {
+      "name": "📞 Communication",
+      "outcomes": ["Answered", "Didn't Answer", "Total Contact Attempts"]
+    },
+    {
+      "name": "📍 Lead Sources",
+      "outcomes": [
+        "Facebook Ad Form", "Website Form", "Instagram Message", "Facebook Message",
+        "Direct Email", "Direct Phone Call", "Direct Text Message",
+        "Direct Lead passed on from Client", "Recommended Another Company"
+      ]
+    },
+    {
+      "name": "📝 Actions",
+      "outcomes": [
+        "Not a Good Time to Talk", "SMS Sent", "Email Sent",
+        "Roadmap Booked", "Roadmap Proposed"
+      ]
+    },
+    {
+      "name": "✅ Deals Closed",
+      "outcomes": ["Deal Closed", "Deal Value"]
+    },
+    {
+      "name": "👻 Abandoned",
+      "outcomes": ["Abandoned - Not Responding"]
+    },
+    {
+      "name": "🚫 Disqualified",
+      "outcomes": ["DQ - Not Interested", "DQ - Budget", "DQ - Wrong Contact / Spam"]
+    }
+  ],
+  "eowBlocks": [
+    {
+      "name": "📞 Activity & Top of Funnel",
+      "outcomes": ["New Leads", "Follow Up", "Answered", "Didn't Answer", "Total Contact Attempts"]
+    },
+    {
+      "name": "📝 Actions",
+      "outcomes": ["Not a Good Time to Talk", "SMS Sent", "Email Sent"]
+    },
+    {
+      "name": "🗺️ Roadmaps",
+      "outcomes": ["Roadmap Booked", "Roadmap Proposed"]
+    },
+    {
+      "name": "🏆 Deals",
+      "outcomes": ["Deal Closed", "Deal Value"]
+    },
+    {
+      "name": "🔴 Abandoned",
+      "outcomes": ["Abandoned - Not Responding"]
+    },
+    {
+      "name": "🚫 Disqualified",
+      "outcomes": ["DQ - Not Interested", "DQ - Budget", "DQ - Wrong Contact / Spam"]
+    },
+    {
+      "name": "📣 Marketing Sources",
+      "outcomes": [
+        "Facebook Ad Form", "Website Form", "Instagram Message", "Facebook Message",
+        "Direct Email", "Direct Phone Call", "Direct Text Message",
+        "Direct Lead passed on from Client", "Recommended Another Company"
+      ]
+    },
+    {
+      "name": "⚡ Efficiency Rates",
+      "computed": [
+        { "name": "Spam/Lead Quality", "formula": "(DQ - Wrong Contact / Spam) / Total Contact Attempts * 100" },
+        { "name": "Pick Up Rate", "formula": "Answered / Total Contact Attempts * 100" },
+        { "name": "Roadmap Rate", "formula": "Roadmap Booked / Answered * 100" },
+        { "name": "Deal Closing Rate", "formula": "Deal Closed / Total Contact Attempts * 100" }
+      ]
+    }
+  ]
+}
