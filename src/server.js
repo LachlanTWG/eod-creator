@@ -120,6 +120,15 @@ const server = http.createServer(async (req, res) => {
 
   const body = await parseBody(req);
 
+  // GHL test endpoint — logs full payload for debugging
+  if (pathname === '/webhook/ghl-test') {
+    console.log('\n[GHL TEST] Full payload received:');
+    console.log(JSON.stringify(body, null, 2));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'received', keys: Object.keys(body) }));
+    return;
+  }
+
   // Webhook endpoints — all companies
   const endpoints = {
     '/webhook/eod': () => runAllEOD(body.date),
