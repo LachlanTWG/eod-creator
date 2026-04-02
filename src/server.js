@@ -131,25 +131,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GHL webhook — logs activity from GoHighLevel CRM
-  if (pathname === '/webhook/ghl') {
+  // ─── GHL / Make.com Activity Webhooks ──────────────────────────────
+
+  // Shared: resolve company from GHL location.id
+  function resolveGHLCompany(body, res) {
     const locationId = body.location?.id;
     if (!locationId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Missing location.id' }));
-      return;
+      return null;
     }
-
     const { companies } = loadCompanies();
     const company = companies.find(c => c.ghlLocationId === locationId);
     if (!company) {
       console.log(`[GHL] Unknown location: ${locationId}`);
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: `No company for location ${locationId}` }));
-      return;
+      return null;
     }
+    return company;
+  }
 
-    // Extract EOD fields
+  // Shared: resolve sales person from GHL assigned_to
+  function resolveGHLSalesPerson(body, company) {
+    const assignedTo = body.customData?.assigned_to || body.owner || '';
+    const assignedFirst = assignedTo.split(' ')[0].toLowerCase();
+    const activePeople = (company.salesPeople || []).filter(p => p.active);
+    const match = activePeople.find(p =>
+      p.name.split(' ')[0].toLowerCase() === assignedFirst
+    );
+    return match?.name || assignedTo || 'Unknown';
+  }
+
+  // Shared: today in company timezone
+  function companyToday(company) {
+    const tz = company.timezone || 'Australia/Sydney';
+    return new Date().toLocaleDateString('en-CA', { timeZone: tz });
+  }
+
+  // EOD Update — from GHL
+  if (pathname === '/webhook/ghl/eod') {
+    const company = resolveGHLCompany(body, res);
+    if (!company) return;
+
     const eod1 = body['EOD 1 - Stage'] || '';
     const eod2 = body['EOD 2 - Answered?'] || '';
     const eod3 = body['EOD 3 - Standard Outcome'] || '';
@@ -162,28 +186,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Match sales person by first name from assigned_to
-    const assignedTo = body.customData?.assigned_to || '';
-    const assignedFirst = assignedTo.split(' ')[0].toLowerCase();
-    const activePeople = (company.salesPeople || []).filter(p => p.active);
-    const salesPerson = activePeople.find(p =>
-      p.name.split(' ')[0].toLowerCase() === assignedFirst
-    );
-    const salesPersonName = salesPerson?.name || assignedTo || 'Unknown';
-
-    // Build outcome string: "LeadType | Answered | Outcome | Notes | Source"
-    const outcome = [eod1, eod2, eod3, eod4, eod5]
-      .map(s => s.trim())
-      .join(' | ');
-
-    // Get today's date in company timezone
-    const tz = company.timezone || 'Australia/Sydney';
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
+    const salesPersonName = resolveGHLSalesPerson(body, company);
+    const outcome = [eod1, eod2, eod3, eod4, eod5].map(s => s.trim()).join(' | ');
 
     const activityData = {
-      date: today,
+      date: companyToday(company),
       salesPerson: salesPersonName,
-      contactName: body.full_name || body.contact_name || '',
+      contactName: body.full_name || '',
       eventType: 'EOD Update',
       outcome,
       adSource: eod5,
@@ -192,13 +201,148 @@ const server = http.createServer(async (req, res) => {
     };
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'logged', company: company.name, salesPerson: salesPersonName }));
+    res.end(JSON.stringify({ status: 'logged', type: 'eod', company: company.name, salesPerson: salesPersonName }));
 
     logActivity(company.sheetId, activityData).then(() => {
-      console.log(`[GHL] Logged activity: ${company.name} / ${salesPersonName} / ${body.full_name || 'unknown contact'}`);
-    }).catch(e => {
-      console.error(`[GHL] Error logging activity for ${company.name}:`, e.message);
-    });
+      console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
+    }).catch(e => console.error(`[GHL EOD] Error ${company.name}:`, e.message));
+    return;
+  }
+
+  // Job Won — from GHL
+  if (pathname === '/webhook/ghl/job-won') {
+    const company = resolveGHLCompany(body, res);
+    if (!company) return;
+
+    const salesPersonName = resolveGHLSalesPerson(body, company);
+    const value = body['Job Won Quote Value ($) - Entered '] || body.lead_value || '';
+    const comment = body['Job Won Client Comment - Entered'] || '';
+    const source = body['EOD 5 - Contact Source'] || '';
+
+    const activityData = {
+      date: companyToday(company),
+      salesPerson: salesPersonName,
+      contactName: body.full_name || '',
+      eventType: 'Job Won',
+      outcome: comment,
+      adSource: source,
+      quoteJobValue: String(value),
+      contactAddress: body.address1 || '',
+      contactId: body.contact_id || '',
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'logged', type: 'job-won', company: company.name, salesPerson: salesPersonName, value }));
+
+    logActivity(company.sheetId, activityData).then(() => {
+      console.log(`[GHL JOB WON] ${company.name} / ${salesPersonName} / ${body.full_name || '?'} / $${value}`);
+    }).catch(e => console.error(`[GHL JOB WON] Error ${company.name}:`, e.message));
+    return;
+  }
+
+  // Site Visit Booked — from GHL
+  if (pathname === '/webhook/ghl/site-visit') {
+    const company = resolveGHLCompany(body, res);
+    if (!company) return;
+
+    const salesPersonName = resolveGHLSalesPerson(body, company);
+    const comment = body['Site Visit Booked - Comment'] || '';
+    const appointmentDT = body['Appointment Date Time - Automated'] || '';
+    const dateBooked = body['Date Booked - Automated'] || '';
+
+    const activityData = {
+      date: companyToday(company),
+      salesPerson: salesPersonName,
+      contactName: body.full_name || '',
+      eventType: 'Site Visit Booked',
+      outcome: comment,
+      contactAddress: body.address1 || '',
+      contactId: body.contact_id || '',
+      appointmentDateTime: appointmentDT,
+      appointmentDate: dateBooked,
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'logged', type: 'site-visit', company: company.name, salesPerson: salesPersonName }));
+
+    logActivity(company.sheetId, activityData).then(() => {
+      console.log(`[GHL SITE VISIT] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
+    }).catch(e => console.error(`[GHL SITE VISIT] Error ${company.name}:`, e.message));
+    return;
+  }
+
+  // Quote Sent — from Make.com / Quotie
+  if (pathname === '/webhook/quote') {
+    // Expected JSON from Make.com HTTP module:
+    // { companyName, salesPerson, contactName, quoteValue, contactAddress, contactId, source }
+    const { companies } = loadCompanies();
+    const company = companies.find(c =>
+      c.name.toLowerCase() === (body.companyName || '').toLowerCase()
+    );
+    if (!company) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Company "${body.companyName}" not found` }));
+      return;
+    }
+
+    const activityData = {
+      date: companyToday(company),
+      salesPerson: body.salesPerson || 'Unknown',
+      contactName: body.contactName || '',
+      eventType: 'Quote Sent',
+      outcome: '',
+      adSource: body.source || '',
+      quoteJobValue: String(body.quoteValue || ''),
+      contactAddress: body.contactAddress || '',
+      contactId: body.contactId || '',
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'logged', type: 'quote', company: company.name, salesPerson: body.salesPerson }));
+
+    logActivity(company.sheetId, activityData).then(() => {
+      console.log(`[QUOTE] ${company.name} / ${body.salesPerson} / ${body.contactName || '?'} / $${body.quoteValue}`);
+    }).catch(e => console.error(`[QUOTE] Error ${company.name}:`, e.message));
+    return;
+  }
+
+  // Legacy /webhook/ghl — redirect to /webhook/ghl/eod
+  if (pathname === '/webhook/ghl') {
+    const company = resolveGHLCompany(body, res);
+    if (!company) return;
+
+    const eod1 = body['EOD 1 - Stage'] || '';
+    const eod2 = body['EOD 2 - Answered?'] || '';
+    const eod3 = body['EOD 3 - Standard Outcome'] || '';
+    const eod4 = body['EOD 4 - Custom Outcome'] || '';
+    const eod5 = body['EOD 5 - Contact Source'] || '';
+
+    if (!eod1 && !eod2 && !eod3) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'skipped', reason: 'No EOD fields populated' }));
+      return;
+    }
+
+    const salesPersonName = resolveGHLSalesPerson(body, company);
+    const outcome = [eod1, eod2, eod3, eod4, eod5].map(s => s.trim()).join(' | ');
+
+    const activityData = {
+      date: companyToday(company),
+      salesPerson: salesPersonName,
+      contactName: body.full_name || '',
+      eventType: 'EOD Update',
+      outcome,
+      adSource: eod5,
+      contactAddress: body.address1 || '',
+      contactId: body.contact_id || '',
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'logged', type: 'eod', company: company.name, salesPerson: salesPersonName }));
+
+    logActivity(company.sheetId, activityData).then(() => {
+      console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
+    }).catch(e => console.error(`[GHL EOD] Error ${company.name}:`, e.message));
     return;
   }
 
@@ -298,7 +442,10 @@ function start() {
     console.log(`  POST /webhook/eom                          — All companies`);
     console.log(`  POST /webhook/eoy                          — All companies`);
     console.log(`  POST /webhook/meeting                      — Meeting doc`);
-    console.log(`  POST /webhook/ghl                          — GHL CRM activity log`);
+    console.log(`  POST /webhook/ghl/eod                      — GHL EOD Update`);
+    console.log(`  POST /webhook/ghl/job-won                  — GHL Job Won`);
+    console.log(`  POST /webhook/ghl/site-visit               — GHL Site Visit Booked`);
+    console.log(`  POST /webhook/quote                        — Make.com Quote Sent`);
     console.log(`  POST /webhook/eod/send/<company>           — Send EOD for one company`);
     console.log(`  POST /webhook/eod/archive/<company>        — Archive EOD for one company`);
     console.log(`  GET  /status                               — Status + schedules`);
