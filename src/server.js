@@ -121,12 +121,13 @@ const server = http.createServer(async (req, res) => {
 
   const body = await parseBody(req);
 
-  // GHL test endpoint — logs full payload for debugging
-  if (pathname === '/webhook/ghl-test') {
-    console.log('\n[GHL TEST] Full payload received:');
+  // Test endpoints — logs full payload for debugging
+  if (pathname.startsWith('/webhook/ghl') && pathname.endsWith('-test')) {
+    const label = pathname.replace('/webhook/', '').toUpperCase();
+    console.log(`\n[${label}] Full payload received:`);
     console.log(JSON.stringify(body, null, 2));
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'received', keys: Object.keys(body) }));
+    res.end(JSON.stringify({ status: 'received', endpoint: pathname, keys: Object.keys(body) }));
     return;
   }
 
