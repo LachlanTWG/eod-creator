@@ -1,6 +1,5 @@
 const { readTab } = require('../sheets/readSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
-const { calcEfficiencyRates } = require('./generateEOW');
 const { loadConfig } = require('../config/configLoader');
 const { resolveLeadSource } = require('./generateEOD');
 
@@ -37,7 +36,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   // Read Activity Log directly for exact month boundaries
   const activityRows = await readTab(spreadsheetId, 'Activity Log');
   if (activityRows.length < 2) {
-    return { message: `No data found for ${formatMonth(year, month)}.`, counts: {}, efficiencyRates: {} };
+    return { message: `No data found for ${formatMonth(year, month)}.`, counts: {} };
   }
 
   const headers = activityRows[0];
@@ -56,7 +55,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   });
 
   if (monthRows.length === 0) {
-    return { message: `No data found for ${formatMonth(year, month)}.`, counts: {}, efficiencyRates: {} };
+    return { message: `No data found for ${formatMonth(year, month)}.`, counts: {} };
   }
 
   // Count outcomes from Activity Log
@@ -131,7 +130,6 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   if ('Pipeline Value' in monthlyCounts) monthlyCounts['Pipeline Value'] = totalQuoteValues;
   if ('Total Individual Quotes' in monthlyCounts) monthlyCounts['Total Individual Quotes'] = totalIndividualQuotes;
 
-  const efficiencyRates = calcEfficiencyRates(monthlyCounts, companyName);
   const topSources = getTopSources(monthlyCounts, companyName);
 
   // Determine what metrics exist for this company
@@ -147,8 +145,12 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   ];
 
   const totalField = has('Total Calls') ? 'Total Calls' : 'Total Contact Attempts';
-  lines.push(`${totalField}: ${monthlyCounts[totalField] || 0}`);
-  lines.push(`Answered: ${monthlyCounts['Answered'] || 0} | Didn't Answer: ${monthlyCounts["Didn't Answer"] || 0}`);
+  const totalCallCount = monthlyCounts[totalField] || 0;
+  const answeredCount = monthlyCounts['Answered'] || 0;
+  const pickUpRate = totalCallCount > 0 ? Math.round((answeredCount / totalCallCount) * 100) : 0;
+  lines.push(`${totalField}: ${totalCallCount}`);
+  lines.push(`Answered: ${answeredCount} | Didn't Answer: ${monthlyCounts["Didn't Answer"] || 0}`);
+  if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
 
   if (has('New Leads')) {
     const followUps = (monthlyCounts['Pre-Quote Follow Up'] || 0) + (monthlyCounts['Post Quote Follow Up'] || 0) + (monthlyCounts['Follow Up'] || 0);
@@ -184,15 +186,6 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     if (has('Deal Closed')) lines.push(`Deals Closed: ${monthlyCounts['Deal Closed'] || 0}`);
   }
 
-  // Efficiency rates
-  if (Object.keys(efficiencyRates).length > 0) {
-    lines.push('');
-    lines.push(`⚡ Efficiency Rates`);
-    for (const [name, rate] of Object.entries(efficiencyRates)) {
-      lines.push(`${name}: ${rate}%`);
-    }
-  }
-
   if (topSources.length > 0) {
     lines.push('');
     lines.push('📣 Top Lead Sources');
@@ -222,7 +215,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   lines.push('==========================================');
 
   const message = lines.join('\n');
-  return { message, counts: monthlyCounts, efficiencyRates };
+  return { message, counts: monthlyCounts };
 }
 
 module.exports = { generateEOM, formatMonth, getTopSources };

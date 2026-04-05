@@ -1,6 +1,5 @@
 const { readTab } = require('../sheets/readSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
-const { calcEfficiencyRates } = require('./generateEOW');
 const { formatMonth, getTopSources } = require('./generateEOM');
 const { loadConfig } = require('../config/configLoader');
 
@@ -16,7 +15,7 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   const allRows = await readTab(spreadsheetId, monthlyTab);
 
   if (allRows.length < 2) {
-    return { message: 'No monthly data found.', counts: {}, efficiencyRates: {}, monthlyBreakdown: [] };
+    return { message: 'No monthly data found.', counts: {}, monthlyBreakdown: [] };
   }
 
   const dataRows = allRows.slice(1);
@@ -24,7 +23,7 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   const yearRows = dataRows.filter(row => row[0] && row[0].startsWith(yearStr));
 
   if (yearRows.length === 0) {
-    return { message: `No monthly data found for ${year}.`, counts: {}, efficiencyRates: {}, monthlyBreakdown: [] };
+    return { message: `No monthly data found for ${year}.`, counts: {}, monthlyBreakdown: [] };
   }
 
   const outcomeNames = getOutcomeNames(ownerName, companyName);
@@ -57,7 +56,6 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   if ('Total Calls' in yearlyCounts) yearlyCounts['Total Calls'] = totalAnswered;
   if ('Total Contact Attempts' in yearlyCounts) yearlyCounts['Total Contact Attempts'] = totalAnswered;
 
-  const efficiencyRates = calcEfficiencyRates(yearlyCounts, companyName);
   const topSources = getTopSources(yearlyCounts, companyName);
 
   const has = (name) => outcomeNames.includes(name);
@@ -71,15 +69,20 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
     if (!worstMonth || calls < (worstMonth.counts[totalField] || 0)) worstMonth = m;
   }
 
+  const totalCallCount = yearlyCounts[totalField] || 0;
+  const answeredCount = yearlyCounts['Answered'] || 0;
+  const pickUpRate = totalCallCount > 0 ? Math.round((answeredCount / totalCallCount) * 100) : 0;
+
   const lines = [
     `YEARLY PERFORMANCE REPORT - ${companyName}`,
     `${year}`,
     '==========================================',
     '',
     `📞 Total Activity`,
-    `${totalField}: ${yearlyCounts[totalField] || 0}`,
-    `Answered: ${yearlyCounts['Answered'] || 0} | Didn't Answer: ${yearlyCounts["Didn't Answer"] || 0}`,
+    `${totalField}: ${totalCallCount}`,
+    `Answered: ${answeredCount} | Didn't Answer: ${yearlyCounts["Didn't Answer"] || 0}`,
   ];
+  if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
 
   if (has('New Leads')) {
     const followUps = (yearlyCounts['Pre-Quote Follow Up'] || 0) + (yearlyCounts['Post Quote Follow Up'] || 0) + (yearlyCounts['Follow Up'] || 0);
@@ -103,15 +106,6 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
     lines.push(`Roadmaps Booked: ${yearlyCounts['Roadmap Booked'] || 0}`);
     lines.push(`Roadmaps Proposed: ${yearlyCounts['Roadmap Proposed'] || 0}`);
     if (has('Deal Closed')) lines.push(`Deals Closed: ${yearlyCounts['Deal Closed'] || 0}`);
-  }
-
-  // Efficiency rates (dynamic)
-  if (Object.keys(efficiencyRates).length > 0) {
-    lines.push('');
-    lines.push(`⚡ Efficiency Rates`);
-    for (const [name, rate] of Object.entries(efficiencyRates)) {
-      lines.push(`${name}: ${rate}%`);
-    }
   }
 
   if (topSources.length > 0) {
@@ -173,7 +167,7 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   lines.push('==========================================');
 
   const message = lines.join('\n');
-  return { message, counts: yearlyCounts, efficiencyRates, monthlyBreakdown };
+  return { message, counts: yearlyCounts, monthlyBreakdown };
 }
 
 module.exports = { generateEOY };

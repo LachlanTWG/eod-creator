@@ -68,15 +68,6 @@
         "Direct Email", "Direct Phone Call", "Direct Text Message",
         "Direct Lead passed on from Client", "Recommended Another Company"
       ]
-    },
-    {
-      "name": "⚡ Efficiency Rates",
-      "computed": [
-        { "name": "Spam/Lead Quality", "formula": "(DQ - Wrong Contact / Spam) / Total Contact Attempts * 100" },
-        { "name": "Pick Up Rate", "formula": "Answered / Total Contact Attempts * 100" },
-        { "name": "Roadmap Rate", "formula": "Roadmap Booked / Answered * 100" },
-        { "name": "Deal Closing Rate", "formula": "Deal Closed / Total Contact Attempts * 100" }
-      ]
     }
   ]
 }

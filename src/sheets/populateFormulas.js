@@ -754,6 +754,24 @@ async function populateDailyStorage(spreadsheetId, tabName, personName, companyN
     }));
   }
 
+  // Scan Activity Log for all dates with data for this person
+  const actRows = await readTab(spreadsheetId, 'Activity Log');
+  const actDates = new Set();
+  for (const row of actRows.slice(1)) {
+    const d = row[0] || '';
+    if (!d) continue;
+    if (!isTeam && row[1] !== personName) continue;
+    actDates.add(parseSerialDate(d));
+  }
+
+  // Merge: add any Activity Log dates not already in existing data
+  const existingSet = new Set(existingData.map(d => d.date));
+  for (const d of actDates) {
+    if (!existingSet.has(d)) {
+      existingData.push({ date: d, message: '' });
+    }
+  }
+
   // Deduplicate by date (keep first occurrence with message)
   const seenDates = new Set();
   existingData = existingData.filter(d => {
@@ -761,6 +779,9 @@ async function populateDailyStorage(spreadsheetId, tabName, personName, companyN
     seenDates.add(d.date);
     return true;
   });
+
+  // Sort by date
+  existingData.sort((a, b) => a.date.localeCompare(b.date));
 
   if (existingData.length === 0) {
     console.log(`  No dates found in ${tabName}, skipping.`);
@@ -793,30 +814,60 @@ async function populateWeeklyStorage(spreadsheetId, tabName, personName, company
   const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
   const computedEntries = computedBlock ? computedBlock.computed : [];
 
-  // Read existing data (dates + messages) from current storage
+  // Read existing data to preserve messages
   let allRows = await readTab(spreadsheetId, tabName);
-  let weeks = [];
+  const existingMessages = {};
   for (const row of allRows.slice(1)) {
     if (!row[0] || !row[1]) continue;
-    weeks.push({ start: parseSerialDate(row[0]), end: parseSerialDate(row[1]), message: row[2] || '' });
+    const start = parseSerialDate(row[0]);
+    // Normalize: find the Monday for this start date
+    const sd = new Date(start + 'T00:00:00');
+    const sDay = sd.getDay();
+    const sMon = new Date(sd);
+    sMon.setDate(sd.getDate() - ((sDay + 6) % 7));
+    const monKey = sMon.toISOString().split('T')[0];
+    if (row[2] && !existingMessages[monKey]) existingMessages[monKey] = row[2];
   }
 
-  // For Team tabs, derive dates from individual tab if empty
-  if (weeks.length === 0 && fallbackTabName) {
+  // Scan Activity Log for all dates with data for this person
+  const actRows = await readTab(spreadsheetId, 'Activity Log');
+  const actDates = new Set();
+  for (const row of actRows.slice(1)) {
+    const d = row[0] || '';
+    if (!d) continue;
+    if (!isTeam && row[1] !== personName) continue;
+    actDates.add(parseSerialDate(d));
+  }
+
+  // For Team tabs with no Activity Log data, try fallback tab
+  if (actDates.size === 0 && fallbackTabName) {
     const fbRows = await readTab(spreadsheetId, fallbackTabName);
     for (const row of fbRows.slice(1)) {
       if (!row[0] || !row[1]) continue;
-      weeks.push({ start: parseSerialDate(row[0]), end: parseSerialDate(row[1]), message: '' });
+      actDates.add(parseSerialDate(row[0]));
     }
   }
 
-  // Deduplicate by start date
+  // Generate Monday-Friday week ranges from all Activity Log dates
+  let weeks = [];
   const seenWeeks = new Set();
-  weeks = weeks.filter(w => {
-    if (seenWeeks.has(w.start)) return false;
-    seenWeeks.add(w.start);
-    return true;
-  });
+  for (const dateStr of actDates) {
+    const d = new Date(dateStr + 'T00:00:00');
+    const day = d.getDay(); // 0=Sun, 1=Mon
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - ((day + 6) % 7)); // back to Monday
+    const fri = new Date(mon);
+    fri.setDate(mon.getDate() + 4);
+    const start = mon.toISOString().split('T')[0];
+    const end = fri.toISOString().split('T')[0];
+    if (!seenWeeks.has(start)) {
+      seenWeeks.add(start);
+      weeks.push({ start, end, message: existingMessages[start] || '' });
+    }
+  }
+
+  // Sort by start date
+  weeks.sort((a, b) => a.start.localeCompare(b.start));
 
   if (weeks.length === 0) {
     console.log(`  No weeks found in ${tabName}, skipping.`);
@@ -864,6 +915,28 @@ async function populateMonthlyStorage(spreadsheetId, tabName, personName, compan
     }));
   }
 
+  // Scan Activity Log for all months with data for this person
+  const actRows = await readTab(spreadsheetId, 'Activity Log');
+  const actMonths = new Set();
+  for (const row of actRows.slice(1)) {
+    const d = row[0] || '';
+    if (!d) continue;
+    if (!isTeam && row[1] !== personName) continue;
+    const dateStr = parseSerialDate(d);
+    actMonths.add(dateStr.substring(0, 7)); // "YYYY-MM"
+  }
+
+  // Merge: add any Activity Log months not already in existing data
+  const existingMonthSet = new Set(monthData.map(m => {
+    const parts = m.month.split('-');
+    return parts.length === 2 ? `${parts[0]}-${parts[1].padStart(2, '0')}` : m.month;
+  }));
+  for (const m of actMonths) {
+    if (!existingMonthSet.has(m)) {
+      monthData.push({ month: m, message: '' });
+    }
+  }
+
   // Normalize and deduplicate by month
   for (const m of monthData) {
     const parts = m.month.split('-');
@@ -877,6 +950,9 @@ async function populateMonthlyStorage(spreadsheetId, tabName, personName, compan
     seenMonths.add(m.month);
     return true;
   });
+
+  // Sort by month
+  monthData.sort((a, b) => a.month.localeCompare(b.month));
 
   if (monthData.length === 0) {
     console.log(`  No months found in ${tabName}, skipping.`);

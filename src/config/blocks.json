@@ -102,15 +102,6 @@
         "Direct Email", "Direct Phone Call", "Direct Text Message",
         "Direct Lead passed on from Client", "Recommended Another Company"
       ]
-    },
-    {
-      "name": "⚡ Efficiency Rates",
-      "computed": [
-        { "name": "Spam/Lead Quality", "formula": "(DQ - Wrong Contact / Spam + DQ - Lead Looking for Work) / Total Calls * 100" },
-        { "name": "Pick Up Rate", "formula": "Answered / Total Calls * 100" },
-        { "name": "Site Visit Rate", "formula": "Site Visit Booked / Answered * 100" },
-        { "name": "Job Closing Rate", "formula": "Job Won / Total Calls * 100" }
-      ]
     }
   ]
 }

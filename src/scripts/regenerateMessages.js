@@ -2,6 +2,8 @@
  * Regenerate report messages for all existing storage rows.
  * Writes messages to the message column, then re-runs formula population
  * to replace static counts with live formulas while preserving the messages.
+ *
+ * Handles both individual salesperson tabs AND Team tabs.
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
@@ -31,22 +33,19 @@ function parseSerialDate(val) {
   return val;
 }
 
-async function main() {
-  // ─── Phase 1: Daily Messages ───────────────────────────────────────
-  console.log('\n=== Phase 1: Regenerating Daily Messages ===\n');
-  const dailyTab = `${SALES_PERSON} Daily`;
-  const dailyRows = await readTab(SHEET_ID, dailyTab);
+async function regenerateDaily(tabName, personName) {
+  console.log(`\n=== Regenerating Daily Messages: ${tabName} ===\n`);
+  const dailyRows = await readTab(SHEET_ID, tabName);
   const dates = dailyRows.slice(1).map(r => parseSerialDate(r[0])).filter(Boolean);
   console.log(`  ${dates.length} daily rows to process`);
 
-  // Generate messages in batches and write to column B
   const BATCH = 20;
   for (let i = 0; i < dates.length; i += BATCH) {
     const batch = dates.slice(i, i + BATCH);
     const messages = [];
     for (const date of batch) {
       try {
-        const { message } = await generateEOD(SHEET_ID, SALES_PERSON, date, COMPANY_NAME, OWNER_NAME);
+        const { message } = await generateEOD(SHEET_ID, personName, date, COMPANY_NAME, OWNER_NAME);
         messages.push([message]);
       } catch (e) {
         messages.push(['']);
@@ -54,17 +53,16 @@ async function main() {
       }
       await sleep(DELAY_MS);
     }
-    // Write batch of messages to column B
-    const startRow = i + 2; // row 1 is header
-    await writeSheet(SHEET_ID, `'${dailyTab}'!B${startRow}`, messages);
+    const startRow = i + 2;
+    await writeSheet(SHEET_ID, `'${tabName}'!B${startRow}`, messages);
     console.log(`  Batch ${Math.floor(i / BATCH) + 1}: rows ${startRow}-${startRow + messages.length - 1} done`);
     await sleep(1000);
   }
+}
 
-  // ─── Phase 2: Weekly Messages ──────────────────────────────────────
-  console.log('\n=== Phase 2: Regenerating Weekly Messages ===\n');
-  const weeklyTab = `${SALES_PERSON} Weekly`;
-  const weeklyRows = await readTab(SHEET_ID, weeklyTab);
+async function regenerateWeekly(tabName, personName) {
+  console.log(`\n=== Regenerating Weekly Messages: ${tabName} ===\n`);
+  const weeklyRows = await readTab(SHEET_ID, tabName);
   const weeks = weeklyRows.slice(1).filter(r => r[0] && r[1]).map(r => ({
     start: parseSerialDate(r[0]),
     end: parseSerialDate(r[1]),
@@ -75,7 +73,7 @@ async function main() {
   for (let i = 0; i < weeks.length; i++) {
     const { start, end } = weeks[i];
     try {
-      const { message } = await generateEOW(SHEET_ID, SALES_PERSON, start, end, COMPANY_NAME, OWNER_NAME);
+      const { message } = await generateEOW(SHEET_ID, personName, start, end, COMPANY_NAME, OWNER_NAME);
       weeklyMessages.push([message]);
     } catch (e) {
       weeklyMessages.push(['']);
@@ -84,13 +82,13 @@ async function main() {
     await sleep(DELAY_MS);
     if ((i + 1) % 10 === 0) console.log(`  ${i + 1}/${weeks.length} done`);
   }
-  await writeSheet(SHEET_ID, `'${weeklyTab}'!C2`, weeklyMessages);
+  await writeSheet(SHEET_ID, `'${tabName}'!C2`, weeklyMessages);
   console.log(`  All ${weeks.length} weekly messages written`);
+}
 
-  // ─── Phase 3: Monthly Messages ─────────────────────────────────────
-  console.log('\n=== Phase 3: Regenerating Monthly Messages ===\n');
-  const monthlyTab = `${SALES_PERSON} Monthly`;
-  const monthlyRows = await readTab(SHEET_ID, monthlyTab);
+async function regenerateMonthly(tabName, personName) {
+  console.log(`\n=== Regenerating Monthly Messages: ${tabName} ===\n`);
+  const monthlyRows = await readTab(SHEET_ID, tabName);
   const months = monthlyRows.slice(1).map(r => r[0]).filter(Boolean);
   console.log(`  ${months.length} monthly rows to process`);
 
@@ -98,7 +96,7 @@ async function main() {
   for (const monthStr of months) {
     const [y, m] = monthStr.split('-').map(Number);
     try {
-      const { message } = await generateEOM(SHEET_ID, SALES_PERSON, y, m, COMPANY_NAME, OWNER_NAME);
+      const { message } = await generateEOM(SHEET_ID, personName, y, m, COMPANY_NAME, OWNER_NAME);
       monthlyMessages.push([message]);
     } catch (e) {
       monthlyMessages.push(['']);
@@ -106,17 +104,35 @@ async function main() {
     }
     await sleep(DELAY_MS);
   }
-  await writeSheet(SHEET_ID, `'${monthlyTab}'!B2`, monthlyMessages);
+  await writeSheet(SHEET_ID, `'${tabName}'!B2`, monthlyMessages);
   console.log(`  All ${months.length} monthly messages written`);
+}
 
-  // ─── Phase 4: Re-populate formulas (preserving messages) ───────────
-  console.log('\n=== Phase 4: Re-populating live formulas ===\n');
+async function main() {
+  // Phase 1: Lachlan tabs
+  await regenerateDaily(`${SALES_PERSON} Daily`, SALES_PERSON);
+  await regenerateWeekly(`${SALES_PERSON} Weekly`, SALES_PERSON);
+  await regenerateMonthly(`${SALES_PERSON} Monthly`, SALES_PERSON);
+
+  // Phase 2: Team tabs
+  await regenerateDaily('Team Daily', 'Team');
+  await regenerateWeekly('Team Weekly', 'Team');
+  await regenerateMonthly('Team Monthly', 'Team');
+
+  // Phase 3: Re-populate formulas (preserving messages)
+  console.log('\n=== Re-populating live formulas ===\n');
   await sleep(3000);
-  await populateDailyStorage(SHEET_ID, dailyTab, SALES_PERSON, COMPANY_NAME, OWNER_NAME, false);
+  await populateDailyStorage(SHEET_ID, `${SALES_PERSON} Daily`, SALES_PERSON, COMPANY_NAME, OWNER_NAME, false);
   await sleep(2000);
-  await populateWeeklyStorage(SHEET_ID, weeklyTab, SALES_PERSON, COMPANY_NAME, OWNER_NAME, false);
+  await populateWeeklyStorage(SHEET_ID, `${SALES_PERSON} Weekly`, SALES_PERSON, COMPANY_NAME, OWNER_NAME, false);
   await sleep(2000);
-  await populateMonthlyStorage(SHEET_ID, monthlyTab, SALES_PERSON, COMPANY_NAME, OWNER_NAME, false);
+  await populateMonthlyStorage(SHEET_ID, `${SALES_PERSON} Monthly`, SALES_PERSON, COMPANY_NAME, OWNER_NAME, false);
+  await sleep(2000);
+  await populateDailyStorage(SHEET_ID, 'Team Daily', 'Team', COMPANY_NAME, OWNER_NAME, true, `${SALES_PERSON} Daily`);
+  await sleep(2000);
+  await populateWeeklyStorage(SHEET_ID, 'Team Weekly', 'Team', COMPANY_NAME, OWNER_NAME, true, `${SALES_PERSON} Weekly`);
+  await sleep(2000);
+  await populateMonthlyStorage(SHEET_ID, 'Team Monthly', 'Team', COMPANY_NAME, OWNER_NAME, true, `${SALES_PERSON} Monthly`);
 
   console.log('\n=== All messages regenerated and formulas applied ===');
 }
