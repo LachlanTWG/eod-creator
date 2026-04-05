@@ -47,6 +47,9 @@ function getOutcomeDefs(ownerName, companyName) {
       case 'quoteSent':
         def.eventType = 'Quote Sent';
         break;
+      case 'emailSent':
+        def.eventType = 'Email Sent';
+        break;
       case 'pipelineValue':
         def.computed = 'pipeline';
         break;

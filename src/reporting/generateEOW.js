@@ -107,46 +107,9 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
 }
 
 /**
- * Calculate efficiency rates dynamically from the eowBlocks computed config.
- */
-function calcEfficiencyRates(weeklyCounts, companyName) {
-  const { blocks } = loadConfig(companyName);
-  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
-  if (!computedBlock) return {};
-
-  const rates = {};
-  for (const comp of computedBlock.computed) {
-    // Parse formula like "Answered / Total Calls * 100"
-    try {
-      const formula = comp.formula;
-      // Extract the parts: (numerator) / denominator * 100
-      // Handle optional parens: "(A + B) / C * 100"
-      const match = formula.match(/^\(?(.*?)\)?\s*\/\s*(.*?)\s*\*\s*100$/);
-      if (!match) { rates[comp.name] = 0; continue; }
-
-      const numExpr = match[1].trim();
-      const denomName = match[2].trim();
-
-      // Evaluate numerator (may have + operations)
-      let numerator = 0;
-      const numParts = numExpr.split('+').map(s => s.trim());
-      for (const part of numParts) {
-        numerator += (weeklyCounts[part] || 0);
-      }
-
-      const denominator = weeklyCounts[denomName] || 0;
-      rates[comp.name] = denominator > 0 ? Math.round((numerator / denominator) * 100) : 0;
-    } catch {
-      rates[comp.name] = 0;
-    }
-  }
-  return rates;
-}
-
-/**
  * Generate EOW report from daily storage data.
  */
-async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, companyName, ownerName) {
+async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, companyName, ownerName, activityData) {
   const { blocks, formulas } = loadConfig(companyName);
   const dailyTab = salesPerson === 'Team' ? 'Team Daily' : `${salesPerson} Daily`;
   const allRows = await readTab(spreadsheetId, dailyTab);
@@ -192,12 +155,10 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
   if ('Total Calls' in weeklyCounts) weeklyCounts['Total Calls'] = totalAnswered;
   if ('Total Contact Attempts' in weeklyCounts) weeklyCounts['Total Contact Attempts'] = totalAnswered;
 
-  const efficiencyRates = calcEfficiencyRates(weeklyCounts, companyName);
-
   // Pull Job Won and Site Visit details from Activity Log for the date range
   const weeklyData = { quoteDetails: [], siteVisits: [], jobDetails: [] };
   try {
-    const activityRows = await readTab(spreadsheetId, 'Activity Log');
+    const activityRows = activityData;
     if (activityRows.length >= 2) {
       const headers = activityRows[0];
       // Parse all rows for cross-referencing lead sources
@@ -260,15 +221,6 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
       }
     }
 
-    if (block.computed) {
-      for (const comp of block.computed) {
-        const rate = efficiencyRates[comp.name];
-        if (rate !== undefined) {
-          blockLines.push(`• ${comp.name}: ${rate}%`);
-        }
-      }
-    }
-
     if (blockLines.length > 0) {
       lines.push(blockName);
       lines.push(...blockLines);
@@ -277,7 +229,7 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
   }
 
   const message = lines.join('\n');
-  return { message, counts: weeklyCounts, efficiencyRates };
+  return { message, counts: weeklyCounts };
 }
 
-module.exports = { generateEOW, calcEfficiencyRates };
+module.exports = { generateEOW };

@@ -29,8 +29,8 @@
       "outcomes": ["Job Won"]
     },
     {
-      "name": "📧 Email Sent",
-      "outcomes": ["Email Sent"]
+      "name": "📧 Emails Sent",
+      "outcomes": ["Emails Sent"]
     },
     {
       "name": "📝 Action Lists",
@@ -79,6 +79,10 @@
     {
       "name": "🏆 Wins",
       "outcomes": ["Job Won"]
+    },
+    {
+      "name": "📧 Emails Sent",
+      "outcomes": ["Emails Sent"]
     },
     {
       "name": "⏳ Not Ready",

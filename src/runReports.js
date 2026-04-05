@@ -12,6 +12,7 @@ const { generateMeetingDoc } = require('./reporting/generateMeetingDoc');
 const { sendReportToSlack } = require('./integrations/slack');
 const { sendReportToClickUp, createMeetingDocPage } = require('./integrations/clickup');
 
+const { readTab } = require('./sheets/readSheet');
 const { loadCompanies } = require('./config/companiesStore');
 
 /**
@@ -48,12 +49,15 @@ async function sendCompanyEOD(company, targetDate) {
   const date = targetDate || todayInTz(tz);
   console.log(`[SEND EOD] ${company.name} — ${date}`);
 
+  // Read Activity Log ONCE for all people
+  const activityData = await readTab(company.sheetId, 'Activity Log');
+
   const activePeople = company.salesPeople.filter(p => p.active);
 
   for (const person of activePeople) {
     try {
       const { message, counts } = await generateEOD(
-        company.sheetId, person.name, date, company.name, company.ownerName
+        company.sheetId, person.name, date, company.name, company.ownerName, activityData
       );
       await sendReportToSlack(company, 'eod', message).catch(e =>
         console.error(`  Slack error (${person.name}): ${e.message}`)
@@ -71,7 +75,7 @@ async function sendCompanyEOD(company, targetDate) {
   // Team send
   try {
     const { message, counts } = await generateEOD(
-      company.sheetId, 'Team', date, company.name, company.ownerName
+      company.sheetId, 'Team', date, company.name, company.ownerName, activityData
     );
     await sendReportToSlack(company, 'eod', message).catch(() => {});
   } catch (err) {
@@ -87,12 +91,15 @@ async function archiveCompanyEOD(company, targetDate) {
   const date = targetDate || todayInTz(tz);
   console.log(`[ARCHIVE EOD] ${company.name} — ${date}`);
 
+  // Read Activity Log ONCE for all people
+  const activityData = await readTab(company.sheetId, 'Activity Log');
+
   const activePeople = company.salesPeople.filter(p => p.active);
 
   for (const person of activePeople) {
     try {
       const { message, counts, names } = await generateEOD(
-        company.sheetId, person.name, date, company.name, company.ownerName
+        company.sheetId, person.name, date, company.name, company.ownerName, activityData
       );
       await archiveDaily(company.sheetId, person.name, date, message, counts || {}, names || {}, company.ownerName, company.name);
       console.log(`  ${person.name}: Archived.`);
@@ -104,7 +111,7 @@ async function archiveCompanyEOD(company, targetDate) {
   // Team archive
   try {
     const { message, counts, names } = await generateEOD(
-      company.sheetId, 'Team', date, company.name, company.ownerName
+      company.sheetId, 'Team', date, company.name, company.ownerName, activityData
     );
     await archiveDaily(company.sheetId, 'Team', date, message, counts || {}, names || {}, company.ownerName, company.name);
   } catch (err) {
@@ -122,12 +129,15 @@ async function sendCompanyEOW(company, startDate, endDate) {
   const end = endDate || getFridayOfWeek(today);
   console.log(`[SEND EOW] ${company.name} — ${start} to ${end}`);
 
+  // Read Activity Log ONCE for job/site visit details across all people
+  const activityData = await readTab(company.sheetId, 'Activity Log');
+
   const activePeople = company.salesPeople.filter(p => p.active);
 
   for (const person of activePeople) {
     try {
-      const { message, counts, efficiencyRates } = await generateEOW(
-        company.sheetId, person.name, start, end, company.name, company.ownerName
+      const { message, counts } = await generateEOW(
+        company.sheetId, person.name, start, end, company.name, company.ownerName, activityData
       );
 
       await sendReportToSlack(company, 'eow', message).catch(e =>
@@ -146,7 +156,7 @@ async function sendCompanyEOW(company, startDate, endDate) {
   // Team send
   try {
     const { message, counts } = await generateEOW(
-      company.sheetId, 'Team', start, end, company.name, company.ownerName
+      company.sheetId, 'Team', start, end, company.name, company.ownerName, activityData
     );
     await sendReportToSlack(company, 'eow', message).catch(() => {});
   } catch (err) {
@@ -164,14 +174,17 @@ async function archiveCompanyEOW(company, startDate, endDate) {
   const end = endDate || getFridayOfWeek(today);
   console.log(`[ARCHIVE EOW] ${company.name} — ${start} to ${end}`);
 
+  // Read Activity Log ONCE for all people
+  const activityData = await readTab(company.sheetId, 'Activity Log');
+
   const activePeople = company.salesPeople.filter(p => p.active);
 
   for (const person of activePeople) {
     try {
-      const { message, counts, efficiencyRates } = await generateEOW(
-        company.sheetId, person.name, start, end, company.name, company.ownerName
+      const { message, counts } = await generateEOW(
+        company.sheetId, person.name, start, end, company.name, company.ownerName, activityData
       );
-      await archiveWeekly(company.sheetId, person.name, start, end, message, counts || {}, efficiencyRates || {}, company.ownerName, company.name);
+      await archiveWeekly(company.sheetId, person.name, start, end, message, counts || {}, {}, company.ownerName, company.name);
       console.log(`  ${person.name}: Archived.`);
     } catch (err) {
       console.error(`  ${person.name}: ${err.message}`);
@@ -180,10 +193,10 @@ async function archiveCompanyEOW(company, startDate, endDate) {
 
   // Team archive
   try {
-    const { message, counts, efficiencyRates } = await generateEOW(
-      company.sheetId, 'Team', start, end, company.name, company.ownerName
+    const { message, counts } = await generateEOW(
+      company.sheetId, 'Team', start, end, company.name, company.ownerName, activityData
     );
-    await archiveWeekly(company.sheetId, 'Team', start, end, message, counts || {}, efficiencyRates || {}, company.ownerName, company.name);
+    await archiveWeekly(company.sheetId, 'Team', start, end, message, counts || {}, {}, company.ownerName, company.name);
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
@@ -202,16 +215,19 @@ async function runCompanyEOM(company, year, month) {
 
   console.log(`[EOM] ${company.name} — ${actualYear}-${String(m).padStart(2, '0')}`);
 
+  // Read Activity Log ONCE for all people
+  const activityData = await readTab(company.sheetId, 'Activity Log');
+
   const activePeople = company.salesPeople.filter(p => p.active);
 
   for (const person of activePeople) {
     try {
-      const { message, counts, efficiencyRates } = await generateEOM(
-        company.sheetId, person.name, actualYear, m, company.name, company.ownerName
+      const { message, counts } = await generateEOM(
+        company.sheetId, person.name, actualYear, m, company.name, company.ownerName, activityData
       );
       if (!counts || Object.keys(counts).length === 0) continue;
 
-      await archiveMonthly(company.sheetId, person.name, actualYear, m, message, counts, efficiencyRates || {}, company.ownerName, company.name);
+      await archiveMonthly(company.sheetId, person.name, actualYear, m, message, counts, {}, company.ownerName, company.name);
       await sendReportToSlack(company, 'eom', message).catch(e =>
         console.error(`  Slack error: ${e.message}`)
       );
@@ -227,11 +243,11 @@ async function runCompanyEOM(company, year, month) {
 
   // Team EOM
   try {
-    const { message, counts, efficiencyRates } = await generateEOM(
-      company.sheetId, 'Team', actualYear, m, company.name, company.ownerName
+    const { message, counts } = await generateEOM(
+      company.sheetId, 'Team', actualYear, m, company.name, company.ownerName, activityData
     );
     if (counts && Object.keys(counts).length > 0) {
-      await archiveMonthly(company.sheetId, 'Team', actualYear, m, message, counts, efficiencyRates || {}, company.ownerName, company.name);
+      await archiveMonthly(company.sheetId, 'Team', actualYear, m, message, counts, {}, company.ownerName, company.name);
       await sendReportToSlack(company, 'eom', message).catch(() => {});
     }
   } catch (err) {
@@ -253,12 +269,12 @@ async function runCompanyEOY(company, year) {
 
   for (const person of activePeople) {
     try {
-      const { message, counts, efficiencyRates } = await generateEOY(
+      const { message, counts } = await generateEOY(
         company.sheetId, person.name, y, company.name, company.ownerName
       );
       if (!counts || Object.keys(counts).length === 0) continue;
 
-      await archiveYearly(company.sheetId, person.name, y, message, counts, efficiencyRates || {}, company.ownerName, company.name);
+      await archiveYearly(company.sheetId, person.name, y, message, counts, {}, company.ownerName, company.name);
       await sendReportToSlack(company, 'eoy', message).catch(e =>
         console.error(`  Slack error: ${e.message}`)
       );
@@ -274,11 +290,11 @@ async function runCompanyEOY(company, year) {
 
   // Team EOY
   try {
-    const { message, counts, efficiencyRates } = await generateEOY(
+    const { message, counts } = await generateEOY(
       company.sheetId, 'Team', y, company.name, company.ownerName
     );
     if (counts && Object.keys(counts).length > 0) {
-      await archiveYearly(company.sheetId, 'Team', y, message, counts, efficiencyRates || {}, company.ownerName, company.name);
+      await archiveYearly(company.sheetId, 'Team', y, message, counts, {}, company.ownerName, company.name);
       await sendReportToSlack(company, 'eoy', message).catch(() => {});
     }
   } catch (err) {

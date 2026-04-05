@@ -1,4 +1,3 @@
-const { readTab } = require('../sheets/readSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 
@@ -135,6 +134,15 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
         datetime: activity['Appointment Date Time'],
       });
       const outcomeName = 'Site Visit Booked';
+      if (outcomeName in counts) {
+        counts[outcomeName]++;
+        names[outcomeName].push(activity['Contact Name']);
+      }
+      continue;
+    }
+
+    if (eventType === 'Email Sent') {
+      const outcomeName = 'Emails Sent';
       if (outcomeName in counts) {
         counts[outcomeName]++;
         names[outcomeName].push(activity['Contact Name']);
@@ -402,9 +410,8 @@ function buildEODMessage(companyName, dateStr, ownerName, data) {
  * @param {string} ownerName
  * @returns {Promise<{message: string, counts: object, names: object}>}
  */
-async function generateEOD(spreadsheetId, salesPerson, targetDate, companyName, ownerName) {
-  // Read Activity Log
-  const allRows = await readTab(spreadsheetId, 'Activity Log');
+async function generateEOD(spreadsheetId, salesPerson, targetDate, companyName, ownerName, activityData) {
+  const allRows = activityData;
   if (allRows.length < 2) {
     return { message: 'No activity data found.', counts: {}, names: {} };
   }

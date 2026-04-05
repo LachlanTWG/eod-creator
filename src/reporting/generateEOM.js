@@ -1,4 +1,3 @@
-const { readTab } = require('../sheets/readSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 const { resolveLeadSource } = require('./generateEOD');
@@ -29,12 +28,11 @@ function formatDollar(value) {
 /**
  * Generate EOM report by reading directly from Activity Log with exact month boundaries.
  */
-async function generateEOM(spreadsheetId, salesPerson, year, month, companyName, ownerName) {
+async function generateEOM(spreadsheetId, salesPerson, year, month, companyName, ownerName, activityData) {
   const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
 
-  // Read Activity Log directly for exact month boundaries
-  const activityRows = await readTab(spreadsheetId, 'Activity Log');
+  const activityRows = activityData;
   if (activityRows.length < 2) {
     return { message: `No data found for ${formatMonth(year, month)}.`, counts: {} };
   }
@@ -108,6 +106,8 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
         value: parseFloat(valStr) || 0,
         source,
       });
+    } else if (eventType === 'Email Sent') {
+      monthlyCounts['Emails Sent'] = (monthlyCounts['Emails Sent'] || 0) + 1;
     } else if (eventType === 'Quote Sent') {
       monthlyCounts['Quote Sent'] = (monthlyCounts['Quote Sent'] || 0) + 1;
       // Count individual quotes and pipeline value from column G (pipe-separated values)
@@ -147,10 +147,11 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   const totalField = has('Total Calls') ? 'Total Calls' : 'Total Contact Attempts';
   const totalCallCount = monthlyCounts[totalField] || 0;
   const answeredCount = monthlyCounts['Answered'] || 0;
-  const pickUpRate = totalCallCount > 0 ? Math.round((answeredCount / totalCallCount) * 100) : 0;
   lines.push(`${totalField}: ${totalCallCount}`);
   lines.push(`Answered: ${answeredCount} | Didn't Answer: ${monthlyCounts["Didn't Answer"] || 0}`);
-  if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
+
+  const emailCount = monthlyCounts['Emails Sent'] || 0;
+  if (emailCount > 0) lines.push(`Emails Sent: ${emailCount}`);
 
   if (has('New Leads')) {
     const followUps = (monthlyCounts['Pre-Quote Follow Up'] || 0) + (monthlyCounts['Post Quote Follow Up'] || 0) + (monthlyCounts['Follow Up'] || 0);

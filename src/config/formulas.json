@@ -52,6 +52,6 @@
     "Pipeline Value": { "eod": 7, "eow": 7 },
     "Book Site Visit": { "eod": 4, "eow": 1 },
     "Total Individual Quotes": { "eod": 10, "eow": 10 },
-    "Email Sent": { "eod": 2, "eow": 11 }
+    "Emails Sent": { "eod": 4, "eow": 11 }
   }
 }

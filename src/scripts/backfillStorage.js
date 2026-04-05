@@ -12,6 +12,7 @@ const { generateEOW } = require('../reporting/generateEOW');
 const { archiveWeekly } = require('../reporting/archiveWeekly');
 const { generateEOM } = require('../reporting/generateEOM');
 const { archiveMonthly } = require('../reporting/archiveMonthly');
+const { readTab } = require('../sheets/readSheet');
 
 const SHEET_ID = '1MMJvJPgx5BStabEcOjd2Uphcp9NASPkvDhlXqjWkR0c';
 const COMPANY_NAME = 'Bolton EC';
@@ -92,6 +93,11 @@ async function main() {
   const START_DATE = process.argv[2] || '2026-01-21';
   const END_DATE = process.argv[3] || '2026-04-04';
 
+  // Read Activity Log ONCE — reused by all phases
+  console.log('Reading Activity Log...');
+  const activityData = await readTab(SHEET_ID, 'Activity Log');
+  console.log(`  ${activityData.length - 1} activity rows loaded\n`);
+
   // ─── Phase 1: Daily Archives ───────────────────────────────────────
   const weekdays = getWeekdaysBetween(START_DATE, END_DATE);
   console.log(`\n=== PHASE 1: Daily Archives (${weekdays.length} days) ===\n`);
@@ -100,7 +106,7 @@ async function main() {
     const date = weekdays[i];
     try {
       const { message, counts, names } = await generateEOD(
-        SHEET_ID, SALES_PERSON, date, COMPANY_NAME, OWNER_NAME
+        SHEET_ID, SALES_PERSON, date, COMPANY_NAME, OWNER_NAME, activityData
       );
       await archiveDaily(SHEET_ID, SALES_PERSON, date, message, counts || {}, names || {}, OWNER_NAME, COMPANY_NAME);
       process.stdout.write(`  [${i + 1}/${weekdays.length}] ${date} ✓\n`);
@@ -120,10 +126,10 @@ async function main() {
   for (let i = 0; i < weeks.length; i++) {
     const { start, end } = weeks[i];
     try {
-      const { message, counts, efficiencyRates } = await generateEOW(
-        SHEET_ID, SALES_PERSON, start, end, COMPANY_NAME, OWNER_NAME
+      const { message, counts } = await generateEOW(
+        SHEET_ID, SALES_PERSON, start, end, COMPANY_NAME, OWNER_NAME, activityData
       );
-      await archiveWeekly(SHEET_ID, SALES_PERSON, start, end, message, counts || {}, efficiencyRates || {}, OWNER_NAME, COMPANY_NAME);
+      await archiveWeekly(SHEET_ID, SALES_PERSON, start, end, message, counts || {}, {}, OWNER_NAME, COMPANY_NAME);
       process.stdout.write(`  [${i + 1}/${weeks.length}] ${start} to ${end} ✓\n`);
     } catch (err) {
       console.error(`  [${i + 1}/${weeks.length}] ${start} to ${end} FAILED: ${err.message}`);
@@ -141,10 +147,10 @@ async function main() {
   for (let i = 0; i < months.length; i++) {
     const { year, month } = months[i];
     try {
-      const { message, counts, efficiencyRates } = await generateEOM(
-        SHEET_ID, SALES_PERSON, year, month, COMPANY_NAME, OWNER_NAME
+      const { message, counts } = await generateEOM(
+        SHEET_ID, SALES_PERSON, year, month, COMPANY_NAME, OWNER_NAME, activityData
       );
-      await archiveMonthly(SHEET_ID, SALES_PERSON, year, month, message, counts || {}, efficiencyRates || {}, OWNER_NAME, COMPANY_NAME);
+      await archiveMonthly(SHEET_ID, SALES_PERSON, year, month, message, counts || {}, {}, OWNER_NAME, COMPANY_NAME);
       process.stdout.write(`  [${i + 1}/${months.length}] ${year}-${String(month).padStart(2, '0')} ✓\n`);
     } catch (err) {
       console.error(`  [${i + 1}/${months.length}] ${year}-${String(month).padStart(2, '0')} FAILED: ${err.message}`);

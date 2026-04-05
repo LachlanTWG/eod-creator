@@ -312,6 +312,35 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Email Sent — from Make.com (Gmail / Outlook watch)
+  if (pathname === '/webhook/email') {
+    const { companies } = loadCompanies();
+    const company = companies.find(c =>
+      c.name.toLowerCase() === (body.companyName || '').toLowerCase()
+    );
+    if (!company) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Company "${body.companyName}" not found` }));
+      return;
+    }
+
+    const activityData = {
+      date: body.date || companyToday(company),
+      salesPerson: body.salesPerson || 'Unknown',
+      contactName: body.contactName || body.recipientEmail || '',
+      eventType: 'Email Sent',
+      outcome: body.subject || '',
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'logged', type: 'email', company: company.name, salesPerson: activityData.salesPerson }));
+
+    logActivity(company.sheetId, activityData).then(() => {
+      console.log(`[EMAIL] ${company.name} / ${activityData.salesPerson} / ${activityData.contactName || '?'}`);
+    }).catch(e => console.error(`[EMAIL] Error ${company.name}:`, e.message));
+    return;
+  }
+
   // Legacy /webhook/ghl — redirect to /webhook/ghl/eod
   if (pathname === '/webhook/ghl') {
     const company = resolveGHLCompany(body, res);
@@ -482,6 +511,7 @@ function start() {
     console.log(`  POST /webhook/ghl/job-won                  — GHL Job Won`);
     console.log(`  POST /webhook/ghl/site-visit               — GHL Site Visit Booked`);
     console.log(`  POST /webhook/quote                        — Make.com Quote Sent`);
+    console.log(`  POST /webhook/email                        — Make.com Email Sent`);
     console.log(`  POST /webhook/eod/send/<company>           — Send EOD for one company`);
     console.log(`  POST /webhook/eod/archive/<company>        — Archive EOD for one company`);
     console.log(`  GET  /status                               — Status + schedules`);

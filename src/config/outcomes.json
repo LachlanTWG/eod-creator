@@ -37,6 +37,6 @@
     { "name": "Pipeline Value", "category": "pipelineValue" },
     { "name": "Book Site Visit", "category": "action" },
     { "name": "Total Individual Quotes", "category": "computed" },
-    { "name": "Email Sent", "category": "action" }
+    { "name": "Emails Sent", "category": "emailSent" }
   ]
 }
