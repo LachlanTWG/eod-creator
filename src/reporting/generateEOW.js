@@ -15,6 +15,13 @@ function formatDollar(value) {
   return '$' + Math.round(value).toLocaleString('en-AU');
 }
 
+function parseSerialDate(val) {
+  if (/^\d{4,5}$/.test(val)) {
+    return new Date((parseInt(val) - 25569) * 86400000).toISOString().split('T')[0];
+  }
+  return val;
+}
+
 function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
   switch (formulaTypeId) {
     case 1: return null;
@@ -42,7 +49,6 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
         });
         return lines.join('\n');
       }
-      // Fallback to count when detail arrays aren't available (aggregated from daily)
       const quoteCount = weeklyCounts[outcomeName] || 0;
       if (quoteCount === 0) return null;
       return `• ${outcomeName}: ${quoteCount}`;
@@ -107,68 +113,87 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
 }
 
 /**
- * Generate EOW report from daily storage data.
+ * Generate EOW report from live Weekly Storage formulas.
+ * Falls back to Activity Log aggregation if the weekly row doesn't exist.
  */
 async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, companyName, ownerName, activityData) {
   const { blocks, formulas } = loadConfig(companyName);
-  const dailyTab = salesPerson === 'Team' ? 'Team Daily' : `${salesPerson} Daily`;
-  const allRows = await readTab(spreadsheetId, dailyTab);
-
-  if (allRows.length < 2) {
-    return { message: 'No daily data found.', counts: {} };
-  }
-
-  const dataRows = allRows.slice(1);
-  const weekRows = dataRows.filter(row => {
-    let rowDate = row[0];
-    // Handle Sheets date serial numbers (e.g. 46043 → 2026-01-21)
-    if (/^\d{4,5}$/.test(rowDate)) {
-      const d = new Date((parseInt(rowDate) - 25569) * 86400000);
-      rowDate = d.toISOString().split('T')[0];
-    }
-    return rowDate >= startDate && rowDate <= endDate;
-  });
-
-  if (weekRows.length === 0) {
-    return { message: `No daily data found for ${salesPerson} between ${startDate} and ${endDate}.`, counts: {} };
-  }
-
   const outcomeNames = getOutcomeNames(ownerName, companyName);
-  const weeklyCounts = {};
-  for (const name of outcomeNames) {
-    weeklyCounts[name] = 0;
-  }
+  const weeklyTab = salesPerson === 'Team' ? 'Team Weekly' : `${salesPerson} Weekly`;
 
-  for (const row of weekRows) {
-    let colIdx = 2;
-    for (const name of outcomeNames) {
-      const countVal = parseInt(row[colIdx] || '0', 10);
-      if (!isNaN(countVal)) {
-        weeklyCounts[name] += countVal;
+  // Read live counts from Weekly Storage (formula-driven)
+  const weeklyRows = await readTab(spreadsheetId, weeklyTab);
+  let weeklyCounts = null;
+
+  if (weeklyRows.length >= 2) {
+    const weekRow = weeklyRows.slice(1).find(row => {
+      return parseSerialDate(row[0]) === startDate;
+    });
+
+    if (weekRow) {
+      weeklyCounts = {};
+      let colIdx = 3; // Weekly: Start | End | Message | counts...
+      for (const name of outcomeNames) {
+        const val = parseFloat(weekRow[colIdx] || '0');
+        weeklyCounts[name] = isNaN(val) ? 0 : val;
+        colIdx++;
       }
-      colIdx += 2;
     }
   }
 
-  // Recompute totals
-  const totalAnswered = (weeklyCounts['Answered'] || 0) + (weeklyCounts["Didn't Answer"] || 0);
-  if ('Total Calls' in weeklyCounts) weeklyCounts['Total Calls'] = totalAnswered;
-  if ('Total Contact Attempts' in weeklyCounts) weeklyCounts['Total Contact Attempts'] = totalAnswered;
+  // Fall back to Activity Log if weekly row doesn't exist
+  if (!weeklyCounts) {
+    weeklyCounts = {};
+    for (const name of outcomeNames) {
+      weeklyCounts[name] = 0;
+    }
 
-  // Pull Job Won and Site Visit details from Activity Log for the date range
+    if (activityData && activityData.length >= 2) {
+      const headers = activityData[0];
+      for (const row of activityData.slice(1)) {
+        const rowDate = row[0];
+        if (rowDate < startDate || rowDate > endDate) continue;
+        if (salesPerson !== 'Team' && row[1] !== salesPerson) continue;
+        // Basic counting from Activity Log as fallback
+        const eventType = row[3] || '';
+        const outcome = row[4] || '';
+        if (eventType === 'EOD Update') {
+          const { outcomes } = loadConfig(companyName);
+          for (const o of outcomes.outcomes) {
+            const name = o.name.replace('{owner}', ownerName);
+            if (!(name in weeklyCounts)) continue;
+            switch (o.category) {
+              case 'leadType': if (outcome.startsWith(`${name} |`)) weeklyCounts[name]++; break;
+              case 'answerStatus': if (outcome.includes(`| ${name} |`)) weeklyCounts[name]++; break;
+              case 'source': if (outcome.includes(`| ${name}`)) weeklyCounts[name]++; break;
+              default: if (outcome.includes(`| ${name} |`) || outcome.includes(`| ${name}`)) weeklyCounts[name]++; break;
+            }
+          }
+        } else if (eventType === 'Job Won') { weeklyCounts['Job Won'] = (weeklyCounts['Job Won'] || 0) + 1; }
+        else if (eventType === 'Quote Sent') { weeklyCounts['Quote Sent'] = (weeklyCounts['Quote Sent'] || 0) + 1; }
+        else if (eventType === 'Site Visit Booked') { weeklyCounts['Site Visit Booked'] = (weeklyCounts['Site Visit Booked'] || 0) + 1; }
+        else if (eventType === 'Email Sent') { weeklyCounts['Emails Sent'] = (weeklyCounts['Emails Sent'] || 0) + 1; }
+      }
+    }
+
+    // Recompute totals for fallback path
+    const totalAnswered = (weeklyCounts['Answered'] || 0) + (weeklyCounts["Didn't Answer"] || 0);
+    if ('Total Calls' in weeklyCounts) weeklyCounts['Total Calls'] = totalAnswered;
+    if ('Total Contact Attempts' in weeklyCounts) weeklyCounts['Total Contact Attempts'] = totalAnswered;
+  }
+
+  // Pull Job Won and Site Visit details from Activity Log
   const weeklyData = { quoteDetails: [], siteVisits: [], jobDetails: [] };
   try {
-    const activityRows = activityData;
-    if (activityRows.length >= 2) {
-      const headers = activityRows[0];
-      // Parse all rows for cross-referencing lead sources
-      const allParsed = activityRows.slice(1).map(row => {
+    if (activityData && activityData.length >= 2) {
+      const headers = activityData[0];
+      const allParsed = activityData.slice(1).map(row => {
         const obj = {};
         headers.forEach((h, i) => { obj[h] = row[i] || ''; });
         return obj;
       });
 
-      for (const row of activityRows.slice(1)) {
+      for (const row of activityData.slice(1)) {
         const rowDate = row[0];
         if (rowDate < startDate || rowDate > endDate) continue;
         if (salesPerson !== 'Team' && row[1] !== salesPerson) continue;
@@ -195,7 +220,6 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
       }
     }
   } catch (e) {
-    // If Activity Log read fails, we'll fall back to counts only
     console.error('  Could not read Activity Log for EOW details:', e.message);
   }
 
