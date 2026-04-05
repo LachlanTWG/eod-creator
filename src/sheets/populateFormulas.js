@@ -824,7 +824,7 @@ async function populateWeeklyStorage(spreadsheetId, tabName, personName, company
     if (!row[0] || !row[1]) continue;
     const start = parseSerialDate(row[0]);
     // Normalize: find the Monday for this start date
-    const sd = new Date(start + 'T00:00:00');
+    const sd = new Date(start + 'T12:00:00Z');
     const sDay = sd.getDay();
     const sMon = new Date(sd);
     sMon.setDate(sd.getDate() - ((sDay + 6) % 7));
@@ -855,7 +855,7 @@ async function populateWeeklyStorage(spreadsheetId, tabName, personName, company
   let weeks = [];
   const seenWeeks = new Set();
   for (const dateStr of actDates) {
-    const d = new Date(dateStr + 'T00:00:00');
+    const d = new Date(dateStr + 'T12:00:00Z');
     const day = d.getDay(); // 0=Sun, 1=Mon
     const mon = new Date(d);
     mon.setDate(d.getDate() - ((day + 6) % 7)); // back to Monday
