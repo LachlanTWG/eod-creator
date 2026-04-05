@@ -78,18 +78,24 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
     `${year}`,
     '==========================================',
     '',
-    `📞 Total Activity`,
-    `${totalField}: ${totalCallCount}`,
+    `📞 Calls`,
+    `Total Calls: ${totalCallCount}`,
     `Answered: ${answeredCount} | Didn't Answer: ${yearlyCounts["Didn't Answer"] || 0}`,
   ];
   if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
 
-  const emailCount = yearlyCounts['Emails Sent'] || 0;
-  if (emailCount > 0) lines.push(`Emails Sent: ${emailCount}`);
-
   if (has('New Leads')) {
-    const followUps = (yearlyCounts['Pre-Quote Follow Up'] || 0) + (yearlyCounts['Post Quote Follow Up'] || 0) + (yearlyCounts['Follow Up'] || 0);
-    lines.push(`New Leads: ${yearlyCounts['New Leads'] || 0}${followUps ? ` | Follow Ups: ${followUps}` : ''}`);
+    const leadParts = [`New Leads: ${yearlyCounts['New Leads'] || 0}`];
+    if (yearlyCounts['Pre-Quote Follow Up']) leadParts.push(`Pre-Quote Follow Up: ${yearlyCounts['Pre-Quote Follow Up']}`);
+    if (yearlyCounts['Post Quote Follow Up']) leadParts.push(`Post Quote Follow Up: ${yearlyCounts['Post Quote Follow Up']}`);
+    if (yearlyCounts['Follow Up']) leadParts.push(`Follow Up: ${yearlyCounts['Follow Up']}`);
+    lines.push(`📋 ${leadParts.join(' | ')}`);
+  }
+
+  const emailCount = yearlyCounts['Emails Sent'] || 0;
+  if (emailCount > 0) {
+    lines.push('');
+    lines.push(`📧 Emails Sent: ${emailCount}`);
   }
 
   // Trade metrics

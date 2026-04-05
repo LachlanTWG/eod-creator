@@ -141,21 +141,29 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     `${monthStr}`,
     '==========================================',
     '',
-    `📞 Activity`,
+    `📞 Calls`,
   ];
 
   const totalField = has('Total Calls') ? 'Total Calls' : 'Total Contact Attempts';
   const totalCallCount = monthlyCounts[totalField] || 0;
   const answeredCount = monthlyCounts['Answered'] || 0;
-  lines.push(`${totalField}: ${totalCallCount}`);
+  const pickUpRate = totalCallCount > 0 ? Math.round((answeredCount / totalCallCount) * 100) : 0;
+  lines.push(`Total Calls: ${totalCallCount}`);
   lines.push(`Answered: ${answeredCount} | Didn't Answer: ${monthlyCounts["Didn't Answer"] || 0}`);
-
-  const emailCount = monthlyCounts['Emails Sent'] || 0;
-  if (emailCount > 0) lines.push(`Emails Sent: ${emailCount}`);
+  if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
 
   if (has('New Leads')) {
-    const followUps = (monthlyCounts['Pre-Quote Follow Up'] || 0) + (monthlyCounts['Post Quote Follow Up'] || 0) + (monthlyCounts['Follow Up'] || 0);
-    lines.push(`New Leads: ${monthlyCounts['New Leads'] || 0}${followUps ? ` | Follow Ups: ${followUps}` : ''}`);
+    const leadParts = [`New Leads: ${monthlyCounts['New Leads'] || 0}`];
+    if (monthlyCounts['Pre-Quote Follow Up']) leadParts.push(`Pre-Quote Follow Up: ${monthlyCounts['Pre-Quote Follow Up']}`);
+    if (monthlyCounts['Post Quote Follow Up']) leadParts.push(`Post Quote Follow Up: ${monthlyCounts['Post Quote Follow Up']}`);
+    if (monthlyCounts['Follow Up']) leadParts.push(`Follow Up: ${monthlyCounts['Follow Up']}`);
+    lines.push(`📋 ${leadParts.join(' | ')}`);
+  }
+
+  const emailCount = monthlyCounts['Emails Sent'] || 0;
+  if (emailCount > 0) {
+    lines.push('');
+    lines.push(`📧 Emails Sent: ${emailCount}`);
   }
 
   // Trade-specific metrics

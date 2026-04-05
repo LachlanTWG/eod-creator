@@ -147,21 +147,29 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
     `${quarterStr}`,
     '==========================================',
     '',
-    `📞 Activity`,
+    `📞 Calls`,
   ];
 
   const totalField = has('Total Calls') ? 'Total Calls' : 'Total Contact Attempts';
   const totalCallCount = quarterlyCounts[totalField] || 0;
   const answeredCount = quarterlyCounts['Answered'] || 0;
-  lines.push(`${totalField}: ${totalCallCount}`);
+  const pickUpRate = totalCallCount > 0 ? Math.round((answeredCount / totalCallCount) * 100) : 0;
+  lines.push(`Total Calls: ${totalCallCount}`);
   lines.push(`Answered: ${answeredCount} | Didn't Answer: ${quarterlyCounts["Didn't Answer"] || 0}`);
-
-  const emailCount = quarterlyCounts['Emails Sent'] || 0;
-  if (emailCount > 0) lines.push(`Emails Sent: ${emailCount}`);
+  if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
 
   if (has('New Leads')) {
-    const followUps = (quarterlyCounts['Pre-Quote Follow Up'] || 0) + (quarterlyCounts['Post Quote Follow Up'] || 0) + (quarterlyCounts['Follow Up'] || 0);
-    lines.push(`New Leads: ${quarterlyCounts['New Leads'] || 0}${followUps ? ` | Follow Ups: ${followUps}` : ''}`);
+    const leadParts = [`New Leads: ${quarterlyCounts['New Leads'] || 0}`];
+    if (quarterlyCounts['Pre-Quote Follow Up']) leadParts.push(`Pre-Quote Follow Up: ${quarterlyCounts['Pre-Quote Follow Up']}`);
+    if (quarterlyCounts['Post Quote Follow Up']) leadParts.push(`Post Quote Follow Up: ${quarterlyCounts['Post Quote Follow Up']}`);
+    if (quarterlyCounts['Follow Up']) leadParts.push(`Follow Up: ${quarterlyCounts['Follow Up']}`);
+    lines.push(`📋 ${leadParts.join(' | ')}`);
+  }
+
+  const emailCount = quarterlyCounts['Emails Sent'] || 0;
+  if (emailCount > 0) {
+    lines.push('');
+    lines.push(`📧 Emails Sent: ${emailCount}`);
   }
 
   // Trade-specific metrics
