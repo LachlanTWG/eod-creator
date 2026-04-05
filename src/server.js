@@ -320,6 +320,7 @@ const server = http.createServer(async (req, res) => {
 
   // Email Sent — from Make.com (Gmail / Outlook watch)
   if (pathname === '/webhook/email') {
+    console.log(`[EMAIL] Raw body:`, JSON.stringify(body));
     const { companies } = loadCompanies();
     const company = companies.find(c =>
       c.name.toLowerCase() === (body.companyName || '').toLowerCase()
@@ -330,19 +331,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Normalize date to YYYY-MM-DD
+    let emailDate = body.date || companyToday(company);
+    if (emailDate.includes('T')) {
+      emailDate = emailDate.split('T')[0];
+    }
+
     const activityData = {
-      date: body.date || companyToday(company),
+      date: emailDate,
       salesPerson: body.salesPerson || 'Unknown',
-      contactName: body.contactName || body.recipientEmail || '',
+      contactName: body.contactName || body.recipientEmail || body.to || '',
       eventType: 'Email Sent',
       outcome: body.subject || '',
     };
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'logged', type: 'email', company: company.name, salesPerson: activityData.salesPerson }));
+    res.end(JSON.stringify({ status: 'logged', type: 'email', company: company.name, salesPerson: activityData.salesPerson, date: activityData.date, contact: activityData.contactName }));
 
     logActivity(company.sheetId, activityData).then(() => {
-      console.log(`[EMAIL] ${company.name} / ${activityData.salesPerson} / ${activityData.contactName || '?'}`);
+      console.log(`[EMAIL] ${company.name} / ${activityData.salesPerson} / ${activityData.contactName || '?'} / ${activityData.date}`);
     }).catch(e => console.error(`[EMAIL] Error ${company.name}:`, e.message));
     return;
   }
