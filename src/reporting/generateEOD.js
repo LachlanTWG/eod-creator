@@ -323,8 +323,9 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
     }
 
     case 6: { // Quote Details
-      if (quoteDetails.length === 0) return null;
-      const lines = quoteDetails.map(q => {
+      const validQuotes = quoteDetails.filter(q => q.contactName || q.values.length > 0);
+      if (validQuotes.length === 0) return null;
+      const lines = validQuotes.map(q => {
         const valStr = q.values.map(v => formatDollar(v)).join(', ');
         return `- ${q.contactName} - ${q.values.length} - (${valStr})`;
       });
