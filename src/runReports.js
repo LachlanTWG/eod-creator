@@ -30,10 +30,10 @@ function getMondayOfWeek(dateStr) {
   return d.toISOString().split('T')[0];
 }
 
-function getFridayOfWeek(dateStr) {
+function getSundayOfWeek(dateStr) {
   const monday = getMondayOfWeek(dateStr);
   const d = new Date(monday + 'T12:00:00Z');
-  d.setDate(d.getDate() + 4);
+  d.setDate(d.getDate() + 6);
   return d.toISOString().split('T')[0];
 }
 
@@ -126,7 +126,7 @@ async function sendCompanyEOW(company, startDate, endDate) {
   const tz = company.timezone || 'Australia/Sydney';
   const today = todayInTz(tz);
   const start = startDate || getMondayOfWeek(today);
-  const end = endDate || getFridayOfWeek(today);
+  const end = endDate || getSundayOfWeek(today);
   console.log(`[SEND EOW] ${company.name} — ${start} to ${end}`);
 
   // Read Activity Log ONCE for job/site visit details across all people
@@ -171,7 +171,7 @@ async function archiveCompanyEOW(company, startDate, endDate) {
   const tz = company.timezone || 'Australia/Sydney';
   const today = todayInTz(tz);
   const start = startDate || getMondayOfWeek(today);
-  const end = endDate || getFridayOfWeek(today);
+  const end = endDate || getSundayOfWeek(today);
   console.log(`[ARCHIVE EOW] ${company.name} — ${start} to ${end}`);
 
   // Read Activity Log ONCE for all people
@@ -341,7 +341,7 @@ async function runAllEOY(year) {
 async function runMeetingDoc(startDate, endDate) {
   const today = todayInTz('Australia/Sydney');
   const start = startDate || getMondayOfWeek(today);
-  const end = endDate || getFridayOfWeek(today);
+  const end = endDate || getSundayOfWeek(today);
 
   console.log(`\n=== Generating Meeting Doc — ${start} to ${end} ===\n`);
 

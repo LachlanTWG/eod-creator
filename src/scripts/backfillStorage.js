@@ -40,7 +40,7 @@ function getWeekdaysBetween(startStr, endStr) {
 }
 
 /**
- * Get Monday-Friday week ranges that overlap a date range.
+ * Get Monday-Sunday week ranges that overlap a date range.
  */
 function getWeekRanges(startStr, endStr) {
   const weeks = [];
@@ -53,15 +53,15 @@ function getWeekRanges(startStr, endStr) {
     const diff = day === 0 ? -6 : 1 - day;
     const monday = new Date(d);
     monday.setDate(monday.getDate() + diff);
-    const friday = new Date(monday);
-    friday.setDate(friday.getDate() + 4);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
 
     const monStr = monday.toISOString().split('T')[0];
     if (!seen.has(monStr)) {
       seen.add(monStr);
       weeks.push({
         start: monStr,
-        end: friday.toISOString().split('T')[0],
+        end: sunday.toISOString().split('T')[0],
       });
     }
     d.setDate(d.getDate() + 7);

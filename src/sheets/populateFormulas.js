@@ -451,8 +451,8 @@ async function populateEOWTab(spreadsheetId, tabName, personName, companyName, o
   const grid = [];
   grid.push(['Sales Person', personName, '', '', '', '', msgFormula]);
   grid.push(['Company', companyName, '', '', '', '', '']);
-  grid.push(['Week Start', '=LET(d,WEEKDAY(TODAY(),2),IF(d>5,TODAY()+(8-d),TODAY()-(d-1)))', '', '', '', '', '']);
-  grid.push(['Week End', '=B3+4', '', '', '', '', '']);
+  grid.push(['Week Start', '=TODAY()-WEEKDAY(TODAY(),2)+1', '', '', '', '', '']);
+  grid.push(['Week End', '=B3+6', '', '', '', '', '']);
   grid.push(['']);
   grid.push(['']);
   grid.push(['Outcome', 'Count', 'Names', 'Formatted', '', '', 'Block Messages']);
@@ -851,7 +851,7 @@ async function populateWeeklyStorage(spreadsheetId, tabName, personName, company
     }
   }
 
-  // Generate Monday-Friday week ranges from all Activity Log dates
+  // Generate Monday-Sunday week ranges from all Activity Log dates
   let weeks = [];
   const seenWeeks = new Set();
   for (const dateStr of actDates) {
@@ -859,10 +859,10 @@ async function populateWeeklyStorage(spreadsheetId, tabName, personName, company
     const day = d.getDay(); // 0=Sun, 1=Mon
     const mon = new Date(d);
     mon.setDate(d.getDate() - ((day + 6) % 7)); // back to Monday
-    const fri = new Date(mon);
-    fri.setDate(mon.getDate() + 4);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
     const start = mon.toISOString().split('T')[0];
-    const end = fri.toISOString().split('T')[0];
+    const end = sun.toISOString().split('T')[0];
     if (!seenWeeks.has(start)) {
       seenWeeks.add(start);
       weeks.push({ start, end, message: existingMessages[start] || '' });
