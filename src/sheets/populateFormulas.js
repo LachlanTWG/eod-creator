@@ -254,11 +254,11 @@ function eowNotesBlock(cr) {
 // --- Special EOW blocks (range dates, bounded refs) ---
 
 function eowQuotesBlock(cr, rowMap) {
+  const qsRow = rowMap['Quote Sent'];
   const pvRow = rowMap['Pipeline Value'];
   const tiqRow = rowMap['Total Individual Quotes'];
-  const fc = `${cr.df}${cr.pf},${col('D')}="Quote Sent"`;
   const countExpr = `SUMPRODUCT(${cr.spDate}${cr.spPerson}*(${col('D')}="Quote Sent"))`;
-  return `=IFERROR(LET(numQ,${countExpr},IF(numQ=0,"","📄 Quotes Sent"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${col('C')},${fc}),FILTER(${col('G')},${fc}),LAMBDA(nm,v,LET(t,SUBSTITUTE(SUBSTITUTE(""&v,"$",""),",",""),parts,SPLIT(t,"|"),nums,ARRAYFORMULA(VALUE(TRIM(parts))),cnt,COUNTA(parts),CHAR(8226)&" "&nm&" - "&cnt&" - ("&TEXTJOIN(", ",TRUE,ARRAYFORMULA("$"&TEXT(nums,"#,##0")))&")"))))&CHAR(10)&"Pipeline Value (Sum of Averages): $"&TEXT(B${pvRow},"#,##0")&CHAR(10)&"Total Individual Quotes: "&B${tiqRow})),"")`;
+  return `=IFERROR(LET(numQ,${countExpr},IF(numQ=0,"","📄 Quotes Sent"&CHAR(10)&CHAR(8226)&" Quote Sent: "&B${qsRow}&CHAR(10)&"Pipeline Value (Sum of Averages): $"&TEXT(B${pvRow},"#,##0")&CHAR(10)&"Total Individual Quotes: "&B${tiqRow})),"")`;
 }
 
 function eowSiteVisitsBlock(cr) {
