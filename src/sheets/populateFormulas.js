@@ -475,6 +475,59 @@ async function populateEOWTab(spreadsheetId, tabName, personName, companyName, o
   console.log(`  Populated ${tabName} with live formulas`);
 }
 
+// ─── EOM Display Tab Builder ────────────────────────────────────────
+
+async function populateEOMTab(spreadsheetId, tabName, personName, companyName, ownerName, isTeam) {
+  const { outcomes, blocks } = loadConfig(companyName);
+  const startCell = '$B$3';
+  const endCell = '$B$4';
+  const personCell = '$B$1';
+  const cr = buildCriteria('range', startCell, endCell, personCell, isTeam);
+  const { defs, rowMap } = getOutcomeDefs(ownerName, companyName);
+
+  // Reuse EOW block formulas (same range-based format)
+  const eowBlocks = blocks.eowBlocks || [];
+  const blockFormulasArr = eowBlocks.map(block =>
+    buildEOWBlockFormula(block, outcomes.outcomes, ownerName, rowMap, cr)
+  ).filter(Boolean);
+
+  blockFormulasArr.push(eowNotesBlock(cr));
+
+  const blockFormulaMap = {};
+  for (let i = 0; i < blockFormulasArr.length; i++) {
+    blockFormulaMap[8 + i] = blockFormulasArr[i];
+  }
+
+  const lastBlockRow = 8 + Math.max(blockFormulasArr.length - 1, 0);
+  const msgFormula = `="MONTHLY PERFORMANCE REPORT - "&$B$2&CHAR(10)&TEXT($B$3,"mmmm yyyy")&CHAR(10)&"${WSEP}"&CHAR(10)&TEXTJOIN(CHAR(10)&"${WSEP}"&CHAR(10),TRUE,G8:G${lastBlockRow})`;
+
+  const grid = [];
+  grid.push(['Sales Person', personName, '', '', '', '', msgFormula]);
+  grid.push(['Company', companyName, '', '', '', '', '']);
+  grid.push(['Month Start', '=DATE(YEAR(TODAY()),MONTH(TODAY()),1)', '', '', '', '', '']);
+  grid.push(['Month End', '=EOMONTH(B3,0)', '', '', '', '', '']);
+  grid.push(['']);
+  grid.push(['']);
+  grid.push(['Outcome', 'Count', 'Names', 'Formatted', '', '', 'Block Messages']);
+
+  for (const o of defs) {
+    const row = [
+      o.name,
+      countFormula(o, cr),
+      namesFormula(o, cr),
+      eowFormattedLine(o, rowMap),
+      '', '',
+      blockFormulaMap[o.row] || '',
+    ];
+    grid.push(row);
+  }
+
+  const lastRow = 8 + defs.length;
+  await clearRange(spreadsheetId, `'${tabName}'!A1:H${lastRow}`);
+  await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
+  console.log(`  Populated ${tabName} with live formulas`);
+}
+
 // ─── Storage Tab Helpers ─────────────────────────────────────────────
 
 function getColLetter(idx) {
@@ -1150,6 +1203,7 @@ async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesP
     // Display tabs
     await populateEODTab(spreadsheetId, `${person.name} EOD`, person.name, companyName, ownerName, false);
     await populateEOWTab(spreadsheetId, `${person.name} EOW`, person.name, companyName, ownerName, false);
+    await populateEOMTab(spreadsheetId, `${person.name} EOM`, person.name, companyName, ownerName, false);
     // Storage tabs
     await populateDailyStorage(spreadsheetId, `${person.name} Daily`, person.name, companyName, ownerName, false);
     await populateWeeklyStorage(spreadsheetId, `${person.name} Weekly`, person.name, companyName, ownerName, false);
@@ -1159,6 +1213,7 @@ async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesP
 
   await populateEODTab(spreadsheetId, 'Team EOD', 'Team', companyName, ownerName, true);
   await populateEOWTab(spreadsheetId, 'Team EOW', 'Team', companyName, ownerName, true);
+  await populateEOMTab(spreadsheetId, 'Team EOM', 'Team', companyName, ownerName, true);
   await populateDailyStorage(spreadsheetId, 'Team Daily', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Daily` : null);
   await populateWeeklyStorage(spreadsheetId, 'Team Weekly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Weekly` : null);
   await populateMonthlyStorage(spreadsheetId, 'Team Monthly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Monthly` : null);
@@ -1168,7 +1223,7 @@ async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesP
 }
 
 module.exports = {
-  populateAllFormulas, populateEODTab, populateEOWTab,
+  populateAllFormulas, populateEODTab, populateEOWTab, populateEOMTab,
   populateDailyStorage, populateWeeklyStorage, populateMonthlyStorage, populateQuarterlyStorage,
   buildDailyStorageRow, buildWeeklyStorageRow, buildMonthlyStorageRow, buildQuarterlyStorageRow,
   getOutcomeDefs, getColLetter,

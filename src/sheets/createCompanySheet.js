@@ -172,10 +172,10 @@ async function createCompanySheet(companyName, ownerName, salesPeople, existingS
   for (const person of salesPeople) {
     tabNames.push(`${person.name} EOD`, `${person.name} Daily`);
     tabNames.push(`${person.name} EOW`, `${person.name} Weekly`);
-    tabNames.push(`${person.name} Monthly`, `${person.name} Quarterly`, `${person.name} Yearly`);
+    tabNames.push(`${person.name} EOM`, `${person.name} Monthly`, `${person.name} Quarterly`, `${person.name} Yearly`);
   }
   tabNames.push('Team EOD', 'Team Daily', 'Team EOW', 'Team Weekly');
-  tabNames.push('Team Monthly', 'Team Quarterly', 'Team Yearly', 'Site Visits');
+  tabNames.push('Team EOM', 'Team Monthly', 'Team Quarterly', 'Team Yearly', 'Site Visits');
 
   if (existingSheetId) {
     // Use existing spreadsheet — add tabs to it
