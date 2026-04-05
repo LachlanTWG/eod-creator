@@ -451,7 +451,7 @@ async function populateEOWTab(spreadsheetId, tabName, personName, companyName, o
   const grid = [];
   grid.push(['Sales Person', personName, '', '', '', '', msgFormula]);
   grid.push(['Company', companyName, '', '', '', '', '']);
-  grid.push(['Week Start', '=TODAY()-WEEKDAY(TODAY(),2)+1', '', '', '', '', '']);
+  grid.push(['Week Start', '=LET(d,WEEKDAY(TODAY(),2),IF(d>5,TODAY()+(8-d),TODAY()-(d-1)))', '', '', '', '', '']);
   grid.push(['Week End', '=B3+4', '', '', '', '', '']);
   grid.push(['']);
   grid.push(['']);
