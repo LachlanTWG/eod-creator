@@ -84,6 +84,9 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   ];
   if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
 
+  const emailCount = yearlyCounts['Emails Sent'] || 0;
+  if (emailCount > 0) lines.push(`Emails Sent: ${emailCount}`);
+
   if (has('New Leads')) {
     const followUps = (yearlyCounts['Pre-Quote Follow Up'] || 0) + (yearlyCounts['Post Quote Follow Up'] || 0) + (yearlyCounts['Follow Up'] || 0);
     lines.push(`New Leads: ${yearlyCounts['New Leads'] || 0}${followUps ? ` | Follow Ups: ${followUps}` : ''}`);
