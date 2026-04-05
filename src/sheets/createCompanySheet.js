@@ -58,6 +58,22 @@ function getMonthlyStorageHeaders(ownerName, companyName) {
   return headers;
 }
 
+function getQuarterlyStorageHeaders(ownerName, companyName) {
+  const outcomeNames = getOutcomeNames(ownerName, companyName);
+  const { blocks } = loadConfig(companyName);
+  const headers = ['Quarter', 'EOQ Message'];
+  for (const name of outcomeNames) {
+    headers.push(`${name} - Count`);
+  }
+  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
+  if (computedBlock) {
+    for (const rate of computedBlock.computed) {
+      headers.push(`${rate.name} %`);
+    }
+  }
+  return headers;
+}
+
 function getYearlyStorageHeaders(ownerName, companyName) {
   const outcomeNames = getOutcomeNames(ownerName, companyName);
   const { blocks } = loadConfig(companyName);
@@ -156,10 +172,10 @@ async function createCompanySheet(companyName, ownerName, salesPeople, existingS
   for (const person of salesPeople) {
     tabNames.push(`${person.name} EOD`, `${person.name} Daily`);
     tabNames.push(`${person.name} EOW`, `${person.name} Weekly`);
-    tabNames.push(`${person.name} Monthly`, `${person.name} Yearly`);
+    tabNames.push(`${person.name} Monthly`, `${person.name} Quarterly`, `${person.name} Yearly`);
   }
   tabNames.push('Team EOD', 'Team Daily', 'Team EOW', 'Team Weekly');
-  tabNames.push('Team Monthly', 'Team Yearly', 'Site Visits');
+  tabNames.push('Team Monthly', 'Team Quarterly', 'Team Yearly', 'Site Visits');
 
   if (existingSheetId) {
     // Use existing spreadsheet — add tabs to it
@@ -228,6 +244,7 @@ async function createCompanySheet(companyName, ownerName, salesPeople, existingS
   const dailyHeaders = getDailyStorageHeaders(ownerName, companyName);
   const weeklyHeaders = getWeeklyStorageHeaders(ownerName, companyName);
   const monthlyHeaders = getMonthlyStorageHeaders(ownerName, companyName);
+  const quarterlyHeaders = getQuarterlyStorageHeaders(ownerName, companyName);
   const yearlyHeaders = getYearlyStorageHeaders(ownerName, companyName);
 
   for (const person of salesPeople) {
@@ -256,6 +273,9 @@ async function createCompanySheet(companyName, ownerName, salesPeople, existingS
     // Monthly storage headers
     await writeSheet(spreadsheetId, `'${person.name} Monthly'!A1`, [monthlyHeaders]);
 
+    // Quarterly storage headers
+    await writeSheet(spreadsheetId, `'${person.name} Quarterly'!A1`, [quarterlyHeaders]);
+
     // Yearly storage headers
     await writeSheet(spreadsheetId, `'${person.name} Yearly'!A1`, [yearlyHeaders]);
   }
@@ -274,6 +294,7 @@ async function createCompanySheet(companyName, ownerName, salesPeople, existingS
   ]);
   await writeSheet(spreadsheetId, "'Team Weekly'!A1", [weeklyHeaders]);
   await writeSheet(spreadsheetId, "'Team Monthly'!A1", [monthlyHeaders]);
+  await writeSheet(spreadsheetId, "'Team Quarterly'!A1", [quarterlyHeaders]);
   await writeSheet(spreadsheetId, "'Team Yearly'!A1", [yearlyHeaders]);
 
   // Site Visits tab
@@ -304,4 +325,4 @@ async function createCompanySheet(companyName, ownerName, salesPeople, existingS
   return spreadsheetId;
 }
 
-module.exports = { createCompanySheet, getDailyStorageHeaders, getWeeklyStorageHeaders, getMonthlyStorageHeaders, getYearlyStorageHeaders, getOutcomeNames, ACTIVITY_LOG_HEADERS };
+module.exports = { createCompanySheet, getDailyStorageHeaders, getWeeklyStorageHeaders, getMonthlyStorageHeaders, getQuarterlyStorageHeaders, getYearlyStorageHeaders, getOutcomeNames, ACTIVITY_LOG_HEADERS };

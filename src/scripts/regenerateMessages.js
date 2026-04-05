@@ -16,10 +16,12 @@ const { writeSheet } = require('../sheets/writeSheet');
 const { generateEOD } = require('../reporting/generateEOD');
 const { generateEOW } = require('../reporting/generateEOW');
 const { generateEOM } = require('../reporting/generateEOM');
+const { generateEOQ } = require('../reporting/generateEOQ');
 const {
   populateDailyStorage,
   populateWeeklyStorage,
   populateMonthlyStorage,
+  populateQuarterlyStorage,
 } = require('../sheets/populateFormulas');
 const { loadCompanies } = require('../config/companiesStore');
 
@@ -104,6 +106,31 @@ async function regenerateMonthly(sheetId, tabName, personName, companyName, owne
   console.log(`  All ${months.length} monthly messages written`);
 }
 
+async function regenerateQuarterly(sheetId, tabName, personName, companyName, ownerName, activityData) {
+  console.log(`\n=== Regenerating Quarterly Messages: ${tabName} ===\n`);
+  const quarterlyRows = await readTab(sheetId, tabName);
+  const quarters = quarterlyRows.slice(1).map(r => r[0]).filter(Boolean);
+  console.log(`  ${quarters.length} quarterly rows to process`);
+
+  const quarterlyMessages = [];
+  for (const quarterStr of quarters) {
+    const [yearStr, qStr] = quarterStr.split('-Q');
+    const y = parseInt(yearStr);
+    const q = parseInt(qStr);
+    try {
+      const { message } = await generateEOQ(sheetId, personName, y, q, companyName, ownerName, activityData);
+      quarterlyMessages.push([message]);
+    } catch (e) {
+      quarterlyMessages.push(['']);
+      console.error(`    ${quarterStr} failed: ${e.message}`);
+    }
+  }
+  if (quarterlyMessages.length > 0) {
+    await writeSheet(sheetId, `'${tabName}'!B2`, quarterlyMessages);
+  }
+  console.log(`  All ${quarters.length} quarterly messages written`);
+}
+
 async function regenerateCompany(company) {
   const { sheetId, name: companyName, ownerName, salesPeople } = company;
   const activePeople = salesPeople.filter(p => p.active);
@@ -123,12 +150,14 @@ async function regenerateCompany(company) {
     await regenerateDaily(sheetId, `${person.name} Daily`, person.name, companyName, ownerName, activityData);
     await regenerateWeekly(sheetId, `${person.name} Weekly`, person.name, companyName, ownerName, activityData);
     await regenerateMonthly(sheetId, `${person.name} Monthly`, person.name, companyName, ownerName, activityData);
+    await regenerateQuarterly(sheetId, `${person.name} Quarterly`, person.name, companyName, ownerName, activityData);
   }
 
   // Phase 2: Team tabs
   await regenerateDaily(sheetId, 'Team Daily', 'Team', companyName, ownerName, activityData);
   await regenerateWeekly(sheetId, 'Team Weekly', 'Team', companyName, ownerName, activityData);
   await regenerateMonthly(sheetId, 'Team Monthly', 'Team', companyName, ownerName, activityData);
+  await regenerateQuarterly(sheetId, 'Team Quarterly', 'Team', companyName, ownerName, activityData);
 
   // Phase 3: Re-populate formulas (preserving messages)
   console.log('\n=== Re-populating live formulas ===\n');
@@ -141,6 +170,8 @@ async function regenerateCompany(company) {
     await sleep(2000);
     await populateMonthlyStorage(sheetId, `${person.name} Monthly`, person.name, companyName, ownerName, false);
     await sleep(2000);
+    await populateQuarterlyStorage(sheetId, `${person.name} Quarterly`, person.name, companyName, ownerName, false);
+    await sleep(2000);
   }
 
   const fbPrefix = firstPerson ? firstPerson.name : null;
@@ -149,6 +180,8 @@ async function regenerateCompany(company) {
   await populateWeeklyStorage(sheetId, 'Team Weekly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Weekly` : null);
   await sleep(2000);
   await populateMonthlyStorage(sheetId, 'Team Monthly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Monthly` : null);
+  await sleep(2000);
+  await populateQuarterlyStorage(sheetId, 'Team Quarterly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Quarterly` : null);
 
   console.log(`\n  ${companyName} — all messages regenerated and formulas applied`);
 }

@@ -6,6 +6,8 @@ const { generateEOW } = require('./reporting/generateEOW');
 const { archiveWeekly } = require('./reporting/archiveWeekly');
 const { generateEOM } = require('./reporting/generateEOM');
 const { archiveMonthly } = require('./reporting/archiveMonthly');
+const { generateEOQ } = require('./reporting/generateEOQ');
+const { archiveQuarterly } = require('./reporting/archiveQuarterly');
 const { generateEOY } = require('./reporting/generateEOY');
 const { archiveYearly } = require('./reporting/archiveYearly');
 const { generateMeetingDoc } = require('./reporting/generateMeetingDoc');
@@ -256,6 +258,62 @@ async function runCompanyEOM(company, year, month) {
 }
 
 /**
+ * Run EOQ for one company (send + archive).
+ */
+async function runCompanyEOQ(company, year, quarter) {
+  const tz = company.timezone || 'Australia/Sydney';
+  const today = todayInTz(tz);
+  const y = year || parseInt(today.split('-')[0]);
+  const todayMonth = parseInt(today.split('-')[1]);
+  const todayDay = parseInt(today.split('-')[2]);
+  // If no quarter specified, figure out the previous quarter
+  // (EOQ runs on 1st day of new quarter, so report the one that just ended)
+  const q = quarter || (todayDay <= 3 ? Math.ceil(todayMonth / 3) - 1 || 4 : Math.ceil(todayMonth / 3));
+  const actualYear = (!quarter && todayDay <= 3 && q === 4) ? y - 1 : y;
+
+  console.log(`[EOQ] ${company.name} — ${actualYear}-Q${q}`);
+
+  // Read Activity Log ONCE for all people
+  const activityData = await readTab(company.sheetId, 'Activity Log');
+
+  const activePeople = company.salesPeople.filter(p => p.active);
+
+  for (const person of activePeople) {
+    try {
+      const { message, counts } = await generateEOQ(
+        company.sheetId, person.name, actualYear, q, company.name, company.ownerName, activityData
+      );
+      if (!counts || Object.keys(counts).length === 0) continue;
+
+      await archiveQuarterly(company.sheetId, person.name, actualYear, q, message, counts, company.ownerName, company.name);
+      await sendReportToSlack(company, 'eoq', message).catch(e =>
+        console.error(`  Slack error: ${e.message}`)
+      );
+      const title = `EOQ - ${person.name} - ${actualYear}-Q${q}`;
+      await sendReportToClickUp(company, 'eoq', title, message, person.name).catch(e =>
+        console.error(`  ClickUp error: ${e.message}`)
+      );
+      console.log(`  ${person.name}: Done.`);
+    } catch (err) {
+      console.error(`  ${person.name}: ${err.message}`);
+    }
+  }
+
+  // Team EOQ
+  try {
+    const { message, counts } = await generateEOQ(
+      company.sheetId, 'Team', actualYear, q, company.name, company.ownerName, activityData
+    );
+    if (counts && Object.keys(counts).length > 0) {
+      await archiveQuarterly(company.sheetId, 'Team', actualYear, q, message, counts, company.ownerName, company.name);
+      await sendReportToSlack(company, 'eoq', message).catch(() => {});
+    }
+  } catch (err) {
+    console.error(`  Team: ${err.message}`);
+  }
+}
+
+/**
  * Run EOY for one company (send + archive).
  */
 async function runCompanyEOY(company, year) {
@@ -330,6 +388,14 @@ async function runAllEOM(year, month) {
   }
 }
 
+async function runAllEOQ(year, quarter) {
+  const { companies } = loadCompanies();
+  for (const company of companies) {
+    if (!company.sheetId) continue;
+    await runCompanyEOQ(company, year, quarter);
+  }
+}
+
 async function runAllEOY(year) {
   const { companies } = loadCompanies();
   for (const company of companies) {
@@ -371,6 +437,7 @@ if (require.main === module) {
     eod: () => runAllEOD(getArg('--date')),
     eow: () => runAllEOW(getArg('--start'), getArg('--end')),
     eom: () => runAllEOM(getArg('--year') ? parseInt(getArg('--year')) : null, getArg('--month') ? parseInt(getArg('--month')) : null),
+    eoq: () => runAllEOQ(getArg('--year') ? parseInt(getArg('--year')) : null, getArg('--quarter') ? parseInt(getArg('--quarter')) : null),
     eoy: () => runAllEOY(getArg('--year') ? parseInt(getArg('--year')) : null),
     meeting: () => runMeetingDoc(getArg('--start'), getArg('--end')),
   };
@@ -383,6 +450,7 @@ Commands:
   eod      Run EOD for all companies    [--date YYYY-MM-DD]
   eow      Run EOW for all companies    [--start YYYY-MM-DD --end YYYY-MM-DD]
   eom      Run EOM for all companies    [--year YYYY --month M]
+  eoq      Run EOQ for all companies    [--year YYYY --quarter Q]
   eoy      Run EOY for all companies    [--year YYYY]
   meeting  Generate weekly meeting doc  [--start YYYY-MM-DD --end YYYY-MM-DD]
 `);
@@ -398,7 +466,7 @@ Commands:
 module.exports = {
   sendCompanyEOD, archiveCompanyEOD,
   sendCompanyEOW, archiveCompanyEOW,
-  runCompanyEOM, runCompanyEOY,
-  runAllEOD, runAllEOW, runAllEOM, runAllEOY, runMeetingDoc,
+  runCompanyEOM, runCompanyEOQ, runCompanyEOY,
+  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runMeetingDoc,
   loadCompanies,
 };

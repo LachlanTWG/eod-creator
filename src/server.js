@@ -4,8 +4,8 @@ const cron = require('node-cron');
 const {
   sendCompanyEOD, archiveCompanyEOD,
   sendCompanyEOW, archiveCompanyEOW,
-  runCompanyEOM, runCompanyEOY,
-  runAllEOD, runAllEOW, runAllEOM, runAllEOY, runMeetingDoc,
+  runCompanyEOM, runCompanyEOQ, runCompanyEOY,
+  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runMeetingDoc,
   loadCompanies,
 } = require('./runReports');
 const { logActivity } = require('./sheets/logActivity');
@@ -66,13 +66,19 @@ function scheduleCompanyJobs() {
       runCompanyEOM(company).catch(e => console.error(`${name} EOM error:`, e.message));
     }, { timezone: tz }));
 
+    // EOQ — 1st of Jan, Apr, Jul, Oct at 9am
+    scheduledJobs.push(cron.schedule('0 9 1 1,4,7,10 *', () => {
+      console.log(`[${new Date().toISOString()}] EOQ: ${name} (${tz})`);
+      runCompanyEOQ(company).catch(e => console.error(`${name} EOQ error:`, e.message));
+    }, { timezone: tz }));
+
     // EOY — January 2nd at 9am
     scheduledJobs.push(cron.schedule('0 9 2 1 *', () => {
       console.log(`[${new Date().toISOString()}] EOY: ${name} (${tz})`);
       runCompanyEOY(company).catch(e => console.error(`${name} EOY error:`, e.message));
     }, { timezone: tz }));
 
-    console.log(`  ${name}: 6 jobs scheduled (tz: ${tz})`);
+    console.log(`  ${name}: 7 jobs scheduled (tz: ${tz})`);
   }
 }
 
@@ -416,6 +422,7 @@ const server = http.createServer(async (req, res) => {
     '/webhook/eod': () => runAllEOD(body.date),
     '/webhook/eow': () => runAllEOW(body.startDate, body.endDate),
     '/webhook/eom': () => runAllEOM(body.year, body.month),
+    '/webhook/eoq': () => runAllEOQ(body.year, body.quarter),
     '/webhook/eoy': () => runAllEOY(body.year),
     '/webhook/meeting': () => runMeetingDoc(body.startDate, body.endDate),
   };
@@ -428,7 +435,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Per-company webhook: /webhook/eod/Bolton%20EC
-  const perCompanyMatch = pathname.match(/^\/webhook\/(eod|eow|eom|eoy)\/(send|archive)?\/?(.*)?$/);
+  const perCompanyMatch = pathname.match(/^\/webhook\/(eod|eow|eom|eoq|eoy)\/(send|archive)?\/?(.*)?$/);
   if (perCompanyMatch) {
     const [, reportType, mode, companySlug] = perCompanyMatch;
     if (companySlug) {
@@ -452,6 +459,7 @@ const server = http.createServer(async (req, res) => {
                    mode === 'send' ? sendCompanyEOW(company) :
                    sendCompanyEOW(company).then(() => archiveCompanyEOW(company)),
         eom: () => runCompanyEOM(company, body.year, body.month),
+        eoq: () => runCompanyEOQ(company, body.year, body.quarter),
         eoy: () => runCompanyEOY(company, body.year),
       };
       handlers[reportType]().catch(e => console.error(`Webhook error:`, e.message));
@@ -478,6 +486,7 @@ const server = http.createServer(async (req, res) => {
         'EOW Send': '5:30pm local (Friday)',
         'EOW Archive': '11:55pm AEST (Friday)',
         'EOM': '1st of month, 9am local',
+        'EOQ': '1st of Jan/Apr/Jul/Oct, 9am local',
         'EOY': 'Jan 2, 9am local',
         'Meeting Doc': 'Friday 6pm AEST',
       },
@@ -505,6 +514,7 @@ function start() {
     console.log(`  POST /webhook/eod                          — All companies`);
     console.log(`  POST /webhook/eow                          — All companies`);
     console.log(`  POST /webhook/eom                          — All companies`);
+    console.log(`  POST /webhook/eoq                          — All companies`);
     console.log(`  POST /webhook/eoy                          — All companies`);
     console.log(`  POST /webhook/meeting                      — Meeting doc`);
     console.log(`  POST /webhook/ghl/eod                      — GHL EOD Update`);

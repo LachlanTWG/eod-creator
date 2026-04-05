@@ -980,6 +980,162 @@ async function populateMonthlyStorage(spreadsheetId, tabName, personName, compan
   console.log(`  Populated ${tabName} with ${monthData.length} rows of live formulas`);
 }
 
+// ─── Quarterly Storage Formula Builders ──────────────────────────────
+
+function quarterlyStorageCount(o, row, person, isTeam, colMap) {
+  // Quarter string in A column: "2026-Q1"
+  // Parse to get start/end dates: Q1=Jan-Mar, Q2=Apr-Jun, Q3=Jul-Sep, Q4=Oct-Dec
+  const qStart = `DATE(LEFT(A${row},4),(MATCH(RIGHT(A${row},1),{"1","2","3","4"},0)-1)*3+1,1)`;
+  const qEnd = `EOMONTH(${qStart},2)`;
+
+  if (o.computed) {
+    if (o.computed.startsWith('=')) {
+      const ac = colMap['Answered'], dc = colMap["Didn't Answer"];
+      return (ac && dc) ? `=${ac}${row}+${dc}${row}` : '';
+    }
+    if (o.computed === 'hidden') return '';
+    if (o.computed === 'pipeline') {
+      const nd = numDate(`${AL}!A2:A${RN}`);
+      const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
+      const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      return `=IFERROR(SUM(MAP(FILTER(${col('G')},${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
+    }
+    if (o.computed === 'totalQuotes') {
+      const nd = numDate(`${AL}!A2:A${RN}`);
+      const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
+      const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      return `=IFERROR(LET(vals,FILTER(${col('G')},${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
+    }
+    return '';
+  }
+
+  const nd = numDate(`${AL}!A2:A${RN}`);
+  const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
+  const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
+  const sp = `(${nd}>=${n1})*(${nd}<=${n2})`;
+  const pp = isTeam ? '' : `*(${col('B')}="${person}")`;
+
+  if (o.eventType) {
+    return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="${o.eventType}"))`;
+  }
+
+  return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="EOD Update")*(ISNUMBER(SEARCH("${o.search}",${col('E')}))))`;
+}
+
+function quarterlyRevenueFormula(row, person, isTeam) {
+  const qStart = `DATE(LEFT(A${row},4),(MATCH(RIGHT(A${row},1),{"1","2","3","4"},0)-1)*3+1,1)`;
+  const qEnd = `EOMONTH(${qStart},2)`;
+  const nd = numDate(`${AL}!A2:A${RN}`);
+  const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
+  const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
+  const df = `${nd}>=${n1},${nd}<=${n2}`;
+  const pf = isTeam ? '' : `,${col('B')}="${person}"`;
+  return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${col('G')},${df}${pf},${col('D')}="Job Won"),"$",""),",","")))),"")`;
+}
+
+function buildQuarterlyStorageRow(quarterStr, rowNum, personName, companyName, ownerName, isTeam, message) {
+  const { blocks } = loadConfig(companyName);
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
+  const computedEntries = computedBlock ? computedBlock.computed : [];
+
+  const colMap = {};
+  for (let i = 0; i < defs.length; i++) {
+    colMap[defs[i].name] = getColLetter(2 + i);
+  }
+
+  const row = [quarterStr, message || ''];
+  for (const def of defs) {
+    row.push(quarterlyStorageCount(def, rowNum, personName, isTeam, colMap));
+  }
+  for (const comp of computedEntries) {
+    row.push(storageEfficiencyFormula(comp, colMap, rowNum));
+  }
+  row.push(quarterlyRevenueFormula(rowNum, personName, isTeam));
+  return row;
+}
+
+async function populateQuarterlyStorage(spreadsheetId, tabName, personName, companyName, ownerName, isTeam, fallbackTabName) {
+  const { blocks } = loadConfig(companyName);
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const outcomeNames = defs.map(d => d.name);
+  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
+  const computedEntries = computedBlock ? computedBlock.computed : [];
+
+  // Read existing data (quarters + messages) from current storage
+  let allRows = await readTab(spreadsheetId, tabName);
+  let quarterData = allRows.slice(1).filter(r => r[0]).map(r => ({
+    quarter: r[0],
+    message: r[1] || '',
+  }));
+
+  // For Team tabs, derive quarters from individual tab if empty
+  if (quarterData.length === 0 && fallbackTabName) {
+    const fbRows = await readTab(spreadsheetId, fallbackTabName);
+    quarterData = fbRows.slice(1).filter(r => r[0]).map(r => ({
+      quarter: r[0],
+      message: '',
+    }));
+  }
+
+  // Scan Activity Log for all quarters with data for this person
+  const actRows = await readTab(spreadsheetId, 'Activity Log');
+  const actQuarters = new Set();
+  for (const row of actRows.slice(1)) {
+    const d = row[0] || '';
+    if (!d) continue;
+    if (!isTeam && row[1] !== personName) continue;
+    const dateStr = parseSerialDate(d);
+    const month = parseInt(dateStr.substring(5, 7));
+    const year = dateStr.substring(0, 4);
+    const q = Math.ceil(month / 3);
+    actQuarters.add(`${year}-Q${q}`);
+  }
+
+  // Merge: add any Activity Log quarters not already in existing data
+  const existingQuarterSet = new Set(quarterData.map(q => q.quarter));
+  for (const q of actQuarters) {
+    if (!existingQuarterSet.has(q)) {
+      quarterData.push({ quarter: q, message: '' });
+    }
+  }
+
+  // Deduplicate
+  const seenQuarters = new Set();
+  quarterData = quarterData.filter(q => {
+    if (seenQuarters.has(q.quarter)) return false;
+    seenQuarters.add(q.quarter);
+    return true;
+  });
+
+  // Sort by quarter
+  quarterData.sort((a, b) => a.quarter.localeCompare(b.quarter));
+
+  if (quarterData.length === 0) {
+    console.log(`  No quarters found in ${tabName}, skipping.`);
+    return;
+  }
+
+  // Build header
+  const header = ['Quarter', 'Message'];
+  for (const name of outcomeNames) header.push(name);
+  for (const comp of computedEntries) header.push(comp.name);
+  header.push('Total Revenue');
+
+  // Build formula rows, preserving existing messages
+  const grid = [header];
+  for (let i = 0; i < quarterData.length; i++) {
+    grid.push(buildQuarterlyStorageRow(quarterData[i].quarter, i + 2, personName, companyName, ownerName, isTeam, quarterData[i].message));
+  }
+
+  const lastCol = getColLetter(2 + defs.length + computedEntries.length);
+  await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(quarterData.length + 10, 500)}`);
+  await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
+  console.log(`  Populated ${tabName} with ${quarterData.length} rows of live formulas`);
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────────
 
 async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesPeople) {
@@ -998,6 +1154,7 @@ async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesP
     await populateDailyStorage(spreadsheetId, `${person.name} Daily`, person.name, companyName, ownerName, false);
     await populateWeeklyStorage(spreadsheetId, `${person.name} Weekly`, person.name, companyName, ownerName, false);
     await populateMonthlyStorage(spreadsheetId, `${person.name} Monthly`, person.name, companyName, ownerName, false);
+    await populateQuarterlyStorage(spreadsheetId, `${person.name} Quarterly`, person.name, companyName, ownerName, false);
   }
 
   await populateEODTab(spreadsheetId, 'Team EOD', 'Team', companyName, ownerName, true);
@@ -1005,13 +1162,14 @@ async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesP
   await populateDailyStorage(spreadsheetId, 'Team Daily', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Daily` : null);
   await populateWeeklyStorage(spreadsheetId, 'Team Weekly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Weekly` : null);
   await populateMonthlyStorage(spreadsheetId, 'Team Monthly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Monthly` : null);
+  await populateQuarterlyStorage(spreadsheetId, 'Team Quarterly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Quarterly` : null);
 
   console.log('All formula tabs populated.');
 }
 
 module.exports = {
   populateAllFormulas, populateEODTab, populateEOWTab,
-  populateDailyStorage, populateWeeklyStorage, populateMonthlyStorage,
-  buildDailyStorageRow, buildWeeklyStorageRow, buildMonthlyStorageRow,
+  populateDailyStorage, populateWeeklyStorage, populateMonthlyStorage, populateQuarterlyStorage,
+  buildDailyStorageRow, buildWeeklyStorageRow, buildMonthlyStorageRow, buildQuarterlyStorageRow,
   getOutcomeDefs, getColLetter,
 };
