@@ -44,13 +44,6 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     }
 
     case 6: {
-      if (weeklyData.quoteDetails && weeklyData.quoteDetails.length > 0) {
-        const lines = weeklyData.quoteDetails.map(q => {
-          const valStr = q.values.map(v => formatDollar(v)).join(', ');
-          return `• ${q.contactName} - ${q.values.length} - (${valStr})`;
-        });
-        return lines.join('\n');
-      }
       const quoteCount = weeklyCounts[outcomeName] || 0;
       if (quoteCount === 0) return null;
       return `• ${outcomeName}: ${quoteCount}`;
