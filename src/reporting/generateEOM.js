@@ -2,6 +2,7 @@ const { readTab } = require('../sheets/readSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { calcEfficiencyRates } = require('./generateEOW');
 const { loadConfig } = require('../config/configLoader');
+const { resolveLeadSource } = require('./generateEOD');
 
 function formatMonth(year, month) {
   const months = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -27,55 +28,111 @@ function formatDollar(value) {
 }
 
 /**
- * Generate EOM report by aggregating weekly storage data for a given month.
+ * Generate EOM report by reading directly from Activity Log with exact month boundaries.
  */
 async function generateEOM(spreadsheetId, salesPerson, year, month, companyName, ownerName) {
-  const weeklyTab = salesPerson === 'Team' ? 'Team Weekly' : `${salesPerson} Weekly`;
-  const allRows = await readTab(spreadsheetId, weeklyTab);
-
-  if (allRows.length < 2) {
-    return { message: 'No weekly data found.', counts: {}, efficiencyRates: {} };
-  }
-
-  const dataRows = allRows.slice(1);
   const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
   const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`;
 
-  const monthRows = dataRows.filter(row => {
-    const weekStart = row[0];
-    const weekEnd = row[1];
-    return weekEnd >= monthStart && weekStart < nextMonth;
+  // Read Activity Log directly for exact month boundaries
+  const activityRows = await readTab(spreadsheetId, 'Activity Log');
+  if (activityRows.length < 2) {
+    return { message: `No data found for ${formatMonth(year, month)}.`, counts: {}, efficiencyRates: {} };
+  }
+
+  const headers = activityRows[0];
+  const allParsed = activityRows.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+    return obj;
+  });
+
+  // Filter Activity Log rows for this month and person
+  const monthRows = activityRows.slice(1).filter(row => {
+    const rowDate = row[0] || '';
+    if (rowDate < monthStart || rowDate >= nextMonth) return false;
+    if (salesPerson !== 'Team' && row[1] !== salesPerson) return false;
+    return true;
   });
 
   if (monthRows.length === 0) {
-    return { message: `No weekly data found for ${formatMonth(year, month)}.`, counts: {}, efficiencyRates: {} };
+    return { message: `No data found for ${formatMonth(year, month)}.`, counts: {}, efficiencyRates: {} };
   }
 
+  // Count outcomes from Activity Log
+  const { outcomes, formulas } = loadConfig(companyName);
   const outcomeNames = getOutcomeNames(ownerName, companyName);
   const monthlyCounts = {};
   for (const name of outcomeNames) {
     monthlyCounts[name] = 0;
   }
 
+  // Collect Job Won details, site visits, quote details
+  const jobDetails = [];
+  let totalQuoteValues = 0;
+  let totalIndividualQuotes = 0;
+
   for (const row of monthRows) {
-    let colIdx = 3;
-    for (const name of outcomeNames) {
-      const countVal = parseInt(row[colIdx] || '0', 10);
-      if (!isNaN(countVal)) {
-        monthlyCounts[name] += countVal;
+    const eventType = row[3] || '';
+    const outcome = row[4] || '';
+
+    if (eventType === 'EOD Update') {
+      // Parse outcome: "LeadType | AnswerStatus | Action | Notes | Source"
+      for (const o of outcomes.outcomes) {
+        const name = o.name.replace('{owner}', ownerName);
+        if (!(name in monthlyCounts)) continue;
+
+        switch (o.category) {
+          case 'leadType':
+            if (outcome.startsWith(`${name} |`)) monthlyCounts[name]++;
+            break;
+          case 'answerStatus':
+            if (outcome.includes(`| ${name} |`)) monthlyCounts[name]++;
+            break;
+          case 'source':
+            if (outcome.includes(`| ${name}`)) monthlyCounts[name]++;
+            break;
+          default:
+            // action, lost, abandoned, dq, etc.
+            if (outcome.includes(`| ${name} |`) || outcome.includes(`| ${name}`)) monthlyCounts[name]++;
+            break;
+        }
       }
-      colIdx++;
+    } else if (eventType === 'Job Won') {
+      monthlyCounts['Job Won'] = (monthlyCounts['Job Won'] || 0) + 1;
+      const valStr = (row[6] || '').replace(/[$,\s]/g, '');
+      let source = row[5] || '';
+      if (!source) source = resolveLeadSource(row[2], row[8], allParsed);
+      jobDetails.push({
+        contactName: row[2] || '',
+        address: (row[7] || '').replace(/,\s*$/, '').trim(),
+        value: parseFloat(valStr) || 0,
+        source,
+      });
+    } else if (eventType === 'Quote Sent') {
+      monthlyCounts['Quote Sent'] = (monthlyCounts['Quote Sent'] || 0) + 1;
+      // Count individual quotes and pipeline value from column G (pipe-separated values)
+      const valField = (row[6] || '').replace(/[$\s]/g, '');
+      if (valField) {
+        const parts = valField.split('|').map(v => parseFloat(v.replace(/,/g, '')) || 0);
+        totalIndividualQuotes += parts.length;
+        const avg = parts.reduce((s, v) => s + v, 0) / parts.length;
+        totalQuoteValues += avg;
+      }
+    } else if (eventType === 'Site Visit Booked') {
+      monthlyCounts['Site Visit Booked'] = (monthlyCounts['Site Visit Booked'] || 0) + 1;
     }
   }
 
-  // Recompute totals
+  // Set computed counts
   const totalAnswered = (monthlyCounts['Answered'] || 0) + (monthlyCounts["Didn't Answer"] || 0);
   if ('Total Calls' in monthlyCounts) monthlyCounts['Total Calls'] = totalAnswered;
   if ('Total Contact Attempts' in monthlyCounts) monthlyCounts['Total Contact Attempts'] = totalAnswered;
+  if ('Pipeline Value' in monthlyCounts) monthlyCounts['Pipeline Value'] = totalQuoteValues;
+  if ('Total Individual Quotes' in monthlyCounts) monthlyCounts['Total Individual Quotes'] = totalIndividualQuotes;
 
   const efficiencyRates = calcEfficiencyRates(monthlyCounts, companyName);
   const topSources = getTopSources(monthlyCounts, companyName);
-  const { outcomes } = loadConfig(companyName);
 
   // Determine what metrics exist for this company
   const has = (name) => outcomeNames.includes(name) || (monthlyCounts[name] !== undefined);
@@ -105,7 +162,17 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     lines.push(`Quotes Sent: ${monthlyCounts['Quote Sent'] || 0} (${monthlyCounts['Total Individual Quotes'] || 0} individual)`);
     lines.push(`Pipeline Value: ${formatDollar(monthlyCounts['Pipeline Value'] || 0)}`);
     if (has('Site Visit Booked')) lines.push(`Site Visits: ${monthlyCounts['Site Visit Booked'] || 0}`);
-    if (has('Job Won')) lines.push(`Jobs Won: ${monthlyCounts['Job Won'] || 0}`);
+    if (has('Job Won')) {
+      const jobCount = jobDetails.length > 0 ? jobDetails.length : (monthlyCounts['Job Won'] || 0);
+      lines.push(`Jobs Won: ${jobCount}`);
+      if (jobDetails.length > 0) {
+        for (const j of jobDetails) {
+          lines.push(`• ${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`);
+        }
+        const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
+        lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
+      }
+    }
   }
 
   // Agency-specific metrics
@@ -117,7 +184,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     if (has('Deal Closed')) lines.push(`Deals Closed: ${monthlyCounts['Deal Closed'] || 0}`);
   }
 
-  // Efficiency rates (dynamic from config)
+  // Efficiency rates
   if (Object.keys(efficiencyRates).length > 0) {
     lines.push('');
     lines.push(`⚡ Efficiency Rates`);
@@ -134,7 +201,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     }
   }
 
-  // Attrition (dynamic — sum all lost/abandoned/dq categories)
+  // Attrition
   const lostOutcomes = outcomes.outcomes.filter(o => o.category === 'lost');
   const abandonedOutcomes = outcomes.outcomes.filter(o => o.category === 'abandoned');
   const dqOutcomes = outcomes.outcomes.filter(o => o.category === 'dq');

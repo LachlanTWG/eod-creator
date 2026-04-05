@@ -1,21 +1,20 @@
 const { appendRows } = require('../sheets/writeSheet');
 const { writeSheet } = require('../sheets/writeSheet');
-const { getOutcomeNames } = require('../sheets/createCompanySheet');
+const { readTab } = require('../sheets/readSheet');
+const { buildDailyStorageRow } = require('../sheets/populateFormulas');
 
 /**
- * Archive an EOD snapshot to the Daily Storage tab.
+ * Archive an EOD snapshot to the Daily Storage tab using live formulas.
  */
 async function archiveDaily(spreadsheetId, salesPerson, date, message, counts, names, ownerName, companyName) {
   const tabName = salesPerson === 'Team' ? 'Team Daily' : `${salesPerson} Daily`;
-  const outcomeNames = getOutcomeNames(ownerName, companyName);
+  const isTeam = salesPerson === 'Team';
 
-  const row = [date, message];
-  for (const name of outcomeNames) {
-    row.push(String(counts[name] || 0));
-    const contactNames = names[name] || [];
-    row.push(contactNames.join(', '));
-  }
+  // Determine the row number for the new row
+  const existing = await readTab(spreadsheetId, tabName);
+  const newRowNum = existing.length + 1;
 
+  const row = buildDailyStorageRow(date, newRowNum, salesPerson, companyName, ownerName, isTeam, message);
   await appendRows(spreadsheetId, tabName, [row]);
 
   // Update the "Last Generated" field on the EOD config tab
@@ -24,7 +23,7 @@ async function archiveDaily(spreadsheetId, salesPerson, date, message, counts, n
   const now = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney' });
   await writeSheet(spreadsheetId, `'${eodTab}'!B${lastGenRow}`, [[now]]);
 
-  console.log(`Archived daily data for ${salesPerson} on ${date} to "${tabName}".`);
+  console.log(`Archived daily data for ${salesPerson} on ${date} to "${tabName}" (formula row ${newRowNum}).`);
 }
 
 module.exports = { archiveDaily };

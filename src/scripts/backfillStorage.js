@@ -1,0 +1,161 @@
+/**
+ * Backfill Daily, Weekly, and Monthly storage tabs for Lachlan @ Bolton EC.
+ * Must be run AFTER the Activity Log has been populated (backfillBolton.js).
+ *
+ * Order matters: Daily → Weekly → Monthly (each level reads from the previous).
+ */
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
+
+const { generateEOD } = require('../reporting/generateEOD');
+const { archiveDaily } = require('../reporting/archiveDaily');
+const { generateEOW } = require('../reporting/generateEOW');
+const { archiveWeekly } = require('../reporting/archiveWeekly');
+const { generateEOM } = require('../reporting/generateEOM');
+const { archiveMonthly } = require('../reporting/archiveMonthly');
+
+const SHEET_ID = '1MMJvJPgx5BStabEcOjd2Uphcp9NASPkvDhlXqjWkR0c';
+const COMPANY_NAME = 'Bolton EC';
+const OWNER_NAME = 'Jed';
+const SALES_PERSON = 'Lachlan';
+const DELAY_MS = 1500;
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/**
+ * Get all dates between start and end (inclusive), skipping weekends.
+ */
+function getWeekdaysBetween(startStr, endStr) {
+  const dates = [];
+  const d = new Date(startStr + 'T12:00:00Z');
+  const end = new Date(endStr + 'T12:00:00Z');
+  while (d <= end) {
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) { // skip weekends
+      dates.push(d.toISOString().split('T')[0]);
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return dates;
+}
+
+/**
+ * Get Monday-Friday week ranges that overlap a date range.
+ */
+function getWeekRanges(startStr, endStr) {
+  const weeks = [];
+  const seen = new Set();
+  const d = new Date(startStr + 'T12:00:00Z');
+  const end = new Date(endStr + 'T12:00:00Z');
+
+  while (d <= end) {
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(d);
+    monday.setDate(monday.getDate() + diff);
+    const friday = new Date(monday);
+    friday.setDate(friday.getDate() + 4);
+
+    const monStr = monday.toISOString().split('T')[0];
+    if (!seen.has(monStr)) {
+      seen.add(monStr);
+      weeks.push({
+        start: monStr,
+        end: friday.toISOString().split('T')[0],
+      });
+    }
+    d.setDate(d.getDate() + 7);
+  }
+  return weeks;
+}
+
+/**
+ * Get months that overlap a date range.
+ */
+function getMonths(startStr, endStr) {
+  const months = [];
+  const startParts = startStr.split('-');
+  const endParts = endStr.split('-');
+  let y = parseInt(startParts[0]);
+  let m = parseInt(startParts[1]);
+  const endY = parseInt(endParts[0]);
+  const endM = parseInt(endParts[1]);
+
+  while (y < endY || (y === endY && m <= endM)) {
+    months.push({ year: y, month: m });
+    m++;
+    if (m > 12) { m = 1; y++; }
+  }
+  return months;
+}
+
+async function main() {
+  const START_DATE = process.argv[2] || '2026-01-21';
+  const END_DATE = process.argv[3] || '2026-04-04';
+
+  // ─── Phase 1: Daily Archives ───────────────────────────────────────
+  const weekdays = getWeekdaysBetween(START_DATE, END_DATE);
+  console.log(`\n=== PHASE 1: Daily Archives (${weekdays.length} days) ===\n`);
+
+  for (let i = 0; i < weekdays.length; i++) {
+    const date = weekdays[i];
+    try {
+      const { message, counts, names } = await generateEOD(
+        SHEET_ID, SALES_PERSON, date, COMPANY_NAME, OWNER_NAME
+      );
+      await archiveDaily(SHEET_ID, SALES_PERSON, date, message, counts || {}, names || {}, OWNER_NAME, COMPANY_NAME);
+      process.stdout.write(`  [${i + 1}/${weekdays.length}] ${date} ✓\n`);
+    } catch (err) {
+      console.error(`  [${i + 1}/${weekdays.length}] ${date} FAILED: ${err.message}`);
+    }
+    await sleep(DELAY_MS);
+  }
+
+  console.log(`\nDaily archives done. Waiting 5s before weekly...\n`);
+  await sleep(5000);
+
+  // ─── Phase 2: Weekly Archives ──────────────────────────────────────
+  const weeks = getWeekRanges(START_DATE, END_DATE);
+  console.log(`=== PHASE 2: Weekly Archives (${weeks.length} weeks) ===\n`);
+
+  for (let i = 0; i < weeks.length; i++) {
+    const { start, end } = weeks[i];
+    try {
+      const { message, counts, efficiencyRates } = await generateEOW(
+        SHEET_ID, SALES_PERSON, start, end, COMPANY_NAME, OWNER_NAME
+      );
+      await archiveWeekly(SHEET_ID, SALES_PERSON, start, end, message, counts || {}, efficiencyRates || {}, OWNER_NAME, COMPANY_NAME);
+      process.stdout.write(`  [${i + 1}/${weeks.length}] ${start} to ${end} ✓\n`);
+    } catch (err) {
+      console.error(`  [${i + 1}/${weeks.length}] ${start} to ${end} FAILED: ${err.message}`);
+    }
+    await sleep(DELAY_MS);
+  }
+
+  console.log(`\nWeekly archives done. Waiting 5s before monthly...\n`);
+  await sleep(5000);
+
+  // ─── Phase 3: Monthly Archives ─────────────────────────────────────
+  const months = getMonths(START_DATE, END_DATE);
+  console.log(`=== PHASE 3: Monthly Archives (${months.length} months) ===\n`);
+
+  for (let i = 0; i < months.length; i++) {
+    const { year, month } = months[i];
+    try {
+      const { message, counts, efficiencyRates } = await generateEOM(
+        SHEET_ID, SALES_PERSON, year, month, COMPANY_NAME, OWNER_NAME
+      );
+      await archiveMonthly(SHEET_ID, SALES_PERSON, year, month, message, counts || {}, efficiencyRates || {}, OWNER_NAME, COMPANY_NAME);
+      process.stdout.write(`  [${i + 1}/${months.length}] ${year}-${String(month).padStart(2, '0')} ✓\n`);
+    } catch (err) {
+      console.error(`  [${i + 1}/${months.length}] ${year}-${String(month).padStart(2, '0')} FAILED: ${err.message}`);
+    }
+    await sleep(DELAY_MS);
+  }
+
+  console.log('\n=== All storage backfill complete ===');
+}
+
+main().catch(err => {
+  console.error('Fatal:', err.message);
+  process.exit(1);
+});

@@ -1,4 +1,5 @@
 const { writeSheet, clearRange } = require('./writeSheet');
+const { readTab } = require('./readSheet');
 const { loadConfig } = require('../config/configLoader');
 
 const AL = "'Activity Log'";
@@ -471,21 +472,467 @@ async function populateEOWTab(spreadsheetId, tabName, personName, companyName, o
   console.log(`  Populated ${tabName} with live formulas`);
 }
 
+// ─── Storage Tab Helpers ─────────────────────────────────────────────
+
+function getColLetter(idx) {
+  let n = idx;
+  let letter = '';
+  while (n >= 0) {
+    letter = String.fromCharCode(65 + (n % 26)) + letter;
+    n = Math.floor(n / 26) - 1;
+  }
+  return letter;
+}
+
+function parseSerialDate(val) {
+  if (/^\d{4,5}$/.test(val)) {
+    return new Date((parseInt(val) - 25569) * 86400000).toISOString().split('T')[0];
+  }
+  return val;
+}
+
+// ─── Daily Storage Formula Builders ──────────────────────────────────
+
+function dailyStorageCount(o, row, person, isTeam, colMap) {
+  if (o.computed) {
+    if (o.computed.startsWith('=')) {
+      const ac = colMap['Answered'], dc = colMap["Didn't Answer"];
+      return (ac && dc) ? `=${ac}${row}+${dc}${row}` : '';
+    }
+    if (o.computed === 'hidden') return '';
+    if (o.computed === 'pipeline') {
+      const td = `TEXT(A${row},"yyyy-mm-dd")`;
+      const f = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}${isTeam ? '' : `,${AL}!B:B="${person}"`},${AL}!D:D="Quote Sent"`;
+      return `=IFERROR(SUM(MAP(FILTER(${AL}!G:G,${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
+    }
+    if (o.computed === 'totalQuotes') {
+      const td = `TEXT(A${row},"yyyy-mm-dd")`;
+      const f = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}${isTeam ? '' : `,${AL}!B:B="${person}"`},${AL}!D:D="Quote Sent"`;
+      return `=IFERROR(LET(vals,FILTER(${AL}!G:G,${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
+    }
+    return '';
+  }
+
+  const td = `TEXT(A${row},"yyyy-mm-dd")`;
+  const dc = `${AL}!A:A,${td}`;
+  const pc = isTeam ? '' : `,${AL}!B:B,"${person}"`;
+
+  if (o.eventType) {
+    return `=COUNTIFS(${dc}${pc},${AL}!D:D,"${o.eventType}")`;
+  }
+
+  const wc = o.wild === 'start' ? `${o.search}*` :
+             o.wild === 'contains' ? `*${o.search}*` : `*${o.search}`;
+  return `=COUNTIFS(${dc}${pc},${AL}!D:D,"EOD Update",${AL}!E:E,"${wc}")`;
+}
+
+function dailyStorageNames(o, row, person, isTeam) {
+  if (o.computed) return '';
+
+  const td = `TEXT(A${row},"yyyy-mm-dd")`;
+  const df = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}`;
+  const pf = isTeam ? '' : `,${AL}!B:B="${person}"`;
+
+  if (o.eventType) {
+    return `=IFERROR(TEXTJOIN(", ",TRUE,FILTER(${AL}!C:C,${df}${pf},${AL}!D:D="${o.eventType}")),"")`;
+  }
+
+  return `=IFERROR(TEXTJOIN(", ",TRUE,FILTER(${AL}!C:C,${df}${pf},${AL}!D:D="EOD Update",ISNUMBER(SEARCH("${o.search}",${AL}!E:E)))),"")`;
+}
+
+// ─── Weekly Storage Formula Builders ─────────────────────────────────
+
+function weeklyStorageCount(o, row, person, isTeam, colMap) {
+  if (o.computed) {
+    if (o.computed.startsWith('=')) {
+      const ac = colMap['Answered'], dc = colMap["Didn't Answer"];
+      return (ac && dc) ? `=${ac}${row}+${dc}${row}` : '';
+    }
+    if (o.computed === 'hidden') return '';
+    if (o.computed === 'pipeline') {
+      const nd = numDate(`${AL}!A2:A${RN}`);
+      const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
+      const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      return `=IFERROR(SUM(MAP(FILTER(${col('G')},${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
+    }
+    if (o.computed === 'totalQuotes') {
+      const nd = numDate(`${AL}!A2:A${RN}`);
+      const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
+      const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      return `=IFERROR(LET(vals,FILTER(${col('G')},${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
+    }
+    return '';
+  }
+
+  const nd = numDate(`${AL}!A2:A${RN}`);
+  const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
+  const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
+  const sp = `(${nd}>=${n1})*(${nd}<=${n2})`;
+  const pp = isTeam ? '' : `*(${col('B')}="${person}")`;
+
+  if (o.eventType) {
+    return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="${o.eventType}"))`;
+  }
+
+  return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="EOD Update")*(ISNUMBER(SEARCH("${o.search}",${col('E')}))))`;
+}
+
+// ─── Monthly Storage Formula Builders ────────────────────────────────
+
+function monthlyStorageCount(o, row, person, isTeam, colMap) {
+  const mStart = `DATE(LEFT(A${row},4),MID(A${row},6,2),1)`;
+  const mEnd = `EOMONTH(${mStart},0)`;
+
+  if (o.computed) {
+    if (o.computed.startsWith('=')) {
+      const ac = colMap['Answered'], dc = colMap["Didn't Answer"];
+      return (ac && dc) ? `=${ac}${row}+${dc}${row}` : '';
+    }
+    if (o.computed === 'hidden') return '';
+    if (o.computed === 'pipeline') {
+      const nd = numDate(`${AL}!A2:A${RN}`);
+      const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
+      const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      return `=IFERROR(SUM(MAP(FILTER(${col('G')},${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
+    }
+    if (o.computed === 'totalQuotes') {
+      const nd = numDate(`${AL}!A2:A${RN}`);
+      const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
+      const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      return `=IFERROR(LET(vals,FILTER(${col('G')},${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
+    }
+    return '';
+  }
+
+  const nd = numDate(`${AL}!A2:A${RN}`);
+  const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
+  const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
+  const sp = `(${nd}>=${n1})*(${nd}<=${n2})`;
+  const pp = isTeam ? '' : `*(${col('B')}="${person}")`;
+
+  if (o.eventType) {
+    return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="${o.eventType}"))`;
+  }
+
+  return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="EOD Update")*(ISNUMBER(SEARCH("${o.search}",${col('E')}))))`;
+}
+
+// ─── Storage Revenue Formula ─────────────────────────────────────────
+
+function dailyRevenueFormula(row, person, isTeam) {
+  const td = `TEXT(A${row},"yyyy-mm-dd")`;
+  const df = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}`;
+  const pf = isTeam ? '' : `,${AL}!B:B="${person}"`;
+  return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${AL}!G:G,${df}${pf},${AL}!D:D="Job Won"),"$",""),",","")))),"")`;
+}
+
+function weeklyRevenueFormula(row, person, isTeam) {
+  const nd = numDate(`${AL}!A2:A${RN}`);
+  const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
+  const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
+  const df = `${nd}>=${n1},${nd}<=${n2}`;
+  const pf = isTeam ? '' : `,${col('B')}="${person}"`;
+  return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${col('G')},${df}${pf},${col('D')}="Job Won"),"$",""),",","")))),"")`;
+}
+
+function monthlyRevenueFormula(row, person, isTeam) {
+  const mStart = `DATE(LEFT(A${row},4),MID(A${row},6,2),1)`;
+  const mEnd = `EOMONTH(${mStart},0)`;
+  const nd = numDate(`${AL}!A2:A${RN}`);
+  const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
+  const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
+  const df = `${nd}>=${n1},${nd}<=${n2}`;
+  const pf = isTeam ? '' : `,${col('B')}="${person}"`;
+  return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${col('G')},${df}${pf},${col('D')}="Job Won"),"$",""),",","")))),"")`;
+}
+
+// ─── Storage Efficiency Rate Formula ─────────────────────────────────
+
+function storageEfficiencyFormula(comp, colMap, row) {
+  const match = comp.formula.match(/^\(?(.*?)\)?\s*\/\s*(.*?)\s*\*\s*100$/);
+  if (!match) return '0';
+
+  const numExpr = match[1].trim();
+  const denomName = match[2].trim();
+  const denomCol = colMap[denomName];
+  if (!denomCol) return '0';
+
+  const numParts = numExpr.split('+').map(s => s.trim());
+  const numCells = numParts.map(p => colMap[p] ? `${colMap[p]}${row}` : null).filter(Boolean);
+  if (numCells.length === 0) return '0';
+
+  const numSum = numCells.length === 1 ? numCells[0] : numCells.join('+');
+  return `=IFERROR(ROUND((${numSum})/${denomCol}${row}*100),0)`;
+}
+
+// ─── Storage Row Builders (for archive functions) ────────────────────
+
+function buildDailyStorageRow(date, rowNum, personName, companyName, ownerName, isTeam, message) {
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const colMap = {};
+  for (let i = 0; i < defs.length; i++) {
+    colMap[defs[i].name] = getColLetter(2 + 2 * i);
+  }
+  const row = [date, message || ''];
+  for (const def of defs) {
+    row.push(
+      dailyStorageCount(def, rowNum, personName, isTeam, colMap),
+      dailyStorageNames(def, rowNum, personName, isTeam)
+    );
+  }
+  row.push(dailyRevenueFormula(rowNum, personName, isTeam));
+  return row;
+}
+
+function buildWeeklyStorageRow(startDate, endDate, rowNum, personName, companyName, ownerName, isTeam, message) {
+  const { blocks } = loadConfig(companyName);
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
+  const computedEntries = computedBlock ? computedBlock.computed : [];
+
+  const colMap = {};
+  for (let i = 0; i < defs.length; i++) {
+    colMap[defs[i].name] = getColLetter(3 + i);
+  }
+
+  const row = [startDate, endDate, message || ''];
+  for (const def of defs) {
+    row.push(weeklyStorageCount(def, rowNum, personName, isTeam, colMap));
+  }
+  for (const comp of computedEntries) {
+    row.push(storageEfficiencyFormula(comp, colMap, rowNum));
+  }
+  row.push(weeklyRevenueFormula(rowNum, personName, isTeam));
+  return row;
+}
+
+function buildMonthlyStorageRow(monthStr, rowNum, personName, companyName, ownerName, isTeam, message) {
+  const { blocks } = loadConfig(companyName);
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
+  const computedEntries = computedBlock ? computedBlock.computed : [];
+
+  const colMap = {};
+  for (let i = 0; i < defs.length; i++) {
+    colMap[defs[i].name] = getColLetter(2 + i);
+  }
+
+  const row = [monthStr, message || ''];
+  for (const def of defs) {
+    row.push(monthlyStorageCount(def, rowNum, personName, isTeam, colMap));
+  }
+  for (const comp of computedEntries) {
+    row.push(storageEfficiencyFormula(comp, colMap, rowNum));
+  }
+  row.push(monthlyRevenueFormula(rowNum, personName, isTeam));
+  return row;
+}
+
+// ─── Storage Tab Populators ──────────────────────────────────────────
+
+async function populateDailyStorage(spreadsheetId, tabName, personName, companyName, ownerName, isTeam, fallbackTabName) {
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const outcomeNames = defs.map(d => d.name);
+
+  // Read existing data (dates + messages) from current storage
+  let allRows = await readTab(spreadsheetId, tabName);
+  let existingData = allRows.slice(1).filter(r => r[0]).map(r => ({
+    date: parseSerialDate(r[0]),
+    message: r[1] || '',
+  }));
+
+  // For Team tabs, derive dates from individual tab if empty
+  if (existingData.length === 0 && fallbackTabName) {
+    const fbRows = await readTab(spreadsheetId, fallbackTabName);
+    existingData = fbRows.slice(1).filter(r => r[0]).map(r => ({
+      date: parseSerialDate(r[0]),
+      message: '',
+    }));
+  }
+
+  // Deduplicate by date (keep first occurrence with message)
+  const seenDates = new Set();
+  existingData = existingData.filter(d => {
+    if (seenDates.has(d.date)) return false;
+    seenDates.add(d.date);
+    return true;
+  });
+
+  if (existingData.length === 0) {
+    console.log(`  No dates found in ${tabName}, skipping.`);
+    return;
+  }
+
+  // Build header
+  const header = ['Date', 'Message'];
+  for (const name of outcomeNames) {
+    header.push(name, `${name} Names`);
+  }
+  header.push('Total Revenue');
+
+  // Build formula rows, preserving existing messages
+  const grid = [header];
+  for (let i = 0; i < existingData.length; i++) {
+    grid.push(buildDailyStorageRow(existingData[i].date, i + 2, personName, companyName, ownerName, isTeam, existingData[i].message));
+  }
+
+  const lastCol = getColLetter(2 + defs.length * 2);
+  await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(existingData.length + 10, 500)}`);
+  await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
+  console.log(`  Populated ${tabName} with ${existingData.length} rows of live formulas`);
+}
+
+async function populateWeeklyStorage(spreadsheetId, tabName, personName, companyName, ownerName, isTeam, fallbackTabName) {
+  const { blocks } = loadConfig(companyName);
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const outcomeNames = defs.map(d => d.name);
+  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
+  const computedEntries = computedBlock ? computedBlock.computed : [];
+
+  // Read existing data (dates + messages) from current storage
+  let allRows = await readTab(spreadsheetId, tabName);
+  let weeks = [];
+  for (const row of allRows.slice(1)) {
+    if (!row[0] || !row[1]) continue;
+    weeks.push({ start: parseSerialDate(row[0]), end: parseSerialDate(row[1]), message: row[2] || '' });
+  }
+
+  // For Team tabs, derive dates from individual tab if empty
+  if (weeks.length === 0 && fallbackTabName) {
+    const fbRows = await readTab(spreadsheetId, fallbackTabName);
+    for (const row of fbRows.slice(1)) {
+      if (!row[0] || !row[1]) continue;
+      weeks.push({ start: parseSerialDate(row[0]), end: parseSerialDate(row[1]), message: '' });
+    }
+  }
+
+  // Deduplicate by start date
+  const seenWeeks = new Set();
+  weeks = weeks.filter(w => {
+    if (seenWeeks.has(w.start)) return false;
+    seenWeeks.add(w.start);
+    return true;
+  });
+
+  if (weeks.length === 0) {
+    console.log(`  No weeks found in ${tabName}, skipping.`);
+    return;
+  }
+
+  // Build header
+  const header = ['Week Start', 'Week End', 'Message'];
+  for (const name of outcomeNames) header.push(name);
+  for (const comp of computedEntries) header.push(comp.name);
+  header.push('Total Revenue');
+
+  // Build formula rows, preserving existing messages
+  const grid = [header];
+  for (let i = 0; i < weeks.length; i++) {
+    grid.push(buildWeeklyStorageRow(weeks[i].start, weeks[i].end, i + 2, personName, companyName, ownerName, isTeam, weeks[i].message));
+  }
+
+  const lastCol = getColLetter(3 + defs.length + computedEntries.length);
+  await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(weeks.length + 10, 500)}`);
+  await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
+  console.log(`  Populated ${tabName} with ${weeks.length} rows of live formulas`);
+}
+
+async function populateMonthlyStorage(spreadsheetId, tabName, personName, companyName, ownerName, isTeam, fallbackTabName) {
+  const { blocks } = loadConfig(companyName);
+  const { defs } = getOutcomeDefs(ownerName, companyName);
+  const outcomeNames = defs.map(d => d.name);
+  const computedBlock = (blocks.eowBlocks || []).find(b => b.computed);
+  const computedEntries = computedBlock ? computedBlock.computed : [];
+
+  // Read existing data (months + messages) from current storage
+  let allRows = await readTab(spreadsheetId, tabName);
+  let monthData = allRows.slice(1).filter(r => r[0]).map(r => ({
+    month: r[0],
+    message: r[1] || '',
+  }));
+
+  // For Team tabs, derive months from individual tab if empty
+  if (monthData.length === 0 && fallbackTabName) {
+    const fbRows = await readTab(spreadsheetId, fallbackTabName);
+    monthData = fbRows.slice(1).filter(r => r[0]).map(r => ({
+      month: r[0],
+      message: '',
+    }));
+  }
+
+  // Normalize and deduplicate by month
+  for (const m of monthData) {
+    const parts = m.month.split('-');
+    if (parts.length === 2) {
+      m.month = `${parts[0]}-${parts[1].padStart(2, '0')}`;
+    }
+  }
+  const seenMonths = new Set();
+  monthData = monthData.filter(m => {
+    if (seenMonths.has(m.month)) return false;
+    seenMonths.add(m.month);
+    return true;
+  });
+
+  if (monthData.length === 0) {
+    console.log(`  No months found in ${tabName}, skipping.`);
+    return;
+  }
+
+  // Build header
+  const header = ['Month', 'Message'];
+  for (const name of outcomeNames) header.push(name);
+  for (const comp of computedEntries) header.push(comp.name);
+  header.push('Total Revenue');
+
+  // Build formula rows, preserving existing messages
+  const grid = [header];
+  for (let i = 0; i < monthData.length; i++) {
+    grid.push(buildMonthlyStorageRow(monthData[i].month, i + 2, personName, companyName, ownerName, isTeam, monthData[i].message));
+  }
+
+  const lastCol = getColLetter(2 + defs.length + computedEntries.length);
+  await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(monthData.length + 10, 500)}`);
+  await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
+  console.log(`  Populated ${tabName} with ${monthData.length} rows of live formulas`);
+}
+
 // ─── Main Entry Point ────────────────────────────────────────────────
 
 async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesPeople) {
   console.log(`Populating live formulas for ${companyName}...`);
 
+  // Find first active person for Team tab fallback
+  const firstPerson = salesPeople.find(p => p.active);
+  const fbPrefix = firstPerson ? firstPerson.name : null;
+
   for (const person of salesPeople) {
     if (!person.active) continue;
+    // Display tabs
     await populateEODTab(spreadsheetId, `${person.name} EOD`, person.name, companyName, ownerName, false);
     await populateEOWTab(spreadsheetId, `${person.name} EOW`, person.name, companyName, ownerName, false);
+    // Storage tabs
+    await populateDailyStorage(spreadsheetId, `${person.name} Daily`, person.name, companyName, ownerName, false);
+    await populateWeeklyStorage(spreadsheetId, `${person.name} Weekly`, person.name, companyName, ownerName, false);
+    await populateMonthlyStorage(spreadsheetId, `${person.name} Monthly`, person.name, companyName, ownerName, false);
   }
 
   await populateEODTab(spreadsheetId, 'Team EOD', 'Team', companyName, ownerName, true);
   await populateEOWTab(spreadsheetId, 'Team EOW', 'Team', companyName, ownerName, true);
+  await populateDailyStorage(spreadsheetId, 'Team Daily', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Daily` : null);
+  await populateWeeklyStorage(spreadsheetId, 'Team Weekly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Weekly` : null);
+  await populateMonthlyStorage(spreadsheetId, 'Team Monthly', 'Team', companyName, ownerName, true, fbPrefix ? `${fbPrefix} Monthly` : null);
 
   console.log('All formula tabs populated.');
 }
 
-module.exports = { populateAllFormulas, populateEODTab, populateEOWTab };
+module.exports = {
+  populateAllFormulas, populateEODTab, populateEOWTab,
+  populateDailyStorage, populateWeeklyStorage, populateMonthlyStorage,
+  buildDailyStorageRow, buildWeeklyStorageRow, buildMonthlyStorageRow,
+  getOutcomeDefs, getColLetter,
+};

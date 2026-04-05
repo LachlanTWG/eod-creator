@@ -44,10 +44,55 @@ function filterActivities(activities, targetDate, salesPerson) {
 }
 
 /**
+ * Normalize a contact name for fuzzy matching.
+ * "Bradburn, Jody" and "Jody Bradburn" both become "bradburn jody".
+ */
+function normalizeName(name) {
+  return (name || '').split(/[, ]+/).filter(Boolean).map(p => p.toLowerCase()).sort().join(' ');
+}
+
+/**
+ * Look up the lead source for a contact from all activity rows.
+ * Tries in order: contactId → normalized name → partial/first-name match.
+ * Gives benefit of the doubt — shortened names, reversed order, etc.
+ */
+function resolveLeadSource(contactName, contactId, allActivities) {
+  const withSource = allActivities.filter(a => a['Ad Source']);
+
+  // 1. Try contactId match
+  if (contactId) {
+    const byId = withSource.find(a =>
+      a['Contact ID'] && a['Contact ID'].trim() === contactId.trim()
+    );
+    if (byId) return byId['Ad Source'];
+  }
+
+  // 2. Try normalized name match (handles "Bradburn, Jody" ↔ "Jody Bradburn")
+  const norm = normalizeName(contactName);
+  if (norm.length >= 3) {
+    const byName = withSource.find(a => normalizeName(a['Contact Name']) === norm);
+    if (byName) return byName['Ad Source'];
+  }
+
+  // 3. Partial match — if any name part (4+ chars) appears in another contact's name
+  const parts = (contactName || '').split(/[, ]+/).filter(p => p.length >= 4).map(p => p.toLowerCase());
+  if (parts.length > 0) {
+    const byPartial = withSource.find(a => {
+      const other = (a['Contact Name'] || '').toLowerCase();
+      return parts.some(p => other.includes(p));
+    });
+    if (byPartial) return byPartial['Ad Source'];
+  }
+
+  return '';
+}
+
+/**
  * Count outcomes from filtered EOD Update activities.
+ * @param {Array} allActivities - ALL activity log rows (for cross-referencing lead sources)
  * @returns {{ counts: {name: count}, names: {name: [contactNames]}, quoteDetails: [...], siteVisits: [...], jobDetails: [...] }}
  */
-function countOutcomes(filtered, ownerName, companyName) {
+function countOutcomes(filtered, ownerName, companyName, allActivities) {
   const outcomeNames = getOutcomeNames(ownerName, companyName);
   const counts = {};
   const names = {};
@@ -100,11 +145,15 @@ function countOutcomes(filtered, ownerName, companyName) {
     if (eventType === 'Job Won') {
       const valuesStr = activity['Quote/Job Value'] || '';
       const value = parseFloat(valuesStr.replace(/[$,\s]/g, '')) || 0;
+      let source = activity['Ad Source'] || '';
+      if (!source && allActivities) {
+        source = resolveLeadSource(activity['Contact Name'], activity['Contact ID'], allActivities);
+      }
       jobDetails.push({
         contactName: activity['Contact Name'],
         address: activity['Contact Address'],
         value,
-        source: activity['Ad Source'] || '',
+        source,
       });
       const outcomeName = 'Job Won';
       if (outcomeName in counts) {
@@ -294,6 +343,10 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
       const lines = jobDetails.map(j => {
         return `- ${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
       });
+      const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
+      if (totalRevenue > 0) {
+        lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
+      }
       return lines.join('\n');
     }
 
@@ -364,10 +417,10 @@ async function generateEOD(spreadsheetId, salesPerson, targetDate, companyName, 
     return { message: `No activities found for ${salesPerson} on ${targetDate}.`, counts: {}, names: {} };
   }
 
-  const data = countOutcomes(filtered, ownerName, companyName);
+  const data = countOutcomes(filtered, ownerName, companyName, activities);
   const message = buildEODMessage(companyName, targetDate, ownerName, data);
 
   return { message, counts: data.counts, names: data.names };
 }
 
-module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage };
+module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage, resolveLeadSource, normalizeName };

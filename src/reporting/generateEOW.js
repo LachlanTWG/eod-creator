@@ -1,6 +1,7 @@
 const { readTab } = require('../sheets/readSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
+const { resolveLeadSource, normalizeName } = require('./generateEOD');
 
 function formatFullDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00+10:00');
@@ -34,12 +35,17 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     }
 
     case 6: {
-      if (!weeklyData.quoteDetails || weeklyData.quoteDetails.length === 0) return null;
-      const lines = weeklyData.quoteDetails.map(q => {
-        const valStr = q.values.map(v => formatDollar(v)).join(', ');
-        return `• ${q.contactName} - ${q.values.length} - (${valStr})`;
-      });
-      return lines.join('\n');
+      if (weeklyData.quoteDetails && weeklyData.quoteDetails.length > 0) {
+        const lines = weeklyData.quoteDetails.map(q => {
+          const valStr = q.values.map(v => formatDollar(v)).join(', ');
+          return `• ${q.contactName} - ${q.values.length} - (${valStr})`;
+        });
+        return lines.join('\n');
+      }
+      // Fallback to count when detail arrays aren't available (aggregated from daily)
+      const quoteCount = weeklyCounts[outcomeName] || 0;
+      if (quoteCount === 0) return null;
+      return `• ${outcomeName}: ${quoteCount}`;
     }
 
     case 7: {
@@ -49,19 +55,31 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     }
 
     case 8: {
-      if (!weeklyData.siteVisits || weeklyData.siteVisits.length === 0) return null;
-      const lines = weeklyData.siteVisits.map(sv => {
-        return `• ${sv.contactName} - ${sv.address || 'TBC'} - ${sv.datetime || 'TBC'}`;
-      });
-      return lines.join('\n');
+      if (weeklyData.siteVisits && weeklyData.siteVisits.length > 0) {
+        const lines = weeklyData.siteVisits.map(sv => {
+          return `• ${sv.contactName} - ${sv.address || 'TBC'} - ${sv.datetime || 'TBC'}`;
+        });
+        return lines.join('\n');
+      }
+      const svCount = weeklyCounts[outcomeName] || 0;
+      if (svCount === 0) return null;
+      return `• ${outcomeName}: ${svCount}`;
     }
 
     case 9: {
-      if (!weeklyData.jobDetails || weeklyData.jobDetails.length === 0) return null;
-      const lines = weeklyData.jobDetails.map(j => {
-        return `• ${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
-      });
-      return lines.join('\n');
+      if (weeklyData.jobDetails && weeklyData.jobDetails.length > 0) {
+        const lines = weeklyData.jobDetails.map(j => {
+          return `• ${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
+        });
+        const totalRevenue = weeklyData.jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
+        if (totalRevenue > 0) {
+          lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
+        }
+        return lines.join('\n');
+      }
+      const jobCount = weeklyCounts[outcomeName] || 0;
+      if (jobCount === 0) return null;
+      return `• ${outcomeName}: ${jobCount}`;
     }
 
     case 10: {
@@ -139,7 +157,12 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
 
   const dataRows = allRows.slice(1);
   const weekRows = dataRows.filter(row => {
-    const rowDate = row[0];
+    let rowDate = row[0];
+    // Handle Sheets date serial numbers (e.g. 46043 → 2026-01-21)
+    if (/^\d{4,5}$/.test(rowDate)) {
+      const d = new Date((parseInt(rowDate) - 25569) * 86400000);
+      rowDate = d.toISOString().split('T')[0];
+    }
     return rowDate >= startDate && rowDate <= endDate;
   });
 
@@ -170,7 +193,50 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
   if ('Total Contact Attempts' in weeklyCounts) weeklyCounts['Total Contact Attempts'] = totalAnswered;
 
   const efficiencyRates = calcEfficiencyRates(weeklyCounts, companyName);
+
+  // Pull Job Won and Site Visit details from Activity Log for the date range
   const weeklyData = { quoteDetails: [], siteVisits: [], jobDetails: [] };
+  try {
+    const activityRows = await readTab(spreadsheetId, 'Activity Log');
+    if (activityRows.length >= 2) {
+      const headers = activityRows[0];
+      // Parse all rows for cross-referencing lead sources
+      const allParsed = activityRows.slice(1).map(row => {
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+        return obj;
+      });
+
+      for (const row of activityRows.slice(1)) {
+        const rowDate = row[0];
+        if (rowDate < startDate || rowDate > endDate) continue;
+        if (salesPerson !== 'Team' && row[1] !== salesPerson) continue;
+        const eventType = row[3];
+        if (eventType === 'Job Won') {
+          const valStr = (row[6] || '').replace(/[$,\s]/g, '');
+          let source = row[5] || '';
+          if (!source) {
+            source = resolveLeadSource(row[2], row[8], allParsed);
+          }
+          weeklyData.jobDetails.push({
+            contactName: row[2] || '',
+            address: (row[7] || '').replace(/,\s*$/, '').trim(),
+            value: parseFloat(valStr) || 0,
+            source,
+          });
+        } else if (eventType === 'Site Visit Booked') {
+          weeklyData.siteVisits.push({
+            contactName: row[2] || '',
+            address: (row[7] || '').replace(/,\s*$/, '').trim(),
+            datetime: row[9] || '',
+          });
+        }
+      }
+    }
+  } catch (e) {
+    // If Activity Log read fails, we'll fall back to counts only
+    console.error('  Could not read Activity Log for EOW details:', e.message);
+  }
 
   const startFormatted = formatFullDate(startDate);
   const endFormatted = formatFullDate(endDate);
