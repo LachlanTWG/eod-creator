@@ -9,6 +9,7 @@ const {
   loadCompanies,
 } = require('./runReports');
 const { logActivity } = require('./sheets/logActivity');
+const { populateAllFormulas } = require('./sheets/populateFormulas');
 
 const PORT = process.env.PORT || 3000;
 
@@ -348,6 +349,36 @@ const server = http.createServer(async (req, res) => {
     logActivity(company.sheetId, activityData).then(() => {
       console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
     }).catch(e => console.error(`[GHL EOD] Error ${company.name}:`, e.message));
+    return;
+  }
+
+  // Refresh formulas for a company or all companies
+  if (pathname === '/webhook/refresh-formulas') {
+    const { companies } = loadCompanies();
+    const targetName = body.company;
+    const targets = targetName
+      ? companies.filter(c => c.name.toLowerCase() === targetName.toLowerCase())
+      : companies.filter(c => c.sheetId);
+
+    if (targets.length === 0) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Company "${targetName}" not found` }));
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'triggered', companies: targets.map(c => c.name) }));
+
+    (async () => {
+      for (const c of targets) {
+        try {
+          await populateAllFormulas(c.sheetId, c.name, c.ownerName, c.salesPeople);
+          console.log(`[REFRESH] Formulas updated: ${c.name}`);
+        } catch (e) {
+          console.error(`[REFRESH] Error ${c.name}:`, e.message);
+        }
+      }
+    })();
     return;
   }
 

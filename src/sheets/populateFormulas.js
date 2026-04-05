@@ -233,6 +233,20 @@ function jobsBlock(cr) {
   return `=IFERROR(LET(numJ,COUNTIFS(${cr.dc}${cr.pc},${AL}!D:D,"Job Won"),IF(numJ=0,"","✅ Job's Confirmed"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${AL}!C:C,${fc}),FILTER(${AL}!H:H,${fc}),FILTER(${AL}!G:G,${fc}),FILTER(${AL}!F:F,${fc}),LAMBDA(nm,addr,val,src,"- "&nm&" - "&IF(""&addr="","N/A",""&addr)&" - $"&TEXT(VALUE(SUBSTITUTE(SUBSTITUTE(""&val,"$",""),",","")),"#,##0")&" - "&IF(""&src="","N/A",""&src))))&CHAR(10)&"Total Revenue Generated: $"&TEXT(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${AL}!G:G,${fc}),"$",""),",","")))),"#,##0"))),"")`;
 }
 
+// --- Notes block (EOD 4 - Custom Outcome) ---
+
+function notesBlock(cr) {
+  // Extract rows where outcome has a non-empty 4th pipe segment (notes)
+  // Outcome format: "LeadType | Answered | Outcome | Notes | Source"
+  const fc = `${cr.df}${cr.pf},${AL}!D:D="EOD Update"`;
+  return `=IFERROR(LET(outcomes,FILTER(${AL}!E:E,${fc}),names,FILTER(${AL}!C:C,${fc}),notes,ARRAYFORMULA(TRIM(IFERROR(INDEX(SPLIT(outcomes," | "),0,4),""))),hasNote,ARRAYFORMULA(LEN(notes)>0),IF(OR(hasNote),"📝 Notes"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,IF(hasNote,"- "&names&": "&notes,"")),"")),"")`;
+}
+
+function eowNotesBlock(cr) {
+  const fc = `${cr.df}${cr.pf},${col('D')}="EOD Update"`;
+  return `=IFERROR(LET(outcomes,FILTER(${col('E')},${fc}),names,FILTER(${col('C')},${fc}),notes,ARRAYFORMULA(TRIM(IFERROR(INDEX(SPLIT(outcomes," | "),0,4),""))),hasNote,ARRAYFORMULA(LEN(notes)>0),IF(OR(hasNote),CHAR(10)&"📝 Notes"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,IF(hasNote,CHAR(8226)&" "&names&": "&notes,"")),"")),"")`;
+}
+
 // --- Special EOW blocks (range dates, bounded refs) ---
 
 function eowQuotesBlock(cr, rowMap) {
@@ -361,6 +375,9 @@ async function populateEODTab(spreadsheetId, tabName, personName, companyName, o
     buildEODBlockFormula(block, outcomes.outcomes, ownerName, rowMap, cr)
   ).filter(Boolean);
 
+  // Add notes block at the end
+  blockFormulasArr.push(notesBlock(cr));
+
   // Map block formulas to outcome rows (sparse — placed at rows 8, 9, 10, ...)
   const blockFormulaMap = {};
   for (let i = 0; i < blockFormulasArr.length; i++) {
@@ -414,6 +431,9 @@ async function populateEOWTab(spreadsheetId, tabName, personName, companyName, o
   const blockFormulasArr = eowBlocks.map(block =>
     buildEOWBlockFormula(block, outcomes.outcomes, ownerName, rowMap, cr)
   ).filter(Boolean);
+
+  // Add notes block at the end
+  blockFormulasArr.push(eowNotesBlock(cr));
 
   const blockFormulaMap = {};
   for (let i = 0; i < blockFormulasArr.length; i++) {
