@@ -230,7 +230,7 @@ function siteVisitsBlock(cr) {
 
 function jobsBlock(cr) {
   const fc = `${cr.df}${cr.pf},${AL}!D:D="Job Won"`;
-  return `=IFERROR(LET(numJ,COUNTIFS(${cr.dc}${cr.pc},${AL}!D:D,"Job Won"),IF(numJ=0,"","✅ Job's Confirmed"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${AL}!C:C,${fc}),FILTER(${AL}!H:H,${fc}),FILTER(${AL}!G:G,${fc}),FILTER(${AL}!F:F,${fc}),LAMBDA(nm,addr,val,src,"- "&nm&" - "&IF(""&addr="","N/A",""&addr)&" - "&""&val&" - "&IF(""&src="","N/A",""&src)))))),"")`;
+  return `=IFERROR(LET(numJ,COUNTIFS(${cr.dc}${cr.pc},${AL}!D:D,"Job Won"),IF(numJ=0,"","✅ Job's Confirmed"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${AL}!C:C,${fc}),FILTER(${AL}!H:H,${fc}),FILTER(${AL}!G:G,${fc}),FILTER(${AL}!F:F,${fc}),LAMBDA(nm,addr,val,src,"- "&nm&" - "&IF(""&addr="","N/A",""&addr)&" - $"&TEXT(VALUE(SUBSTITUTE(SUBSTITUTE(""&val,"$",""),",","")),"#,##0")&" - "&IF(""&src="","N/A",""&src))))&CHAR(10)&"Total Revenue Generated: $"&TEXT(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${AL}!G:G,${fc}),"$",""),",","")))),"#,##0"))),"")`;
 }
 
 // --- Special EOW blocks (range dates, bounded refs) ---
@@ -252,7 +252,7 @@ function eowSiteVisitsBlock(cr) {
 function eowJobsBlock(cr) {
   const fc = `${cr.df}${cr.pf},${col('D')}="Job Won"`;
   const countExpr = `SUMPRODUCT(${cr.spDate}${cr.spPerson}*(${col('D')}="Job Won"))`;
-  return `=IFERROR(LET(numJ,${countExpr},IF(numJ=0,"","🏆 Wins"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${col('C')},${fc}),FILTER(${col('H')},${fc}),FILTER(${col('G')},${fc}),FILTER(${col('F')},${fc}),LAMBDA(nm,addr,val,src,CHAR(8226)&" "&nm&" - "&IF(""&addr="","N/A",""&addr)&" - "&""&val&" - "&IF(""&src="","N/A",""&src)))))),"")`;
+  return `=IFERROR(LET(numJ,${countExpr},IF(numJ=0,"","🏆 Wins"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${col('C')},${fc}),FILTER(${col('H')},${fc}),FILTER(${col('G')},${fc}),FILTER(${col('F')},${fc}),LAMBDA(nm,addr,val,src,CHAR(8226)&" "&nm&" - "&IF(""&addr="","N/A",""&addr)&" - $"&TEXT(VALUE(SUBSTITUTE(SUBSTITUTE(""&val,"$",""),",","")),"#,##0")&" - "&IF(""&src="","N/A",""&src))))&CHAR(10)&"Total Revenue Generated: $"&TEXT(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${col('G')},${fc}),"$",""),",","")))),"#,##0"))),"")`;
 }
 
 // --- Dynamic efficiency block from config ---
