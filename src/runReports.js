@@ -55,8 +55,6 @@ async function sendCompanyEOD(company, targetDate) {
       const { message, counts } = await generateEOD(
         company.sheetId, person.name, date, company.name, company.ownerName
       );
-      if (!counts || Object.keys(counts).length === 0) continue;
-
       await sendReportToSlack(company, 'eod', message).catch(e =>
         console.error(`  Slack error (${person.name}): ${e.message}`)
       );
@@ -75,9 +73,7 @@ async function sendCompanyEOD(company, targetDate) {
     const { message, counts } = await generateEOD(
       company.sheetId, 'Team', date, company.name, company.ownerName
     );
-    if (counts && Object.keys(counts).length > 0) {
-      await sendReportToSlack(company, 'eod', message).catch(() => {});
-    }
+    await sendReportToSlack(company, 'eod', message).catch(() => {});
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
@@ -98,9 +94,7 @@ async function archiveCompanyEOD(company, targetDate) {
       const { message, counts, names } = await generateEOD(
         company.sheetId, person.name, date, company.name, company.ownerName
       );
-      if (!counts || Object.keys(counts).length === 0) continue;
-
-      await archiveDaily(company.sheetId, person.name, date, message, counts, names, company.ownerName, company.name);
+      await archiveDaily(company.sheetId, person.name, date, message, counts || {}, names || {}, company.ownerName, company.name);
       console.log(`  ${person.name}: Archived.`);
     } catch (err) {
       console.error(`  ${person.name}: ${err.message}`);
@@ -112,9 +106,7 @@ async function archiveCompanyEOD(company, targetDate) {
     const { message, counts, names } = await generateEOD(
       company.sheetId, 'Team', date, company.name, company.ownerName
     );
-    if (counts && Object.keys(counts).length > 0) {
-      await archiveDaily(company.sheetId, 'Team', date, message, counts, names, company.ownerName, company.name);
-    }
+    await archiveDaily(company.sheetId, 'Team', date, message, counts || {}, names || {}, company.ownerName, company.name);
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
@@ -137,8 +129,6 @@ async function sendCompanyEOW(company, startDate, endDate) {
       const { message, counts, efficiencyRates } = await generateEOW(
         company.sheetId, person.name, start, end, company.name, company.ownerName
       );
-      const totalActivity = (counts['Total Calls'] || 0) + (counts['Total Contact Attempts'] || 0);
-      if (!counts || totalActivity === 0) continue;
 
       await sendReportToSlack(company, 'eow', message).catch(e =>
         console.error(`  Slack error: ${e.message}`)
@@ -158,10 +148,7 @@ async function sendCompanyEOW(company, startDate, endDate) {
     const { message, counts } = await generateEOW(
       company.sheetId, 'Team', start, end, company.name, company.ownerName
     );
-    const teamTotal = (counts['Total Calls'] || 0) + (counts['Total Contact Attempts'] || 0);
-    if (counts && teamTotal > 0) {
-      await sendReportToSlack(company, 'eow', message).catch(() => {});
-    }
+    await sendReportToSlack(company, 'eow', message).catch(() => {});
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
@@ -184,10 +171,7 @@ async function archiveCompanyEOW(company, startDate, endDate) {
       const { message, counts, efficiencyRates } = await generateEOW(
         company.sheetId, person.name, start, end, company.name, company.ownerName
       );
-      const totalActivity = (counts['Total Calls'] || 0) + (counts['Total Contact Attempts'] || 0);
-      if (!counts || totalActivity === 0) continue;
-
-      await archiveWeekly(company.sheetId, person.name, start, end, message, counts, efficiencyRates || {}, company.ownerName, company.name);
+      await archiveWeekly(company.sheetId, person.name, start, end, message, counts || {}, efficiencyRates || {}, company.ownerName, company.name);
       console.log(`  ${person.name}: Archived.`);
     } catch (err) {
       console.error(`  ${person.name}: ${err.message}`);
@@ -199,10 +183,7 @@ async function archiveCompanyEOW(company, startDate, endDate) {
     const { message, counts, efficiencyRates } = await generateEOW(
       company.sheetId, 'Team', start, end, company.name, company.ownerName
     );
-    const teamTotal = (counts['Total Calls'] || 0) + (counts['Total Contact Attempts'] || 0);
-    if (counts && teamTotal > 0) {
-      await archiveWeekly(company.sheetId, 'Team', start, end, message, counts, efficiencyRates || {}, company.ownerName, company.name);
-    }
+    await archiveWeekly(company.sheetId, 'Team', start, end, message, counts || {}, efficiencyRates || {}, company.ownerName, company.name);
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
