@@ -1,6 +1,8 @@
 const { readTab } = require('../sheets/readSheet');
+const { appendRows } = require('../sheets/writeSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
+const { buildWeeklyStorageRow } = require('../sheets/populateFormulas');
 const { resolveLeadSource, normalizeName } = require('./generateEOD');
 
 function formatFullDate(dateStr) {
@@ -114,72 +116,47 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
 
 /**
  * Generate EOW report from live Weekly Storage formulas.
- * Falls back to Activity Log aggregation if the weekly row doesn't exist.
+ * Creates the formula row if it doesn't exist yet, then reads back live values.
  */
 async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, companyName, ownerName, activityData) {
   const { blocks, formulas } = loadConfig(companyName);
   const outcomeNames = getOutcomeNames(ownerName, companyName);
   const weeklyTab = salesPerson === 'Team' ? 'Team Weekly' : `${salesPerson} Weekly`;
+  const isTeam = salesPerson === 'Team';
 
-  // Read live counts from Weekly Storage (formula-driven)
-  const weeklyRows = await readTab(spreadsheetId, weeklyTab);
-  let weeklyCounts = null;
+  // Read Weekly Storage
+  let weeklyRows = await readTab(spreadsheetId, weeklyTab);
 
-  if (weeklyRows.length >= 2) {
-    const weekRow = weeklyRows.slice(1).find(row => {
-      return parseSerialDate(row[0]) === startDate;
-    });
+  // Find the row for this week
+  let weekRow = weeklyRows.length >= 2
+    ? weeklyRows.slice(1).find(row => parseSerialDate(row[0]) === startDate)
+    : null;
 
-    if (weekRow) {
-      weeklyCounts = {};
-      let colIdx = 3; // Weekly: Start | End | Message | counts...
-      for (const name of outcomeNames) {
-        const val = parseFloat(weekRow[colIdx] || '0');
-        weeklyCounts[name] = isNaN(val) ? 0 : val;
-        colIdx++;
-      }
-    }
+  // If row doesn't exist, create the formula row so it's live in the sheet
+  if (!weekRow) {
+    const newRowNum = weeklyRows.length + 1;
+    const formulaRow = buildWeeklyStorageRow(startDate, endDate, newRowNum, salesPerson, companyName, ownerName, isTeam, '');
+    await appendRows(spreadsheetId, weeklyTab, [formulaRow]);
+    console.log(`  Created live weekly formula row for ${salesPerson} (${startDate} to ${endDate})`);
+
+    // Read back to get formula-computed values
+    weeklyRows = await readTab(spreadsheetId, weeklyTab);
+    weekRow = weeklyRows.slice(1).find(row => parseSerialDate(row[0]) === startDate);
   }
 
-  // Fall back to Activity Log if weekly row doesn't exist
-  if (!weeklyCounts) {
-    weeklyCounts = {};
+  // Extract counts from the formula-computed row
+  const weeklyCounts = {};
+  for (const name of outcomeNames) {
+    weeklyCounts[name] = 0;
+  }
+
+  if (weekRow) {
+    let colIdx = 3; // Weekly: Start | End | Message | counts...
     for (const name of outcomeNames) {
-      weeklyCounts[name] = 0;
+      const val = parseFloat(weekRow[colIdx] || '0');
+      weeklyCounts[name] = isNaN(val) ? 0 : val;
+      colIdx++;
     }
-
-    if (activityData && activityData.length >= 2) {
-      const headers = activityData[0];
-      for (const row of activityData.slice(1)) {
-        const rowDate = row[0];
-        if (rowDate < startDate || rowDate > endDate) continue;
-        if (salesPerson !== 'Team' && row[1] !== salesPerson) continue;
-        // Basic counting from Activity Log as fallback
-        const eventType = row[3] || '';
-        const outcome = row[4] || '';
-        if (eventType === 'EOD Update') {
-          const { outcomes } = loadConfig(companyName);
-          for (const o of outcomes.outcomes) {
-            const name = o.name.replace('{owner}', ownerName);
-            if (!(name in weeklyCounts)) continue;
-            switch (o.category) {
-              case 'leadType': if (outcome.startsWith(`${name} |`)) weeklyCounts[name]++; break;
-              case 'answerStatus': if (outcome.includes(`| ${name} |`)) weeklyCounts[name]++; break;
-              case 'source': if (outcome.includes(`| ${name}`)) weeklyCounts[name]++; break;
-              default: if (outcome.includes(`| ${name} |`) || outcome.includes(`| ${name}`)) weeklyCounts[name]++; break;
-            }
-          }
-        } else if (eventType === 'Job Won') { weeklyCounts['Job Won'] = (weeklyCounts['Job Won'] || 0) + 1; }
-        else if (eventType === 'Quote Sent') { weeklyCounts['Quote Sent'] = (weeklyCounts['Quote Sent'] || 0) + 1; }
-        else if (eventType === 'Site Visit Booked') { weeklyCounts['Site Visit Booked'] = (weeklyCounts['Site Visit Booked'] || 0) + 1; }
-        else if (eventType === 'Email Sent') { weeklyCounts['Emails Sent'] = (weeklyCounts['Emails Sent'] || 0) + 1; }
-      }
-    }
-
-    // Recompute totals for fallback path
-    const totalAnswered = (weeklyCounts['Answered'] || 0) + (weeklyCounts["Didn't Answer"] || 0);
-    if ('Total Calls' in weeklyCounts) weeklyCounts['Total Calls'] = totalAnswered;
-    if ('Total Contact Attempts' in weeklyCounts) weeklyCounts['Total Contact Attempts'] = totalAnswered;
   }
 
   // Pull Job Won and Site Visit details from Activity Log
