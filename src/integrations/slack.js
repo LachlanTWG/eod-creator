@@ -8,13 +8,17 @@ const http = require('http');
  * @param {string} [channel] - Optional channel override
  * @returns {Promise<void>}
  */
-async function sendSlackMessage(webhookUrl, text, channel) {
+async function sendSlackMessage(webhookUrl, text, channel, { username, icon_emoji } = {}) {
   if (!webhookUrl) {
     console.warn('No Slack webhook URL configured, skipping Slack send.');
     return;
   }
 
-  const payload = { text };
+  const payload = {
+    text,
+    username: username || 'Sales Reporter',
+    icon_emoji: icon_emoji || ':chart_with_upwards_trend:',
+  };
   if (channel) payload.channel = channel;
 
   const body = JSON.stringify(payload);
@@ -56,14 +60,14 @@ async function sendSlackMessage(webhookUrl, text, channel) {
  * @param {string} reportType - 'eod', 'eow', 'eom', 'eoy'
  * @param {string} message - The report message
  */
-async function sendReportToSlack(company, reportType, message) {
+async function sendReportToSlack(company, reportType, message, opts) {
   const slack = company.slack;
   if (!slack || !slack.webhookUrl) {
     console.warn(`No Slack webhook for ${company.name}, skipping.`);
     return;
   }
 
-  await sendSlackMessage(slack.webhookUrl, message);
+  await sendSlackMessage(slack.webhookUrl, message, undefined, opts);
   console.log(`Sent ${reportType.toUpperCase()} to Slack for ${company.name}.`);
 }
 

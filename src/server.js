@@ -5,10 +5,12 @@ const {
   sendCompanyEOD, archiveCompanyEOD,
   sendCompanyEOW, archiveCompanyEOW,
   runCompanyEOM, runCompanyEOQ, runCompanyEOY,
-  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runMeetingDoc,
+  sendSiteVisitNotification,
+  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runAllSiteVisitNotifications, runMeetingDoc,
   loadCompanies,
 } = require('./runReports');
 const { logActivity } = require('./sheets/logActivity');
+const { appendRows } = require('./sheets/writeSheet');
 const { populateAllFormulas } = require('./sheets/populateFormulas');
 
 const PORT = process.env.PORT || 3000;
@@ -78,7 +80,13 @@ function scheduleCompanyJobs() {
       runCompanyEOY(company).catch(e => console.error(`${name} EOY error:`, e.message));
     }, { timezone: tz }));
 
-    console.log(`  ${name}: 7 jobs scheduled (tz: ${tz})`);
+    // Site Visit Notification — 7am weekdays
+    scheduledJobs.push(cron.schedule('0 7 * * 1-5', () => {
+      console.log(`[${new Date().toISOString()}] SITE VISITS: ${name} (${tz})`);
+      sendSiteVisitNotification(company).catch(e => console.error(`${name} site visit notification error:`, e.message));
+    }, { timezone: tz }));
+
+    console.log(`  ${name}: 8 jobs scheduled (tz: ${tz})`);
   }
 }
 
@@ -272,7 +280,16 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'site-visit', company: company.name, salesPerson: salesPersonName }));
 
-    logActivity(company.sheetId, activityData).then(() => {
+    Promise.all([
+      logActivity(company.sheetId, activityData),
+      appendRows(company.sheetId, 'Site Visits', [[
+        body.full_name || '',
+        body.address1 || '',
+        appointmentDT || '',
+        salesPersonName,
+        '',
+      ]]),
+    ]).then(() => {
       console.log(`[GHL SITE VISIT] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
     }).catch(e => console.error(`[GHL SITE VISIT] Error ${company.name}:`, e.message));
     return;

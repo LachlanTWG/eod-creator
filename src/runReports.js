@@ -74,12 +74,11 @@ async function sendCompanyEOD(company, targetDate) {
     }
   }
 
-  // Team send
+  // Team daily — generate only (no Slack; individual reports suffice)
   try {
-    const { message, counts } = await generateEOD(
+    await generateEOD(
       company.sheetId, 'Team', date, company.name, company.ownerName, activityData
     );
-    await sendReportToSlack(company, 'eod', message).catch(() => {});
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
@@ -360,6 +359,150 @@ async function runCompanyEOY(company, year) {
   }
 }
 
+/**
+ * Send daily site visit notification for one company (7am).
+ * Shows today's visits + upcoming visits (next 7 days).
+ */
+async function sendSiteVisitNotification(company) {
+  const tz = company.timezone || 'Australia/Sydney';
+  const today = todayInTz(tz);
+  console.log(`[SITE VISITS] ${company.name} — ${today}`);
+
+  const siteVisitData = await readTab(company.sheetId, 'Site Visits');
+  if (siteVisitData.length < 2) {
+    console.log(`  No site visit data found.`);
+    return;
+  }
+
+  const headers = siteVisitData[0];
+  const nameIdx = headers.indexOf('Contact Name');
+  const addressIdx = headers.indexOf('Address');
+  const dtIdx = headers.indexOf('Date/Time');
+  const spIdx = headers.indexOf('Sales Person');
+
+  // Parse today and +7 day boundary
+  const todayDate = new Date(today + 'T00:00:00');
+  const next7 = new Date(todayDate);
+  next7.setDate(next7.getDate() + 7);
+
+  const todayVisits = [];
+  const upcomingVisits = [];  // next 7 days (excl today)
+  const beyondVisits = [];    // after 7 days
+
+  for (let i = 1; i < siteVisitData.length; i++) {
+    const row = siteVisitData[i];
+    const dtStr = (row[dtIdx] || '').trim();
+    if (!dtStr) continue;
+
+    const visitDate = new Date(dtStr);
+    if (isNaN(visitDate.getTime())) continue;
+
+    const visitDateOnly = visitDate.toLocaleDateString('en-CA', { timeZone: tz });
+    const entry = {
+      contactName: (row[nameIdx] || '').trim(),
+      address: (row[addressIdx] || '').trim(),
+      datetime: dtStr,
+      salesPerson: (row[spIdx] || '').trim(),
+    };
+
+    if (visitDateOnly === today) {
+      todayVisits.push(entry);
+    } else if (visitDate > todayDate && visitDate <= next7) {
+      upcomingVisits.push(entry);
+    } else if (visitDate > next7) {
+      beyondVisits.push(entry);
+    }
+  }
+
+  // Build message
+  const lines = [];
+  lines.push(`*Site Visits — ${formatNotificationDate(today)}*`);
+  lines.push('');
+
+  if (todayVisits.length > 0) {
+    lines.push(`*Today's Site Visits (${todayVisits.length}):*`);
+    for (const sv of todayVisits) {
+      const dt = formatVisitTime(sv.datetime);
+      lines.push(`- ${sv.contactName} - ${sv.address || 'TBC'} - ${dt || 'TBC'} (${sv.salesPerson})`);
+    }
+  } else {
+    lines.push('*Today\'s Site Visits:* No site visits booked for today');
+  }
+
+  lines.push('');
+
+  if (upcomingVisits.length > 0) {
+    lines.push(`*Upcoming Site Visits (Next 7 Days):*`);
+    upcomingVisits.sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+    for (const sv of upcomingVisits) {
+      const dt = formatVisitDateTimeFull(sv.datetime);
+      lines.push(`- ${sv.contactName} - ${sv.address || 'TBC'} - ${dt || 'TBC'} (${sv.salesPerson})`);
+    }
+  } else {
+    lines.push('*Upcoming Site Visits (Next 7 Days):* Nothing booked for the week ahead');
+  }
+
+  // Only show beyond-7-day visits if there are any
+  if (beyondVisits.length > 0) {
+    lines.push('');
+    lines.push(`*Later (${beyondVisits.length} visit${beyondVisits.length === 1 ? '' : 's'} scheduled beyond 7 days)*`);
+  }
+
+  const message = lines.join('\n');
+  await sendReportToSlack(company, 'site-visits', message, { username: 'Site Visit Schedule', icon_emoji: ':round_pushpin:' });
+  console.log(`  Sent site visit notification.`);
+}
+
+/**
+ * Format date for notification header: "Monday 06 Apr"
+ */
+function formatNotificationDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${days[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]}`;
+}
+
+/**
+ * Format time only for today's visits: "9:00am"
+ */
+function formatVisitTime(datetimeStr) {
+  if (!datetimeStr) return '';
+  try {
+    const d = new Date(datetimeStr);
+    if (isNaN(d.getTime())) return datetimeStr;
+    let hours = d.getHours();
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    if (hours > 12) hours -= 12;
+    if (hours === 0) hours = 12;
+    return `${hours}:${mins}${ampm}`;
+  } catch {
+    return datetimeStr;
+  }
+}
+
+/**
+ * Format full date+time for upcoming visits: "Fri 06 Feb 9:00am"
+ */
+function formatVisitDateTimeFull(datetimeStr) {
+  if (!datetimeStr) return '';
+  try {
+    const d = new Date(datetimeStr);
+    if (isNaN(d.getTime())) return datetimeStr;
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    let hours = d.getHours();
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    if (hours > 12) hours -= 12;
+    if (hours === 0) hours = 12;
+    return `${days[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${hours}:${mins}${ampm}`;
+  } catch {
+    return datetimeStr;
+  }
+}
+
 // ─── "Run All" Wrappers (for CLI / webhooks) ────────────────────────
 
 async function runAllEOD(targetDate, mode = 'both') {
@@ -404,6 +547,14 @@ async function runAllEOY(year) {
   }
 }
 
+async function runAllSiteVisitNotifications() {
+  const { companies } = loadCompanies();
+  for (const company of companies) {
+    if (!company.sheetId) continue;
+    await sendSiteVisitNotification(company);
+  }
+}
+
 async function runMeetingDoc(startDate, endDate) {
   const today = todayInTz('Australia/Sydney');
   const start = startDate || getMondayOfWeek(today);
@@ -439,6 +590,7 @@ if (require.main === module) {
     eom: () => runAllEOM(getArg('--year') ? parseInt(getArg('--year')) : null, getArg('--month') ? parseInt(getArg('--month')) : null),
     eoq: () => runAllEOQ(getArg('--year') ? parseInt(getArg('--year')) : null, getArg('--quarter') ? parseInt(getArg('--quarter')) : null),
     eoy: () => runAllEOY(getArg('--year') ? parseInt(getArg('--year')) : null),
+    'site-visits': () => runAllSiteVisitNotifications(),
     meeting: () => runMeetingDoc(getArg('--start'), getArg('--end')),
   };
 
@@ -451,8 +603,9 @@ Commands:
   eow      Run EOW for all companies    [--start YYYY-MM-DD --end YYYY-MM-DD]
   eom      Run EOM for all companies    [--year YYYY --month M]
   eoq      Run EOQ for all companies    [--year YYYY --quarter Q]
-  eoy      Run EOY for all companies    [--year YYYY]
-  meeting  Generate weekly meeting doc  [--start YYYY-MM-DD --end YYYY-MM-DD]
+  eoy          Run EOY for all companies    [--year YYYY]
+  site-visits  Send daily site visit notifications
+  meeting      Generate weekly meeting doc  [--start YYYY-MM-DD --end YYYY-MM-DD]
 `);
     process.exit(0);
   }
@@ -467,6 +620,7 @@ module.exports = {
   sendCompanyEOD, archiveCompanyEOD,
   sendCompanyEOW, archiveCompanyEOW,
   runCompanyEOM, runCompanyEOQ, runCompanyEOY,
-  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runMeetingDoc,
+  sendSiteVisitNotification,
+  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runAllSiteVisitNotifications, runMeetingDoc,
   loadCompanies,
 };
