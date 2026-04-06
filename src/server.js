@@ -159,9 +159,9 @@ const server = http.createServer(async (req, res) => {
     return company;
   }
 
-  // Shared: resolve sales person from GHL assigned_to
+  // Shared: resolve sales person from GHL payload
   function resolveGHLSalesPerson(body, company) {
-    const assignedTo = body.customData?.assigned_to || body.owner || '';
+    const assignedTo = body.customData?.assigned_to || body.owner || body.user?.firstName || '';
     const assignedFirst = assignedTo.split(' ')[0].toLowerCase();
     const activePeople = (company.salesPeople || []).filter(p => p.active);
     const match = activePeople.find(p =>
