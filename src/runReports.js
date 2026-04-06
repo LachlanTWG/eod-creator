@@ -154,12 +154,14 @@ async function sendCompanyEOW(company, startDate, endDate) {
     }
   }
 
-  // Team send
+  // Team send (skip Slack if only 1 active person — would be a duplicate)
   try {
     const { message, counts } = await generateEOW(
       company.sheetId, 'Team', start, end, company.name, company.ownerName, activityData
     );
-    await sendReportToSlack(company, 'eow', message).catch(() => {});
+    if (activePeople.length > 1) {
+      await sendReportToSlack(company, 'eow', message).catch(() => {});
+    }
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
@@ -242,14 +244,16 @@ async function runCompanyEOM(company, year, month) {
     }
   }
 
-  // Team EOM
+  // Team EOM (skip Slack if only 1 active person)
   try {
     const { message, counts } = await generateEOM(
       company.sheetId, 'Team', actualYear, m, company.name, company.ownerName, activityData
     );
     if (counts && Object.keys(counts).length > 0) {
       await archiveMonthly(company.sheetId, 'Team', actualYear, m, message, counts, {}, company.ownerName, company.name);
-      await sendReportToSlack(company, 'eom', message).catch(() => {});
+      if (activePeople.length > 1) {
+        await sendReportToSlack(company, 'eom', message).catch(() => {});
+      }
     }
   } catch (err) {
     console.error(`  Team: ${err.message}`);
@@ -298,14 +302,16 @@ async function runCompanyEOQ(company, year, quarter) {
     }
   }
 
-  // Team EOQ
+  // Team EOQ (skip Slack if only 1 active person)
   try {
     const { message, counts } = await generateEOQ(
       company.sheetId, 'Team', actualYear, q, company.name, company.ownerName, activityData
     );
     if (counts && Object.keys(counts).length > 0) {
       await archiveQuarterly(company.sheetId, 'Team', actualYear, q, message, counts, company.ownerName, company.name);
-      await sendReportToSlack(company, 'eoq', message).catch(() => {});
+      if (activePeople.length > 1) {
+        await sendReportToSlack(company, 'eoq', message).catch(() => {});
+      }
     }
   } catch (err) {
     console.error(`  Team: ${err.message}`);
@@ -345,14 +351,17 @@ async function runCompanyEOY(company, year) {
     }
   }
 
-  // Team EOY
+  // Team EOY (skip Slack if only 1 active person)
+  const activeEOY = company.salesPeople.filter(p => p.active);
   try {
     const { message, counts } = await generateEOY(
       company.sheetId, 'Team', y, company.name, company.ownerName
     );
     if (counts && Object.keys(counts).length > 0) {
       await archiveYearly(company.sheetId, 'Team', y, message, counts, {}, company.ownerName, company.name);
-      await sendReportToSlack(company, 'eoy', message).catch(() => {});
+      if (activeEOY.length > 1) {
+        await sendReportToSlack(company, 'eoy', message).catch(() => {});
+      }
     }
   } catch (err) {
     console.error(`  Team: ${err.message}`);

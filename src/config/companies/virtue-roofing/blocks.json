@@ -1,0 +1,112 @@
+{
+  "eodBlocks": [
+    {
+      "name": "🎯 Lead Status",
+      "outcomes": ["New Lead", "Pre Quote Follow Up", "Post Quote Follow Up"]
+    },
+    {
+      "name": "📞 Communication",
+      "outcomes": ["Answered", "Didn't Answer", "Total Calls"]
+    },
+    {
+      "name": "📍 Lead Sources",
+      "outcomes": [
+        "Facebook Ad Form", "Website Form", "Instagram Message",
+        "Direct Email", "Direct Phone Call", "Direct Text Message",
+        "Direct Lead passed on from Client"
+      ]
+    },
+    {
+      "name": "💰 Quotes Sent",
+      "outcomes": ["Quote Sent", "Pipeline Value", "Total Individual Quotes"]
+    },
+    {
+      "name": "🏠 Site Visits",
+      "outcomes": ["Site Visit Booked"]
+    },
+    {
+      "name": "✅ Job's Confirmed",
+      "outcomes": ["Job Won"]
+    },
+    {
+      "name": "📧 Emails Sent",
+      "outcomes": ["Emails Sent"]
+    },
+    {
+      "name": "📝 Action Lists",
+      "outcomes": [
+        "Not a Good Time", "Book Site Visit", "Rough Figures Sent",
+        "Requesting New Roofing", "Passed Onto {owner}", "Verbal Confirm.",
+        "Recommended Julian", "PQS - Has a Blocker"
+      ]
+    },
+    {
+      "name": "⏳ Not Ready",
+      "outcomes": ["Not Ready for Site Visit", "Not Ready to Proceed w. Job"]
+    },
+    {
+      "name": "💔 Lost",
+      "outcomes": ["Lost - Price", "Lost - Time Related", "PQS - Lost - Not Proceeding"]
+    },
+    {
+      "name": "👻 Abandoned",
+      "outcomes": ["Abandoned - Not Responding", "Abandoned - Headache"]
+    },
+    {
+      "name": "🚫 Disqualified",
+      "outcomes": [
+        "DQ - Out of Service Area", "DQ - Price", "DQ - Extent of Works",
+        "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
+      ]
+    }
+  ],
+  "eowBlocks": [
+    {
+      "name": "📞 Activity & Top of Funnel",
+      "outcomes": ["New Lead", "Pre Quote Follow Up", "Post Quote Follow Up", "Answered", "Didn't Answer", "Total Calls"]
+    },
+    {
+      "name": "🛠️ Pipeline Progress",
+      "outcomes": ["Book Site Visit", "Rough Figures Sent", "Requesting New Roofing", "Passed Onto {owner}", "Verbal Confirm."]
+    },
+    {
+      "name": "📄 Quotes Sent",
+      "outcomes": ["Quote Sent", "Pipeline Value", "Total Individual Quotes"]
+    },
+    {
+      "name": "🏠 Site Visits",
+      "outcomes": ["Site Visit Booked"]
+    },
+    {
+      "name": "🏆 Wins",
+      "outcomes": ["Job Won"]
+    },
+    {
+      "name": "📧 Emails Sent",
+      "outcomes": ["Emails Sent"]
+    },
+    {
+      "name": "⏳ Not Ready",
+      "outcomes": ["Not Ready for Site Visit", "Not Ready to Proceed w. Job"]
+    },
+    {
+      "name": "🔴 Losses & Abandoned",
+      "outcomes": ["Lost - Price", "Lost - Time Related", "PQS - Lost - Not Proceeding", "Abandoned - Not Responding", "Abandoned - Headache"]
+    },
+    {
+      "name": "🚫 Disqualified",
+      "outcomes": [
+        "DQ - Out of Service Area", "DQ - Price", "DQ - Extent of Works",
+        "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
+      ]
+    },
+    {
+      "name": "📣 Marketing Sources",
+      "outcomes": [
+        "Facebook Ad Form", "Website Form", "Instagram Message",
+        "Direct Email", "Direct Phone Call", "Direct Text Message",
+        "Direct Lead passed on from Client"
+      ]
+    }
+  ]
+}
