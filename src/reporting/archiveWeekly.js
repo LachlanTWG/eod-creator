@@ -42,11 +42,7 @@ async function archiveWeekly(spreadsheetId, salesPerson, startDate, endDate, mes
     console.log(`Archived weekly data for ${salesPerson} (${startDate} to ${endDate}) to "${tabName}" (formula row ${newRowNum}).`);
   }
 
-  // Update Last Generated on EOW config tab
-  const eowTab = salesPerson === 'Team' ? 'Team EOW' : `${salesPerson} EOW`;
-  const lastGenRow = salesPerson === 'Team' ? 3 : 4;
-  const now = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney' });
-  await writeSheet(spreadsheetId, `'${eowTab}'!B${lastGenRow}`, [[now]]);
+  // Note: EOW tab has no "Last Generated" row (Row 4 = Week End formula), so skip timestamp update
 }
 
 module.exports = { archiveWeekly };
