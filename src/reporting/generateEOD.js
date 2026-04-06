@@ -312,7 +312,8 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
       const count = counts[outcomeName] || 0;
       if (count === 0) return null;
       const contactNames = names[outcomeName] || [];
-      const uniqueNames = [...new Set(contactNames)];
+      const uniqueNames = [...new Set(contactNames)].filter(n => n);
+      if (uniqueNames.length === 0) return `- ${outcomeName} - ${count}`;
       return `- ${outcomeName} - ${count} - ${uniqueNames.join(', ')}`;
     }
 
