@@ -79,29 +79,20 @@ const COMPANY_META = {
   'Hughes Electrical': { industry: 'Electrical', location: 'Perth, WA' },
 };
 
-/**
- * Detect whether a company has trade metrics or agency metrics.
- */
 function getCompanyType(companyName) {
   const { outcomes } = loadConfig(companyName);
   const names = outcomes.outcomes.map(o => o.name);
   if (names.includes('Quote Sent')) return 'trade';
   if (names.includes('Roadmap Booked')) return 'agency';
-  return 'trade'; // default
+  return 'trade';
 }
 
-/**
- * Get the total activity field name for a company.
- */
 function getTotalField(companyName) {
   const { outcomes } = loadConfig(companyName);
   const names = outcomes.outcomes.map(o => o.name);
   return names.includes('Total Calls') ? 'Total Calls' : 'Total Contact Attempts';
 }
 
-/**
- * Collect source counts from outcome counts using config.
- */
 function collectSources(counts, companyName) {
   const { outcomes } = loadConfig(companyName);
   const sourceOutcomes = outcomes.outcomes.filter(o => o.category === 'source');
@@ -122,9 +113,123 @@ function collectSources(counts, companyName) {
   return sources;
 }
 
+// ─── Weekly Trend & 90-Day Conversion Data ──────────────────────────
+
 /**
- * Get daily + weekly stats for one company (dynamic based on config).
+ * Read Team Weekly storage tab and return last 4 weeks + 3-month averages.
  */
+async function getWeeklyTrend(company, currentWeekStart) {
+  let rows;
+  try {
+    rows = await readTab(company.sheetId, 'Team Weekly');
+  } catch {
+    return null;
+  }
+  if (rows.length < 2) return null;
+
+  const headers = rows[0];
+  const data = rows.slice(1);
+
+  // Parse rows into objects, filter out empty weeks and current/future weeks
+  const weeks = [];
+  for (const row of data) {
+    const weekStart = (row[0] || '').trim();
+    if (!weekStart || weekStart >= currentWeekStart) continue;
+
+    const obj = {};
+    headers.forEach((h, i) => {
+      const val = row[i] || '';
+      const num = parseFloat(val);
+      obj[h] = isNaN(num) ? val : num;
+    });
+    // Only include weeks with some activity
+    const totalField = headers.find(h => h === 'Total Calls' || h === 'Total Contact Attempts');
+    if (totalField && (obj[totalField] || 0) === 0) continue;
+    obj._weekStart = weekStart;
+    weeks.push(obj);
+  }
+
+  // Sort by week start descending
+  weeks.sort((a, b) => b._weekStart.localeCompare(a._weekStart));
+
+  const last4 = weeks.slice(0, 4).reverse(); // chronological order
+  const last12 = weeks.slice(0, 12);
+
+  if (last12.length === 0) return null;
+
+  // Calculate 3-month averages
+  const avgKeys = headers.filter(h =>
+    h !== 'Week Start' && h !== 'Week End' && h !== 'Message' && h !== 'EOW Message'
+    && !h.endsWith(' %')
+  );
+  const averages = {};
+  for (const key of avgKeys) {
+    const values = last12.map(w => w[key] || 0).filter(v => typeof v === 'number');
+    averages[key] = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+  }
+
+  return { last4, averages, weeksUsed: last12.length };
+}
+
+/**
+ * Calculate 90-day rolling conversion rates from Activity Log.
+ */
+function calc90DayConversions(activities, companyName) {
+  const now = new Date();
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+
+  const recent = activities.filter(a => a['Date'] >= cutoffStr);
+
+  const totalField = getTotalField(companyName);
+  const companyType = getCompanyType(companyName);
+
+  let totalCalls = 0, answered = 0, siteVisits = 0, jobsWon = 0;
+  let roadmaps = 0, deals = 0, quotesSent = 0;
+
+  for (const a of recent) {
+    const eventType = a['Event Type'] || '';
+    const outcome = a['Outcome'] || '';
+
+    if (eventType === 'Site Visit Booked') { siteVisits++; continue; }
+    if (eventType === 'Job Won') { jobsWon++; continue; }
+    if (eventType === 'Quote Sent') { quotesSent++; continue; }
+
+    // EOD Update activities — parse pipe-delimited outcome
+    if (eventType === 'EOD Update' && outcome) {
+      const parts = outcome.split('|').map(s => s.trim());
+      for (const part of parts) {
+        if (part === 'Answered') answered++;
+        if (part === "Didn't Answer") totalCalls++;
+        if (part === 'Answered') totalCalls++;
+        if (part === 'Roadmap Booked') roadmaps++;
+        if (part === 'Deal Closed') deals++;
+      }
+    }
+  }
+
+  if (companyType === 'trade') {
+    return {
+      type: 'trade',
+      pickUpRate: totalCalls > 0 ? ((answered / totalCalls) * 100).toFixed(0) : '-',
+      siteVisitRate: answered > 0 ? ((siteVisits / answered) * 100).toFixed(0) : '-',
+      closingRate: siteVisits > 0 ? ((jobsWon / siteVisits) * 100).toFixed(0) : '-',
+      totalCalls, answered, siteVisits, jobsWon, quotesSent,
+    };
+  } else {
+    return {
+      type: 'agency',
+      pickUpRate: totalCalls > 0 ? ((answered / totalCalls) * 100).toFixed(0) : '-',
+      roadmapRate: answered > 0 ? ((roadmaps / answered) * 100).toFixed(0) : '-',
+      dealRate: totalCalls > 0 ? ((deals / totalCalls) * 100).toFixed(0) : '-',
+      totalCalls, answered, roadmaps, deals,
+    };
+  }
+}
+
+// ─── This Week's Data (existing logic) ──────────────────────────────
+
 async function getCompanyData(company, weekdays) {
   if (!company.sheetId) return null;
 
@@ -156,14 +261,12 @@ async function getCompanyData(company, weekdays) {
         answered: c['Answered'] || 0,
       };
 
-      // Accumulate weekly counts
       for (const [key, val] of Object.entries(c)) {
         if (typeof val === 'number') {
           weeklyCounts[key] = (weeklyCounts[key] || 0) + val;
         }
       }
 
-      // Job values from jobDetails
       for (const job of (data.jobDetails || [])) {
         jobValue += job.value || 0;
       }
@@ -174,7 +277,6 @@ async function getCompanyData(company, weekdays) {
     weeklyStats[person.name] = weeklyCounts;
   }
 
-  // Team totals
   const teamWeekly = {};
   const teamDaily = {};
 
@@ -223,6 +325,7 @@ async function getCompanyData(company, weekdays) {
     };
   }
 
+  // Also return raw activities for 90-day calc
   return {
     company: company.name,
     owner: company.ownerName,
@@ -234,6 +337,7 @@ async function getCompanyData(company, weekdays) {
     weeklyStats,
     teamWeekly,
     rates,
+    activities,
   };
 }
 
@@ -257,9 +361,6 @@ function formatSources(sources) {
   return entries.map(([k, v]) => `${k}: ${v}`).join(' | ') || 'None';
 }
 
-/**
- * Build per-person metric table — adapts to trade or agency.
- */
 function buildPersonMetrics(name, w, companyType) {
   const totalContacts = w['Total Calls'] || w['Total Contact Attempts'] || 0;
   const answered = w['Answered'] || 0;
@@ -303,9 +404,6 @@ function buildPersonMetrics(name, w, companyType) {
   return lines.join('\n');
 }
 
-/**
- * Build attrition line for a person's weekly stats.
- */
 function buildAttritionLine(w, companyName) {
   const { outcomes } = loadConfig(companyName);
   const lost = outcomes.outcomes.filter(o => o.category === 'lost');
@@ -326,9 +424,83 @@ function buildAttritionLine(w, companyName) {
   return parts.length > 0 ? parts.join('\n') : '';
 }
 
-/**
- * Generate the weekly sales exec meeting document.
- */
+// ─── Trend Table Builders ───────────────────────────────────────────
+
+function buildTrendTable(trend, companyType, totalFieldLabel) {
+  if (!trend || trend.last4.length === 0) return '_Not enough historical data for trend._';
+
+  const lines = [];
+  const weeks = trend.last4;
+  const avg = trend.averages;
+
+  // Column headers: week date ranges + 3-month avg
+  const weekHeaders = weeks.map(w => `${formatShortDate(w._weekStart)}`);
+  weekHeaders.push(`**${trend.weeksUsed}wk Avg**`);
+
+  lines.push(`| Metric | ${weekHeaders.join(' | ')} |`);
+  lines.push(`|---|${weekHeaders.map(() => '---').join('|')}|`);
+
+  // Key metrics to show
+  const totalKey = totalFieldLabel === 'Calls' ? 'Total Calls' : 'Total Contact Attempts';
+
+  const tradeMetrics = [
+    { label: '📞 ' + totalFieldLabel, key: totalKey },
+    { label: '📱 Answered', key: 'Answered' },
+    { label: '🌱 New Leads', key: 'New Leads' },
+    { label: '📤 Quotes Sent', key: 'Quote Sent' },
+    { label: '🚙 Site Visits', key: 'Site Visit Booked' },
+    { label: '🏆 Jobs Won', key: 'Job Won' },
+    { label: '💰 Revenue', key: 'Total Revenue', dollar: true },
+  ];
+
+  const agencyMetrics = [
+    { label: '📞 ' + totalFieldLabel, key: totalKey },
+    { label: '📱 Answered', key: 'Answered' },
+    { label: '🌱 New Leads', key: 'New Leads' },
+    { label: '🗺️ Roadmaps Booked', key: 'Roadmap Booked' },
+    { label: '🏆 Deals Closed', key: 'Deal Closed' },
+  ];
+
+  const metrics = companyType === 'trade' ? tradeMetrics : agencyMetrics;
+
+  for (const m of metrics) {
+    const weekVals = weeks.map(w => {
+      const v = w[m.key] || 0;
+      return m.dollar ? formatDollar(v) : Math.round(v);
+    });
+    const avgVal = avg[m.key] || 0;
+    const avgFormatted = m.dollar ? formatDollar(avgVal) : Math.round(avgVal);
+    weekVals.push(`**${avgFormatted}**`);
+    lines.push(`| ${m.label} | ${weekVals.join(' | ')} |`);
+  }
+
+  return lines.join('\n');
+}
+
+function build90DayConversions(conversions) {
+  if (!conversions) return '_Not enough data for conversion rates._';
+
+  const lines = [];
+  lines.push('| Stage | Count | Conversion |');
+  lines.push('|---|---|---|');
+
+  if (conversions.type === 'trade') {
+    lines.push(`| 📞 Total Calls | ${conversions.totalCalls} | — |`);
+    lines.push(`| 📱 Answered | ${conversions.answered} | ${conversions.pickUpRate}% pick up |`);
+    lines.push(`| 🚙 Site Visits Booked | ${conversions.siteVisits} | ${conversions.siteVisitRate}% of answered |`);
+    lines.push(`| 🏆 Jobs Won | ${conversions.jobsWon} | ${conversions.closingRate}% of site visits |`);
+  } else {
+    lines.push(`| 📞 Total Calls | ${conversions.totalCalls} | — |`);
+    lines.push(`| 📱 Answered | ${conversions.answered} | ${conversions.pickUpRate}% pick up |`);
+    lines.push(`| 🗺️ Roadmaps Booked | ${conversions.roadmaps} | ${conversions.roadmapRate}% of answered |`);
+    lines.push(`| 🏆 Deals Closed | ${conversions.deals} | ${conversions.dealRate}% of contacts |`);
+  }
+
+  return lines.join('\n');
+}
+
+// ─── Main Generator ─────────────────────────────────────────────────
+
 async function generateMeetingDoc(startDate, endDate) {
   const { companies } = loadCompanies();
   const activeCompanies = companies.filter(c => c.sheetId);
@@ -336,14 +508,16 @@ async function generateMeetingDoc(startDate, endDate) {
   const allPeople = getAllActivePeople(activeCompanies);
   const dayHeaders = weekdays.map(d => shortDay(d));
 
-  // Gather all company data
+  // Gather all company data (this week + trend + conversions)
   const companyData = [];
   for (const company of activeCompanies) {
     try {
       const data = await getCompanyData(company, weekdays);
-      companyData.push({ company, data });
+      const trend = await getWeeklyTrend(company, startDate);
+      const conversions = data ? calc90DayConversions(data.activities, company.name) : null;
+      companyData.push({ company, data, trend, conversions });
     } catch (err) {
-      companyData.push({ company, data: null, error: err.message });
+      companyData.push({ company, data: null, trend: null, conversions: null, error: err.message });
     }
   }
 
@@ -368,15 +542,148 @@ async function generateMeetingDoc(startDate, endDate) {
   lines.push('* * *');
   lines.push('');
 
-  // ═══ DOING MORE ═══
-  lines.push("## 🚀 Sales Exec's Doing More? — 5 min");
+  // ═══ PORTFOLIO SNAPSHOT ═══
+  let grandCalls = 0, grandAnswered = 0, grandQuotes = 0;
+  let grandPipeline = 0, grandSiteVisits = 0, grandJobs = 0, grandRevenue = 0;
+  let grandRoadmaps = 0, grandDeals = 0;
+  // Pre-calculate grand totals
+  for (const { data } of companyData) {
+    if (!data) continue;
+    const totalField = data.totalField;
+    grandCalls += (data.teamWeekly[totalField] || 0);
+    grandAnswered += (data.teamWeekly['Answered'] || 0);
+    grandQuotes += (data.teamWeekly['Quote Sent'] || 0);
+    grandPipeline += (data.teamWeekly['Pipeline Value'] || 0);
+    grandSiteVisits += (data.teamWeekly['Site Visit Booked'] || 0);
+    grandJobs += (data.teamWeekly['Job Won'] || 0);
+    grandRevenue += (data.teamWeekly._jobValue || 0);
+    grandRoadmaps += (data.teamWeekly['Roadmap Booked'] || 0);
+    grandDeals += (data.teamWeekly['Deal Closed'] || 0);
+  }
+
+  const grandPickUp = grandCalls > 0 ? ((grandAnswered / grandCalls) * 100).toFixed(1) : '0';
+  const activeClientCount = companyData.filter(d => d.data && (d.data.teamWeekly[d.data.totalField] || 0) > 0).length;
+
+  lines.push('## 🏆 Portfolio Snapshot — This Week');
+  lines.push(`_${formatLongDate(startDate)} — ${formatLongDate(endDate)}_`);
   lines.push('');
-  lines.push("1. Are the Sales Exec's Capable of Handling More Work? Y/N");
-  lines.push('2. What can we do to add more value / improve results?');
-  lines.push('3. Lead conversation quality and volume discussion.');
+  lines.push('| Metric | Value |');
+  lines.push('| ---| --- |');
+  lines.push(`| 🏢 Active Clients | ${activeClientCount} |`);
+  lines.push(`| 📞 Total Contacts | ${grandCalls} |`);
+  lines.push(`| 📱 Total Answered | ${grandAnswered} (${grandPickUp}%) |`);
+  if (grandQuotes > 0) lines.push(`| 📤 Total Quotes | ${grandQuotes} |`);
+  if (grandPipeline > 0) lines.push(`| 📈 Total Pipeline | ${formatDollar(grandPipeline)} |`);
+  if (grandSiteVisits > 0) lines.push(`| 🚙 Total Site Visits | ${grandSiteVisits} |`);
+  if (grandJobs > 0) lines.push(`| 🏆 Total Jobs Won | ${grandJobs} |`);
+  if (grandRevenue > 0) lines.push(`| 💰 Total Revenue | ${formatDollar(grandRevenue)} |`);
+  if (grandRoadmaps > 0) lines.push(`| 🗺️ Total Roadmaps | ${grandRoadmaps} |`);
+  if (grandDeals > 0) lines.push(`| 🤝 Total Deals Closed | ${grandDeals} |`);
   lines.push('');
   lines.push('* * *');
   lines.push('');
+
+  // ═══ PER-COMPANY DEEP DIVE ═══
+  lines.push("## 📈 Client Performance Deep Dive");
+  lines.push('');
+
+  for (const { company, data, trend, conversions, error } of companyData) {
+    const meta = COMPANY_META[company.name] || { industry: '', location: '' };
+    const totalField = data ? data.totalField : 'Total Calls';
+    const totalActivity = data ? (data.teamWeekly[totalField] || 0) : 0;
+
+    if (error || !data || totalActivity === 0) {
+      lines.push(`### 🏢 ${company.name} — ${meta.industry} | ${meta.location}`);
+      lines.push('_No activity this week._');
+      lines.push('');
+      lines.push('* * *');
+      lines.push('');
+      continue;
+    }
+
+    const companyType = data.companyType;
+    const totalLabel = totalField === 'Total Calls' ? 'Calls' : 'Contacts';
+
+    lines.push(`### 🏢 ${company.name} — ${meta.industry} | ${meta.location}`);
+    lines.push('');
+
+    // ── 4-Week Trend + 3-Month Average ──
+    lines.push('**📊 4-Week Trend + Average**');
+    lines.push('');
+    lines.push(buildTrendTable(trend, companyType, totalLabel));
+    lines.push('');
+
+    // ── 90-Day Conversion Funnel ──
+    lines.push('**🔄 90-Day Conversion Funnel**');
+    lines.push('');
+    lines.push(build90DayConversions(conversions));
+    lines.push('');
+
+    // ── This Week's Daily Activity ──
+    lines.push(`**📅 This Week — Daily ${totalLabel}**`);
+    lines.push('');
+    lines.push(`| | ${dayHeaders.join(' | ')} | **Total** |`);
+    lines.push(`|---|${dayHeaders.map(() => '---').join('|')}|---|`);
+
+    for (const person of data.people) {
+      const dailyTotals = weekdays.map(d => data.dailyStats[person][d].total);
+      const total = dailyTotals.reduce((a, b) => a + b, 0);
+      lines.push(`| ${person} | ${dailyTotals.join(' | ')} | **${total}** |`);
+    }
+
+    if (data.people.length > 1) {
+      const teamTotals = weekdays.map(d => data.teamDaily[d].total);
+      const teamTotal = teamTotals.reduce((a, b) => a + b, 0);
+      lines.push(`| **Team** | ${teamTotals.map(c => `**${c}**`).join(' | ')} | **${teamTotal}** |`);
+    }
+    lines.push('');
+
+    // ── Per-Person Metrics ──
+    for (const person of data.people) {
+      const w = data.weeklyStats[person];
+      lines.push(`**${person}**`);
+      lines.push('');
+      lines.push(buildPersonMetrics(person, w, companyType));
+      lines.push('');
+
+      const attrition = buildAttritionLine(w, company.name);
+      if (attrition) {
+        lines.push(attrition);
+        lines.push('');
+      }
+
+      lines.push(`**Sources:** ${formatSources(w._sources)}`);
+      lines.push('');
+    }
+
+    // ── Team Summary (if multiple people) ──
+    if (data.people.length > 1) {
+      const t = data.teamWeekly;
+      lines.push(`**🏁 ${data.company} — Combined**`);
+      lines.push('');
+      lines.push(`| Metric | Value |`);
+      lines.push(`| ---| --- |`);
+      lines.push(`| 📞 ${totalLabel} | ${totalActivity} |`);
+      lines.push(`| 📱 Answered / No Answer | ${t['Answered'] || 0} / ${t["Didn't Answer"] || 0} |`);
+      lines.push(`| ⚡ Pick Up Rate | ${data.rates.pickUp}% |`);
+
+      if (companyType === 'trade') {
+        lines.push(`| 📤 Quotes Sent | ${t['Quote Sent'] || 0} (${t['Total Individual Quotes'] || 0} individual) |`);
+        lines.push(`| 📈 Pipeline Value | ${formatDollar(t['Pipeline Value'] || 0)} |`);
+        lines.push(`| 🚙 Site Visits | ${t['Site Visit Booked'] || 0} |`);
+        lines.push(`| 🏆 Jobs Won | ${t['Job Won'] || 0} |`);
+        lines.push(`| 💰 Revenue | ${formatDollar(t._jobValue || 0)} |`);
+      } else {
+        lines.push(`| 🗺️ Roadmaps Booked | ${t['Roadmap Booked'] || 0} |`);
+        lines.push(`| 📋 Roadmaps Proposed | ${t['Roadmap Proposed'] || 0} |`);
+        lines.push(`| 🏆 Deals Closed | ${t['Deal Closed'] || 0} |`);
+      }
+      lines.push('');
+    }
+
+    lines.push('* * *');
+    lines.push('');
+  }
 
   // ═══ KPIs ═══
   lines.push('## 🎯 KPIs');
@@ -400,126 +707,12 @@ async function generateMeetingDoc(startDate, endDate) {
   lines.push('* * *');
   lines.push('');
 
-  // ═══ PERFORMANCE REVIEW ═══
-  lines.push("## 📈 Past Week's Performance Review");
-  lines.push(`_${formatLongDate(startDate)} — ${formatLongDate(endDate)}_`);
+  // ═══ DOING MORE ═══
+  lines.push("## 🚀 Sales Exec's Doing More? — 5 min");
   lines.push('');
-
-  let grandCalls = 0, grandAnswered = 0, grandQuotes = 0;
-  let grandPipeline = 0, grandSiteVisits = 0, grandJobs = 0, grandRevenue = 0;
-  let grandRoadmaps = 0, grandDeals = 0;
-
-  for (const { company, data, error } of companyData) {
-    const meta = COMPANY_META[company.name] || { industry: '', location: '' };
-    const totalField = data ? data.totalField : 'Total Calls';
-    const totalActivity = data ? (data.teamWeekly[totalField] || 0) : 0;
-
-    if (error || !data || totalActivity === 0) {
-      lines.push(`🏢 **${company.name} — ${meta.industry} | ${meta.location}**`);
-      lines.push('_No activity this week._');
-      lines.push('');
-      lines.push('* * *');
-      lines.push('');
-      continue;
-    }
-
-    grandCalls += totalActivity;
-    grandAnswered += (data.teamWeekly['Answered'] || 0);
-    grandQuotes += (data.teamWeekly['Quote Sent'] || 0);
-    grandPipeline += (data.teamWeekly['Pipeline Value'] || 0);
-    grandSiteVisits += (data.teamWeekly['Site Visit Booked'] || 0);
-    grandJobs += (data.teamWeekly['Job Won'] || 0);
-    grandRevenue += (data.teamWeekly._jobValue || 0);
-    grandRoadmaps += (data.teamWeekly['Roadmap Booked'] || 0);
-    grandDeals += (data.teamWeekly['Deal Closed'] || 0);
-
-    lines.push(`🏢 **${data.company} — ${meta.industry} | ${meta.location}**`);
-    lines.push('');
-
-    // Daily activity table
-    const totalLabel = totalField === 'Total Calls' ? 'Calls' : 'Contacts';
-    lines.push(`**📅 Daily ${totalLabel}**`);
-    lines.push('');
-    lines.push(`| | ${dayHeaders.join(' | ')} | **Total** |`);
-    lines.push(`|---|${dayHeaders.map(() => '---').join('|')}|---|`);
-
-    for (const person of data.people) {
-      const dailyTotals = weekdays.map(d => data.dailyStats[person][d].total);
-      const total = dailyTotals.reduce((a, b) => a + b, 0);
-      lines.push(`| ${person} | ${dailyTotals.join(' | ')} | **${total}** |`);
-    }
-
-    if (data.people.length > 1) {
-      const teamTotals = weekdays.map(d => data.teamDaily[d].total);
-      const teamTotal = teamTotals.reduce((a, b) => a + b, 0);
-      lines.push(`| **Team** | ${teamTotals.map(c => `**${c}**`).join(' | ')} | **${teamTotal}** |`);
-    }
-    lines.push('');
-
-    // Per-person metric tables
-    for (const person of data.people) {
-      const w = data.weeklyStats[person];
-      lines.push(`**${person}**`);
-      lines.push('');
-      lines.push(buildPersonMetrics(person, w, data.companyType));
-      lines.push('');
-
-      const attrition = buildAttritionLine(w, company.name);
-      if (attrition) {
-        lines.push(attrition);
-        lines.push('');
-      }
-
-      lines.push(`**Sources:** ${formatSources(w._sources)}`);
-      lines.push('');
-    }
-
-    // Combined team summary (if multiple people)
-    if (data.people.length > 1) {
-      const t = data.teamWeekly;
-      lines.push(`**🏁 ${data.company} — Combined**`);
-      lines.push('');
-      lines.push(`| Metric | Value |`);
-      lines.push(`| ---| --- |`);
-      lines.push(`| 📞 ${totalLabel} | ${totalActivity} |`);
-      lines.push(`| 📱 Answered / No Answer | ${t['Answered'] || 0} / ${t["Didn't Answer"] || 0} |`);
-      lines.push(`| ⚡ Pick Up Rate | ${data.rates.pickUp}% |`);
-
-      if (data.companyType === 'trade') {
-        lines.push(`| 📤 Quotes Sent | ${t['Quote Sent'] || 0} (${t['Total Individual Quotes'] || 0} individual) |`);
-        lines.push(`| 📈 Pipeline Value | ${formatDollar(t['Pipeline Value'] || 0)} |`);
-        lines.push(`| 🚙 Site Visits | ${t['Site Visit Booked'] || 0} |`);
-        lines.push(`| 🏆 Jobs Won | ${t['Job Won'] || 0} |`);
-        lines.push(`| 💰 Revenue | ${formatDollar(t._jobValue || 0)} |`);
-      } else {
-        lines.push(`| 🗺️ Roadmaps Booked | ${t['Roadmap Booked'] || 0} |`);
-        lines.push(`| 📋 Roadmaps Proposed | ${t['Roadmap Proposed'] || 0} |`);
-        lines.push(`| 🏆 Deals Closed | ${t['Deal Closed'] || 0} |`);
-      }
-      lines.push('');
-    }
-
-    lines.push('* * *');
-    lines.push('');
-  }
-
-  // ═══ GRAND TOTALS ═══
-  const grandPickUp = grandCalls > 0 ? ((grandAnswered / grandCalls) * 100).toFixed(1) : '0';
-
-  lines.push('## 🏆 Grand Totals — All Clients');
-  lines.push('');
-  lines.push('| Metric | Value |');
-  lines.push('| ---| --- |');
-  lines.push(`| 🏢 Active Clients | ${companyData.filter(d => d.data && (d.data.teamWeekly[d.data.totalField] || 0) > 0).length} |`);
-  lines.push(`| 📞 Total Contacts | ${grandCalls} |`);
-  lines.push(`| 📱 Total Answered | ${grandAnswered} (${grandPickUp}%) |`);
-  if (grandQuotes > 0) lines.push(`| 📤 Total Quotes | ${grandQuotes} |`);
-  if (grandPipeline > 0) lines.push(`| 📈 Total Pipeline | ${formatDollar(grandPipeline)} |`);
-  if (grandSiteVisits > 0) lines.push(`| 🚙 Total Site Visits | ${grandSiteVisits} |`);
-  if (grandJobs > 0) lines.push(`| 🏆 Total Jobs Won | ${grandJobs} |`);
-  if (grandRevenue > 0) lines.push(`| 💰 Total Revenue | ${formatDollar(grandRevenue)} |`);
-  if (grandRoadmaps > 0) lines.push(`| 🗺️ Total Roadmaps | ${grandRoadmaps} |`);
-  if (grandDeals > 0) lines.push(`| 🤝 Total Deals Closed | ${grandDeals} |`);
+  lines.push("1. Are the Sales Exec's Capable of Handling More Work? Y/N");
+  lines.push('2. What can we do to add more value / improve results?');
+  lines.push('3. Lead conversation quality and volume discussion.');
   lines.push('');
   lines.push('* * *');
   lines.push('');
