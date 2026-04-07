@@ -137,7 +137,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
 
   const monthStr = formatMonth(year, month);
   const lines = [
-    `MONTHLY PERFORMANCE REPORT - ${companyName}`,
+    `MONTHLY PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `${monthStr}`,
     '==========================================',
     '',

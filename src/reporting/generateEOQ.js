@@ -143,7 +143,7 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
 
   const quarterStr = formatQuarter(year, quarter);
   const lines = [
-    `QUARTERLY PERFORMANCE REPORT - ${companyName}`,
+    `QUARTERLY PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `${quarterStr}`,
     '==========================================',
     '',

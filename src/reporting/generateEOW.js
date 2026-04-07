@@ -196,7 +196,7 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
   const startFormatted = formatFullDate(startDate);
   const endFormatted = formatFullDate(endDate);
   const lines = [
-    `SALES EXECUTIVE PERFORMANCE REPORT - ${companyName}`,
+    `SALES EXECUTIVE PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `Dates: ${startFormatted} - ${endFormatted}`,
     '------------------------------------------',
   ];

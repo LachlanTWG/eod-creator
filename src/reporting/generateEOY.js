@@ -74,7 +74,7 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   const pickUpRate = totalCallCount > 0 ? Math.round((answeredCount / totalCallCount) * 100) : 0;
 
   const lines = [
-    `YEARLY PERFORMANCE REPORT - ${companyName}`,
+    `YEARLY PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `${year}`,
     '==========================================',
     '',

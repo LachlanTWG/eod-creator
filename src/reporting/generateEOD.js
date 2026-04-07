@@ -374,10 +374,11 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
 /**
  * Build the full EOD message.
  */
-function buildEODMessage(companyName, dateStr, ownerName, data) {
+function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
   const { blocks, formulas } = loadConfig(companyName);
   const dateFormatted = formatEODDate(dateStr);
-  const lines = [`EOD Report - ${dateFormatted} - ${companyName}`];
+  const personLabel = salesPerson || 'Team';
+  const lines = [`EOD Report - ${dateFormatted} - ${personLabel} - ${companyName}`];
   lines.push('----------------------------');
 
   for (const block of blocks.eodBlocks) {
@@ -427,7 +428,7 @@ async function generateEOD(spreadsheetId, salesPerson, targetDate, companyName, 
   }
 
   const data = countOutcomes(filtered, ownerName, companyName, activities);
-  const message = buildEODMessage(companyName, targetDate, ownerName, data);
+  const message = buildEODMessage(companyName, targetDate, ownerName, data, salesPerson);
 
   return { message, counts: data.counts, names: data.names };
 }
