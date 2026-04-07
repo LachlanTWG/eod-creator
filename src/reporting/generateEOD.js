@@ -289,7 +289,7 @@ function formatDollar(value) {
 /**
  * Build a formatted EOD line for a given outcome based on its formula type.
  */
-function formatEODLine(outcomeName, formulaTypeId, data) {
+function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
   const { counts, names, quoteDetails, siteVisits, jobDetails } = data;
 
   switch (formulaTypeId) {
@@ -311,6 +311,7 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
     case 4: { // Count + Names
       const count = counts[outcomeName] || 0;
       if (count === 0) return null;
+      if (isTeam) return `- ${outcomeName} - ${count}`;
       const contactNames = names[outcomeName] || [];
       const uniqueNames = [...new Set(contactNames)].filter(n => n);
       if (uniqueNames.length === 0) return `- ${outcomeName} - ${count}`;
@@ -326,6 +327,11 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
     case 6: { // Quote Details
       const validQuotes = quoteDetails.filter(q => q.contactName || q.values.length > 0);
       if (validQuotes.length === 0) return null;
+      if (isTeam) {
+        const totalQuotes = validQuotes.reduce((sum, q) => sum + q.values.length, 0);
+        const totalValue = validQuotes.reduce((sum, q) => sum + q.values.reduce((s, v) => s + v, 0), 0);
+        return `Quotes Sent: ${totalQuotes} (${formatDollar(totalValue)})`;
+      }
       const lines = validQuotes.map(q => {
         const valStr = q.values.map(v => formatDollar(v)).join(', ');
         return `- ${q.contactName} - ${q.values.length} - (${valStr})`;
@@ -341,6 +347,7 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
 
     case 8: { // Site Visit
       if (siteVisits.length === 0) return null;
+      if (isTeam) return `Site Visits Booked: ${siteVisits.length}`;
       const lines = siteVisits.map(sv => {
         const dt = formatVisitDateTime(sv.datetime);
         return `- ${sv.contactName} - ${sv.address || 'TBC'} - ${dt || 'TBC'}`;
@@ -350,10 +357,13 @@ function formatEODLine(outcomeName, formulaTypeId, data) {
 
     case 9: { // Job Details
       if (jobDetails.length === 0) return null;
+      const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
+      if (isTeam) {
+        return `Jobs Won: ${jobDetails.length}${totalRevenue > 0 ? ` - Total Revenue: ${formatDollar(totalRevenue)}` : ''}`;
+      }
       const lines = jobDetails.map(j => {
         return `- ${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
       });
-      const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
       if (totalRevenue > 0) {
         lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
       }
@@ -390,7 +400,7 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
       const formulaEntry = formulas.outcomeFormulas[outcomeTpl] || { eod: 1 };
       const formulaTypeId = formulaEntry.eod;
 
-      const line = formatEODLine(outcomeName, formulaTypeId, data);
+      const line = formatEODLine(outcomeName, formulaTypeId, data, salesPerson === 'Team');
       if (line) blockLines.push(line);
     }
 

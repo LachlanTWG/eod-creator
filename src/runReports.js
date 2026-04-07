@@ -55,12 +55,14 @@ async function sendCompanyEOD(company, targetDate) {
   const activityData = await readTab(company.sheetId, 'Activity Log');
 
   const activePeople = company.salesPeople.filter(p => p.active);
+  let peopleWithActivity = 0;
 
   for (const person of activePeople) {
     try {
       const { message, counts } = await generateEOD(
         company.sheetId, person.name, date, company.name, company.ownerName, activityData
       );
+      if (Object.keys(counts).length > 0) peopleWithActivity++;
       await sendReportToSlack(company, 'eod', message).catch(e =>
         console.error(`  Slack error (${person.name}): ${e.message}`)
       );
@@ -74,11 +76,26 @@ async function sendCompanyEOD(company, targetDate) {
     }
   }
 
-  // Team daily — generate only (no Slack; individual reports suffice)
+  // Skip team report if only 1 of 2 people had activity (would just duplicate their report)
+  const skipTeam = activePeople.length === 2 && peopleWithActivity <= 1;
+
+  // Team daily — summarised report to Slack/ClickUp
   try {
-    await generateEOD(
+    const { message } = await generateEOD(
       company.sheetId, 'Team', date, company.name, company.ownerName, activityData
     );
+    if (skipTeam) {
+      console.log(`  Team: Skipped (only ${peopleWithActivity}/2 had activity).`);
+    } else {
+      await sendReportToSlack(company, 'eod', message).catch(e =>
+        console.error(`  Slack error (Team): ${e.message}`)
+      );
+      const title = `EOD - Team - ${date}`;
+      await sendReportToClickUp(company, 'eod', title, message).catch(e =>
+        console.error(`  ClickUp error (Team): ${e.message}`)
+      );
+      console.log(`  Team: Sent.`);
+    }
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
