@@ -201,8 +201,21 @@ function resolveApiKey(company, salesPersonName) {
 }
 
 /**
+ * Send a message to a ClickUp Chat channel (v3 API).
+ * @param {string} workspaceId
+ * @param {string} channelId - Chat channel ID (e.g. "5-90189110035-8")
+ * @param {string} content - Message text
+ * @param {string} [apiKey]
+ */
+async function sendChatMessage(workspaceId, channelId, content, apiKey) {
+  return clickupRequest('POST', `/api/v3/workspaces/${workspaceId}/chat/channels/${channelId}/messages`, {
+    content,
+  }, apiKey);
+}
+
+/**
  * Send a report to ClickUp (individual EOD/EOW/EOM/EOY).
- * Only fires if list/task IDs are configured — otherwise silently skips.
+ * Checks chat channel first, then task/list IDs. Silently skips if nothing configured.
  */
 async function sendReportToClickUp(company, reportType, title, message, salesPersonName) {
   const cu = company.clickup;
@@ -210,6 +223,15 @@ async function sendReportToClickUp(company, reportType, title, message, salesPer
 
   const apiKey = resolveApiKey(company, salesPersonName);
   if (!apiKey) return;
+
+  // Chat channel (v3 API)
+  if (cu.chatChannelId) {
+    const workspaceId = cu.workspaceId || process.env.CLICKUP_WORKSPACE_ID;
+    if (workspaceId) {
+      await sendChatMessage(workspaceId, cu.chatChannelId, `${title}\n\n${message}`, apiKey);
+      return;
+    }
+  }
 
   const taskId = cu.taskIds && cu.taskIds[reportType];
   if (taskId) {
@@ -232,6 +254,7 @@ module.exports = {
   clickupRequest,
   createTask,
   commentOnTask,
+  sendChatMessage,
   resolveApiKey,
   sendReportToClickUp,
   createMeetingDocPage,
