@@ -443,4 +443,54 @@ async function generateEOD(spreadsheetId, salesPerson, targetDate, companyName, 
   return { message, counts: data.counts, names: data.names };
 }
 
-module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage, resolveLeadSource, normalizeName };
+/**
+ * Build a summary table for ClickUp with all salespeople side-by-side.
+ * @param {string} companyName
+ * @param {string} dateStr
+ * @param {string} ownerName
+ * @param {Array<{name: string, data: object}>} peopleData - each person's countOutcomes result
+ */
+function buildEODSummaryTable(companyName, dateStr, ownerName, peopleData) {
+  const { blocks } = loadConfig(companyName);
+  const dateFormatted = formatEODDate(dateStr);
+  const personNames = peopleData.map(p => p.name);
+
+  const lines = [];
+  lines.push(`**EOD Summary — ${dateFormatted} — ${companyName}**`);
+  lines.push('');
+
+  // Table header
+  lines.push(`| Metric | ${personNames.join(' | ')} | Team |`);
+  lines.push(`|---|${personNames.map(() => '---:').join('|')}|---:|`);
+
+  // Walk through EOD blocks to keep same ordering as reports
+  for (const block of blocks.eodBlocks) {
+    for (let outcomeTpl of block.outcomes) {
+      const outcomeName = outcomeTpl.replace('{owner}', ownerName);
+      const values = peopleData.map(p => p.data.counts[outcomeName] || 0);
+      const team = values.reduce((a, b) => a + b, 0);
+
+      if (team === 0) continue;
+
+      if (outcomeName === 'Pipeline Value') {
+        const fmtValues = values.map(v => formatDollar(v));
+        lines.push(`| Pipeline Value | ${fmtValues.join(' | ')} | ${formatDollar(team)} |`);
+      } else {
+        lines.push(`| ${outcomeName} | ${values.join(' | ')} | ${team} |`);
+      }
+    }
+  }
+
+  // Revenue from jobs
+  const revValues = peopleData.map(p => {
+    return (p.data.jobDetails || []).reduce((sum, j) => sum + (j.value || 0), 0);
+  });
+  const totalRev = revValues.reduce((a, b) => a + b, 0);
+  if (totalRev > 0) {
+    lines.push(`| Revenue | ${revValues.map(v => formatDollar(v)).join(' | ')} | ${formatDollar(totalRev)} |`);
+  }
+
+  return lines.join('\n');
+}
+
+module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage, buildEODSummaryTable, resolveLeadSource, normalizeName };

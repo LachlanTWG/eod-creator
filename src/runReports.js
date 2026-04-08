@@ -1,6 +1,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
-const { generateEOD } = require('./reporting/generateEOD');
+const { generateEOD, countOutcomes, buildEODSummaryTable } = require('./reporting/generateEOD');
+const { getOutcomeNames } = require('./sheets/createCompanySheet');
 const { archiveDaily } = require('./reporting/archiveDaily');
 const { generateEOW } = require('./reporting/generateEOW');
 const { archiveWeekly } = require('./reporting/archiveWeekly');
@@ -56,21 +57,36 @@ async function sendCompanyEOD(company, targetDate) {
 
   const activePeople = company.salesPeople.filter(p => p.active);
   let peopleWithActivity = 0;
+  const peopleData = []; // Collect for summary table
 
   for (const person of activePeople) {
     try {
       const { message, counts } = await generateEOD(
         company.sheetId, person.name, date, company.name, company.ownerName, activityData
       );
-      if (Object.keys(counts).length > 0) peopleWithActivity++;
+      const hasActivity = Object.values(counts).some(v => v > 0);
+      if (hasActivity) peopleWithActivity++;
+
+      // Collect data for ClickUp summary table
+      const headers = activityData[0];
+      const activities = activityData.slice(1).map(row => {
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+        return obj;
+      });
+      const filtered = activities.filter(a => {
+        if (a['Date'] !== date) return false;
+        if (!a['Sales Person'].startsWith(person.name)) return false;
+        return true;
+      });
+      const data = countOutcomes(filtered, company.ownerName, company.name, activities);
+      peopleData.push({ name: person.name, data });
+
+      // Individual reports to Slack only
       await sendReportToSlack(company, 'eod', message).catch(e =>
         console.error(`  Slack error (${person.name}): ${e.message}`)
       );
-      const title = `EOD - ${person.name} - ${date}`;
-      await sendReportToClickUp(company, 'eod', title, message, person.name).catch(e =>
-        console.error(`  ClickUp error (${person.name}): ${e.message}`)
-      );
-      console.log(`  ${person.name}: Sent.`);
+      console.log(`  ${person.name}: Sent to Slack.`);
     } catch (err) {
       console.error(`  ${person.name}: ${err.message}`);
     }
@@ -79,25 +95,33 @@ async function sendCompanyEOD(company, targetDate) {
   // Skip team report if only 1 of 2 people had activity (would just duplicate their report)
   const skipTeam = activePeople.length === 2 && peopleWithActivity <= 1;
 
-  // Team daily — summarised report to Slack/ClickUp
+  // Team daily — summarised report to Slack
   try {
     const { message } = await generateEOD(
       company.sheetId, 'Team', date, company.name, company.ownerName, activityData
     );
     if (skipTeam) {
-      console.log(`  Team: Skipped (only ${peopleWithActivity}/2 had activity).`);
+      console.log(`  Team: Skipped Slack (only ${peopleWithActivity}/2 had activity).`);
     } else {
       await sendReportToSlack(company, 'eod', message).catch(e =>
         console.error(`  Slack error (Team): ${e.message}`)
       );
-      const title = `EOD - Team - ${date}`;
-      await sendReportToClickUp(company, 'eod', title, message).catch(e =>
-        console.error(`  ClickUp error (Team): ${e.message}`)
-      );
-      console.log(`  Team: Sent.`);
+      console.log(`  Team: Sent to Slack.`);
     }
   } catch (err) {
     console.error(`  Team: ${err.message}`);
+  }
+
+  // ClickUp — send one summary table with all people + team totals
+  if (peopleData.length > 0 && peopleWithActivity > 0) {
+    try {
+      const summary = buildEODSummaryTable(company.name, date, company.ownerName, peopleData);
+      const title = `EOD Summary - ${date}`;
+      await sendReportToClickUp(company, 'eod', title, summary);
+      console.log(`  ClickUp: Summary table sent.`);
+    } catch (err) {
+      console.error(`  ClickUp summary error: ${err.message}`);
+    }
   }
 }
 
