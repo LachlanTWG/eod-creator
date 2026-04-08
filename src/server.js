@@ -262,7 +262,7 @@ const server = http.createServer(async (req, res) => {
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
     const comment = body['Site Visit Booked - Comment'] || '';
-    const appointmentDT = body['Appointment Date Time - Automated'] || '';
+    const appointmentDT = body['Appointment Date Time'] || body['Appointment Date Time - Automated'] || '';
     const dateBooked = body['Date Booked - Automated'] || '';
 
     const activityData = {
