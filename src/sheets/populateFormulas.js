@@ -101,9 +101,9 @@ function buildCriteria(dateType, d1, d2, personCell, isTeam) {
 
   if (dateType === 'single') {
     const dc = `${AL}!A:A,${td1}`;
-    const pc = isTeam ? '' : `,${AL}!B:B,${personCell}`;
+    const pc = isTeam ? '' : `,${AL}!B:B,${personCell}&"*"`;
     const df = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td1}`;
-    const pf = isTeam ? '' : `,${AL}!B:B=${personCell}`;
+    const pf = isTeam ? '' : `,LEFT(${AL}!B:B,LEN(${personCell}))=${personCell}`;
     return { dateType, dc, pc, df, pf };
   }
 
@@ -112,9 +112,9 @@ function buildCriteria(dateType, d1, d2, personCell, isTeam) {
   const nd2 = numDate(td2);
 
   const spDate = `(${nd}>=${nd1})*(${nd}<=${nd2})`;
-  const spPerson = isTeam ? '' : `*(${AL}!B2:B${RN}=${personCell})`;
+  const spPerson = isTeam ? '' : `*(LEFT(${AL}!B2:B${RN},LEN(${personCell}))=${personCell})`;
   const df = `${nd}>=${nd1},${nd}<=${nd2}`;
-  const pf = isTeam ? '' : `,${AL}!B2:B${RN}=${personCell}`;
+  const pf = isTeam ? '' : `,LEFT(${AL}!B2:B${RN},LEN(${personCell}))=${personCell}`;
 
   return { dateType, spDate, spPerson, df, pf };
 }
@@ -558,12 +558,12 @@ function dailyStorageCount(o, row, person, isTeam, colMap) {
     if (o.computed === 'hidden') return '';
     if (o.computed === 'pipeline') {
       const td = `TEXT(A${row},"yyyy-mm-dd")`;
-      const f = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}${isTeam ? '' : `,${AL}!B:B="${person}"`},${AL}!D:D="Quote Sent"`;
+      const f = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}${isTeam ? '' : `,LEFT(${AL}!B:B,LEN("${person}"))="${person}"`},${AL}!D:D="Quote Sent"`;
       return `=IFERROR(SUM(MAP(FILTER(${AL}!G:G,${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
     }
     if (o.computed === 'totalQuotes') {
       const td = `TEXT(A${row},"yyyy-mm-dd")`;
-      const f = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}${isTeam ? '' : `,${AL}!B:B="${person}"`},${AL}!D:D="Quote Sent"`;
+      const f = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}${isTeam ? '' : `,LEFT(${AL}!B:B,LEN("${person}"))="${person}"`},${AL}!D:D="Quote Sent"`;
       return `=IFERROR(LET(vals,FILTER(${AL}!G:G,${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
     }
     return '';
@@ -571,7 +571,7 @@ function dailyStorageCount(o, row, person, isTeam, colMap) {
 
   const td = `TEXT(A${row},"yyyy-mm-dd")`;
   const dc = `${AL}!A:A,${td}`;
-  const pc = isTeam ? '' : `,${AL}!B:B,"${person}"`;
+  const pc = isTeam ? '' : `,${AL}!B:B,"${person}*"`;
 
   if (o.eventType) {
     return `=COUNTIFS(${dc}${pc},${AL}!D:D,"${o.eventType}")`;
@@ -587,7 +587,7 @@ function dailyStorageNames(o, row, person, isTeam) {
 
   const td = `TEXT(A${row},"yyyy-mm-dd")`;
   const df = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}`;
-  const pf = isTeam ? '' : `,${AL}!B:B="${person}"`;
+  const pf = isTeam ? '' : `,LEFT(${AL}!B:B,LEN("${person}"))="${person}"`;
 
   if (o.eventType) {
     return `=IFERROR(TEXTJOIN(", ",TRUE,FILTER(${AL}!C:C,${df}${pf},${AL}!D:D="${o.eventType}")),"")`;
@@ -609,14 +609,14 @@ function weeklyStorageCount(o, row, person, isTeam, colMap) {
       const nd = numDate(`${AL}!A2:A${RN}`);
       const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
       const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
-      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`},${col('D')}="Quote Sent"`;
       return `=IFERROR(SUM(MAP(FILTER(${col('G')},${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
     }
     if (o.computed === 'totalQuotes') {
       const nd = numDate(`${AL}!A2:A${RN}`);
       const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
       const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
-      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`},${col('D')}="Quote Sent"`;
       return `=IFERROR(LET(vals,FILTER(${col('G')},${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
     }
     return '';
@@ -626,7 +626,7 @@ function weeklyStorageCount(o, row, person, isTeam, colMap) {
   const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
   const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
   const sp = `(${nd}>=${n1})*(${nd}<=${n2})`;
-  const pp = isTeam ? '' : `*(${col('B')}="${person}")`;
+  const pp = isTeam ? '' : `*(LEFT(${col('B')},LEN("${person}"))="${person}")`;
 
   if (o.eventType) {
     return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="${o.eventType}"))`;
@@ -651,14 +651,14 @@ function monthlyStorageCount(o, row, person, isTeam, colMap) {
       const nd = numDate(`${AL}!A2:A${RN}`);
       const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
       const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
-      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`},${col('D')}="Quote Sent"`;
       return `=IFERROR(SUM(MAP(FILTER(${col('G')},${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
     }
     if (o.computed === 'totalQuotes') {
       const nd = numDate(`${AL}!A2:A${RN}`);
       const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
       const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
-      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`},${col('D')}="Quote Sent"`;
       return `=IFERROR(LET(vals,FILTER(${col('G')},${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
     }
     return '';
@@ -668,7 +668,7 @@ function monthlyStorageCount(o, row, person, isTeam, colMap) {
   const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
   const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
   const sp = `(${nd}>=${n1})*(${nd}<=${n2})`;
-  const pp = isTeam ? '' : `*(${col('B')}="${person}")`;
+  const pp = isTeam ? '' : `*(LEFT(${col('B')},LEN("${person}"))="${person}")`;
 
   if (o.eventType) {
     return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="${o.eventType}"))`;
@@ -682,7 +682,7 @@ function monthlyStorageCount(o, row, person, isTeam, colMap) {
 function dailyRevenueFormula(row, person, isTeam) {
   const td = `TEXT(A${row},"yyyy-mm-dd")`;
   const df = `TEXT(${AL}!A:A,"yyyy-mm-dd")=${td}`;
-  const pf = isTeam ? '' : `,${AL}!B:B="${person}"`;
+  const pf = isTeam ? '' : `,LEFT(${AL}!B:B,LEN("${person}"))="${person}"`;
   return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${AL}!G:G,${df}${pf},${AL}!D:D="Job Won"),"$",""),",","")))),"")`;
 }
 
@@ -691,7 +691,7 @@ function weeklyRevenueFormula(row, person, isTeam) {
   const n1 = numDate(`TEXT(A${row},"yyyy-mm-dd")`);
   const n2 = numDate(`TEXT(B${row},"yyyy-mm-dd")`);
   const df = `${nd}>=${n1},${nd}<=${n2}`;
-  const pf = isTeam ? '' : `,${col('B')}="${person}"`;
+  const pf = isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`;
   return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${col('G')},${df}${pf},${col('D')}="Job Won"),"$",""),",","")))),"")`;
 }
 
@@ -702,7 +702,7 @@ function monthlyRevenueFormula(row, person, isTeam) {
   const n1 = numDate(`TEXT(${mStart},"yyyy-mm-dd")`);
   const n2 = numDate(`TEXT(${mEnd},"yyyy-mm-dd")`);
   const df = `${nd}>=${n1},${nd}<=${n2}`;
-  const pf = isTeam ? '' : `,${col('B')}="${person}"`;
+  const pf = isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`;
   return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${col('G')},${df}${pf},${col('D')}="Job Won"),"$",""),",","")))),"")`;
 }
 
@@ -1051,14 +1051,14 @@ function quarterlyStorageCount(o, row, person, isTeam, colMap) {
       const nd = numDate(`${AL}!A2:A${RN}`);
       const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
       const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
-      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`},${col('D')}="Quote Sent"`;
       return `=IFERROR(SUM(MAP(FILTER(${col('G')},${f}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
     }
     if (o.computed === 'totalQuotes') {
       const nd = numDate(`${AL}!A2:A${RN}`);
       const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
       const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
-      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,${col('B')}="${person}"`},${col('D')}="Quote Sent"`;
+      const f = `${nd}>=${n1},${nd}<=${n2}${isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`},${col('D')}="Quote Sent"`;
       return `=IFERROR(LET(vals,FILTER(${col('G')},${f}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
     }
     return '';
@@ -1068,7 +1068,7 @@ function quarterlyStorageCount(o, row, person, isTeam, colMap) {
   const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
   const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
   const sp = `(${nd}>=${n1})*(${nd}<=${n2})`;
-  const pp = isTeam ? '' : `*(${col('B')}="${person}")`;
+  const pp = isTeam ? '' : `*(LEFT(${col('B')},LEN("${person}"))="${person}")`;
 
   if (o.eventType) {
     return `=SUMPRODUCT(${sp}${pp}*(${col('D')}="${o.eventType}"))`;
@@ -1084,7 +1084,7 @@ function quarterlyRevenueFormula(row, person, isTeam) {
   const n1 = numDate(`TEXT(${qStart},"yyyy-mm-dd")`);
   const n2 = numDate(`TEXT(${qEnd},"yyyy-mm-dd")`);
   const df = `${nd}>=${n1},${nd}<=${n2}`;
-  const pf = isTeam ? '' : `,${col('B')}="${person}"`;
+  const pf = isTeam ? '' : `,LEFT(${col('B')},LEN("${person}"))="${person}"`;
   return `=IFERROR(SUM(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(FILTER(${col('G')},${df}${pf},${col('D')}="Job Won"),"$",""),",","")))),"")`;
 }
 

@@ -166,7 +166,7 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
       for (const row of activityData.slice(1)) {
         const rowDate = row[0];
         if (rowDate < startDate || rowDate > endDate) continue;
-        if (salesPerson !== 'Team' && row[1] !== salesPerson) continue;
+        if (salesPerson !== 'Team' && !row[1].startsWith(salesPerson)) continue;
         const eventType = row[3];
         if (eventType === 'Job Won') {
           const valStr = (row[6] || '').replace(/[$,\s]/g, '');

@@ -37,7 +37,7 @@ function parseActivityRows(rows, headers) {
 function filterActivities(activities, targetDate, salesPerson) {
   return activities.filter(a => {
     if (a['Date'] !== targetDate) return false;
-    if (salesPerson && salesPerson !== 'Team' && a['Sales Person'] !== salesPerson) return false;
+    if (salesPerson && salesPerson !== 'Team' && !a['Sales Person'].startsWith(salesPerson)) return false;
     return true;
   });
 }

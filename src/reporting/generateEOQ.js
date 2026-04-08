@@ -59,7 +59,7 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
   const quarterRows = activityRows.slice(1).filter(row => {
     const rowDate = row[0] || '';
     if (rowDate < quarterStart || rowDate >= nextQ) return false;
-    if (salesPerson !== 'Team' && row[1] !== salesPerson) return false;
+    if (salesPerson !== 'Team' && !row[1].startsWith(salesPerson)) return false;
     return true;
   });
 

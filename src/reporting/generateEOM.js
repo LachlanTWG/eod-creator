@@ -48,7 +48,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   const monthRows = activityRows.slice(1).filter(row => {
     const rowDate = row[0] || '';
     if (rowDate < monthStart || rowDate >= nextMonth) return false;
-    if (salesPerson !== 'Team' && row[1] !== salesPerson) return false;
+    if (salesPerson !== 'Team' && !row[1].startsWith(salesPerson)) return false;
     return true;
   });
 
