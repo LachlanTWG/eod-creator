@@ -16,7 +16,7 @@ const { archiveMonthly } = require('./reporting/archiveMonthly');
 const { generateEOY } = require('./reporting/generateEOY');
 const { archiveYearly } = require('./reporting/archiveYearly');
 const { generateMeetingDoc } = require('./reporting/generateMeetingDoc');
-const { populateAllFormulas } = require('./sheets/populateFormulas');
+const { populateAllFormulas, populateLiveFormulas } = require('./sheets/populateFormulas');
 const { sendReportToSlack } = require('./integrations/slack');
 const { sendReportToClickUp } = require('./integrations/clickup');
 
@@ -346,6 +346,14 @@ async function main() {
       if (!companyName) { console.error('Usage: populate <company>'); return; }
       const company = findCompany(companyName);
       await populateAllFormulas(company.sheetId, company.name, company.ownerName, company.salesPeople);
+      break;
+    }
+
+    case 'populate-live': {
+      const companyName = args[1];
+      if (!companyName) { console.error('Usage: populate-live <company>'); return; }
+      const company = findCompany(companyName);
+      await populateLiveFormulas(company.sheetId, company.name, company.ownerName, company.salesPeople);
       break;
     }
 

@@ -1222,8 +1222,25 @@ async function populateAllFormulas(spreadsheetId, companyName, ownerName, salesP
   console.log('All formula tabs populated.');
 }
 
+async function populateLiveFormulas(spreadsheetId, companyName, ownerName, salesPeople) {
+  console.log(`Populating live display formulas for ${companyName}...`);
+
+  for (const person of salesPeople) {
+    if (!person.active) continue;
+    await populateEODTab(spreadsheetId, `${person.name} EOD`, person.name, companyName, ownerName, false);
+    await populateEOWTab(spreadsheetId, `${person.name} EOW`, person.name, companyName, ownerName, false);
+    await populateEOMTab(spreadsheetId, `${person.name} EOM`, person.name, companyName, ownerName, false);
+  }
+
+  await populateEODTab(spreadsheetId, 'Team EOD', 'Team', companyName, ownerName, true);
+  await populateEOWTab(spreadsheetId, 'Team EOW', 'Team', companyName, ownerName, true);
+  await populateEOMTab(spreadsheetId, 'Team EOM', 'Team', companyName, ownerName, true);
+
+  console.log('Live display tabs populated.');
+}
+
 module.exports = {
-  populateAllFormulas, populateEODTab, populateEOWTab, populateEOMTab,
+  populateAllFormulas, populateLiveFormulas, populateEODTab, populateEOWTab, populateEOMTab,
   populateDailyStorage, populateWeeklyStorage, populateMonthlyStorage, populateQuarterlyStorage,
   buildDailyStorageRow, buildWeeklyStorageRow, buildMonthlyStorageRow, buildQuarterlyStorageRow,
   getOutcomeDefs, getColLetter,
