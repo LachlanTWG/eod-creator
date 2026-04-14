@@ -1,5 +1,6 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const http = require('http');
+const zlib = require('zlib');
 const cron = require('node-cron');
 const {
   sendCompanyEOD, archiveCompanyEOD,
@@ -103,10 +104,23 @@ function scheduleMeetingDoc() {
 
 function parseBody(req) {
   return new Promise((resolve) => {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
+    const encoding = (req.headers['content-encoding'] || '').toLowerCase();
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => {
-      try { resolve(JSON.parse(body)); } catch { resolve({}); }
+      const raw = Buffer.concat(chunks);
+      const decode = (buf) => {
+        try { resolve(JSON.parse(buf.toString())); } catch { resolve({}); }
+      };
+      if (encoding === 'gzip') {
+        zlib.gunzip(raw, (err, result) => decode(err ? raw : result));
+      } else if (encoding === 'deflate') {
+        zlib.inflate(raw, (err, result) => decode(err ? raw : result));
+      } else if (encoding === 'br') {
+        zlib.brotliDecompress(raw, (err, result) => decode(err ? raw : result));
+      } else {
+        decode(raw);
+      }
     });
   });
 }
