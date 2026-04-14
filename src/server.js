@@ -169,6 +169,8 @@ const server = http.createServer(async (req, res) => {
 
   // Shared: resolve sales person from GHL payload
   function resolveGHLSalesPerson(body, company) {
+    console.log(`[GHL DEBUG] assigned_to fields: customData.assigned_to=${body.customData?.assigned_to}, body.assigned_to=${body.assigned_to}, owner=${body.owner}, user.firstName=${body.user?.firstName}`);
+    console.log(`[GHL DEBUG] Full body keys: ${Object.keys(body).join(', ')}`);
     const assignedTo = body.customData?.assigned_to || body.assigned_to || body.owner || body.user?.firstName || '';
     const assignedFirst = assignedTo.split(' ')[0].toLowerCase();
     const activePeople = (company.salesPeople || []).filter(p => p.active);
