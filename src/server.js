@@ -102,6 +102,24 @@ function scheduleMeetingDoc() {
 
 // ─── Webhook Server ──────────────────────────────────────────────────
 
+// Escape literal newlines/control chars inside JSON string values so JSON.parse won't choke
+// (Make.com can send unescaped newlines in fields like contactAddress)
+function sanitizeJsonString(text) {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { result += ch; escaped = false; continue; }
+    if (ch === '\\' && inString) { result += ch; escaped = true; continue; }
+    if (ch === '"') { inString = !inString; result += ch; continue; }
+    if (inString && ch === '\n') { result += '\\n'; continue; }
+    if (inString && ch === '\r') { result += '\\r'; continue; }
+    result += ch;
+  }
+  return result;
+}
+
 function parseBody(req) {
   return new Promise((resolve) => {
     const encoding = (req.headers['content-encoding'] || '').toLowerCase();
@@ -110,7 +128,10 @@ function parseBody(req) {
     req.on('end', () => {
       const raw = Buffer.concat(chunks);
       const decode = (buf) => {
-        try { resolve(JSON.parse(buf.toString())); } catch { resolve({}); }
+        const text = buf.toString();
+        try { resolve(JSON.parse(text)); } catch {
+          try { resolve(JSON.parse(sanitizeJsonString(text))); } catch { resolve({}); }
+        }
       };
       if (encoding === 'gzip') {
         zlib.gunzip(raw, (err, result) => decode(err ? raw : result));
