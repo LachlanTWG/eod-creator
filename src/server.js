@@ -224,18 +224,41 @@ const server = http.createServer(async (req, res) => {
     return new Date().toLocaleDateString('en-CA', { timeZone: tz });
   }
 
+  // Shared: extract a field value by key from anywhere in the body (GHL nests fields inconsistently)
+  function deepFindField(obj, fieldName, visited = new Set()) {
+    if (!obj || typeof obj !== 'object' || visited.has(obj)) return undefined;
+    visited.add(obj);
+    // Check top-level first
+    if (obj[fieldName] !== undefined && obj[fieldName] !== null && obj[fieldName] !== '') return obj[fieldName];
+    // Check all nested objects/arrays
+    for (const val of Object.values(obj)) {
+      if (Array.isArray(val)) {
+        for (const item of val) {
+          const found = deepFindField(item, fieldName, visited);
+          if (found !== undefined) return found;
+        }
+      } else if (val && typeof val === 'object') {
+        const found = deepFindField(val, fieldName, visited);
+        if (found !== undefined) return found;
+      }
+    }
+    return undefined;
+  }
+
   // EOD Update — from GHL
   if (pathname === '/webhook/ghl/eod') {
     const company = resolveGHLCompany(body, res);
     if (!company) return;
 
-    const eod1 = body['EOD 1 - Stage'] || '';
-    const eod2 = body['EOD 2 - Answered?'] || '';
-    const eod3 = body['EOD 3 - Standard Outcome'] || '';
-    const eod4 = body['EOD 4 - Custom Outcome'] || '';
-    const eod5 = body['EOD 5 - Contact Source'] || '';
+    const eod1 = deepFindField(body, 'EOD 1 - Stage') || '';
+    const eod2 = deepFindField(body, 'EOD 2 - Answered?') || '';
+    const eod3 = deepFindField(body, 'EOD 3 - Standard Outcome') || '';
+    const eod4 = deepFindField(body, 'EOD 4 - Custom Outcome') || '';
+    const eod5 = deepFindField(body, 'EOD 5 - Contact Source') || '';
 
     if (!eod1 && !eod2 && !eod3) {
+      console.log(`[GHL EOD] No EOD fields found. Full body keys: ${JSON.stringify(Object.keys(body))}`);
+      console.log(`[GHL EOD] Full body: ${JSON.stringify(body).substring(0, 2000)}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'skipped', reason: 'No EOD fields populated' }));
       return;
@@ -243,23 +266,24 @@ const server = http.createServer(async (req, res) => {
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
     const outcome = [eod1, eod2, eod3, eod4, eod5].map(s => s.trim()).join(' | ');
+    const contactName = deepFindField(body, 'full_name') || body.contactName || body.contact_name || '';
 
     const activityData = {
       date: companyToday(company),
       salesPerson: salesPersonName,
-      contactName: body.full_name || '',
+      contactName,
       eventType: 'EOD Update',
       outcome,
       adSource: eod5,
-      contactAddress: body.address1 || '',
-      contactId: body.contact_id || '',
+      contactAddress: deepFindField(body, 'address1') || '',
+      contactId: deepFindField(body, 'contact_id') || body.id || '',
     };
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'eod', company: company.name, salesPerson: salesPersonName }));
 
     logActivity(company.sheetId, activityData).then(() => {
-      console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
+      console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${contactName || '?'}`);
     }).catch(e => console.error(`[GHL EOD] Error ${company.name}:`, e.message));
     return;
   }
@@ -270,20 +294,20 @@ const server = http.createServer(async (req, res) => {
     if (!company) return;
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
-    const value = body['Job Won Quote Value ($) - Entered '] || body.lead_value || '';
-    const comment = body['Job Won Client Comment - Entered'] || '';
-    const source = body['EOD 5 - Contact Source'] || '';
+    const value = deepFindField(body, 'Job Won Quote Value ($) - Entered ') || deepFindField(body, 'Job Won Quote Value ($) - Entered') || body.lead_value || '';
+    const comment = deepFindField(body, 'Job Won Client Comment - Entered') || '';
+    const source = deepFindField(body, 'EOD 5 - Contact Source') || '';
 
     const activityData = {
       date: companyToday(company),
       salesPerson: salesPersonName,
-      contactName: body.full_name || '',
+      contactName: deepFindField(body, 'full_name') || body.contactName || body.contact_name || '',
       eventType: 'Job Won',
       outcome: comment,
       adSource: source,
       quoteJobValue: String(value),
-      contactAddress: body.address1 || '',
-      contactId: body.contact_id || '',
+      contactAddress: deepFindField(body, 'address1') || '',
+      contactId: deepFindField(body, 'contact_id') || body.id || '',
     };
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -301,18 +325,18 @@ const server = http.createServer(async (req, res) => {
     if (!company) return;
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
-    const comment = body['Site Visit Booked - Comment'] || '';
-    const appointmentDT = body['Appointment Date Time'] || body['Appointment Date Time - Automated'] || '';
-    const dateBooked = body['Date Booked - Automated'] || '';
+    const comment = deepFindField(body, 'Site Visit Booked - Comment') || '';
+    const appointmentDT = deepFindField(body, 'Appointment Date Time') || deepFindField(body, 'Appointment Date Time - Automated') || '';
+    const dateBooked = deepFindField(body, 'Date Booked - Automated') || '';
 
     const activityData = {
       date: companyToday(company),
       salesPerson: salesPersonName,
-      contactName: body.full_name || '',
+      contactName: deepFindField(body, 'full_name') || '',
       eventType: 'Site Visit Booked',
       outcome: comment,
-      contactAddress: body.address1 || '',
-      contactId: body.contact_id || '',
+      contactAddress: deepFindField(body, 'address1') || '',
+      contactId: deepFindField(body, 'contact_id') || body.id || '',
       appointmentDateTime: appointmentDT,
       appointmentDate: dateBooked,
     };
@@ -323,8 +347,8 @@ const server = http.createServer(async (req, res) => {
     Promise.all([
       logActivity(company.sheetId, activityData),
       appendRows(company.sheetId, 'Site Visits', [[
-        body.full_name || '',
-        body.address1 || '',
+        deepFindField(body, 'full_name') || '',
+        deepFindField(body, 'address1') || '',
         appointmentDT || '',
         salesPersonName,
         '',
@@ -416,13 +440,15 @@ const server = http.createServer(async (req, res) => {
     const company = resolveGHLCompany(body, res);
     if (!company) return;
 
-    const eod1 = body['EOD 1 - Stage'] || '';
-    const eod2 = body['EOD 2 - Answered?'] || '';
-    const eod3 = body['EOD 3 - Standard Outcome'] || '';
-    const eod4 = body['EOD 4 - Custom Outcome'] || '';
-    const eod5 = body['EOD 5 - Contact Source'] || '';
+    const eod1 = deepFindField(body, 'EOD 1 - Stage') || '';
+    const eod2 = deepFindField(body, 'EOD 2 - Answered?') || '';
+    const eod3 = deepFindField(body, 'EOD 3 - Standard Outcome') || '';
+    const eod4 = deepFindField(body, 'EOD 4 - Custom Outcome') || '';
+    const eod5 = deepFindField(body, 'EOD 5 - Contact Source') || '';
 
     if (!eod1 && !eod2 && !eod3) {
+      console.log(`[GHL EOD legacy] No EOD fields found. Full body keys: ${JSON.stringify(Object.keys(body))}`);
+      console.log(`[GHL EOD legacy] Full body: ${JSON.stringify(body).substring(0, 2000)}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'skipped', reason: 'No EOD fields populated' }));
       return;
@@ -430,23 +456,24 @@ const server = http.createServer(async (req, res) => {
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
     const outcome = [eod1, eod2, eod3, eod4, eod5].map(s => s.trim()).join(' | ');
+    const contactName = deepFindField(body, 'full_name') || body.contactName || body.contact_name || '';
 
     const activityData = {
       date: companyToday(company),
       salesPerson: salesPersonName,
-      contactName: body.full_name || '',
+      contactName,
       eventType: 'EOD Update',
       outcome,
       adSource: eod5,
-      contactAddress: body.address1 || '',
-      contactId: body.contact_id || '',
+      contactAddress: deepFindField(body, 'address1') || '',
+      contactId: deepFindField(body, 'contact_id') || body.id || '',
     };
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'eod', company: company.name, salesPerson: salesPersonName }));
 
     logActivity(company.sheetId, activityData).then(() => {
-      console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
+      console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${contactName || '?'}`);
     }).catch(e => console.error(`[GHL EOD] Error ${company.name}:`, e.message));
     return;
   }
