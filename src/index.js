@@ -20,7 +20,7 @@ const { populateAllFormulas, populateLiveFormulas } = require('./sheets/populate
 const { sendReportToSlack } = require('./integrations/slack');
 const { sendReportToClickUp } = require('./integrations/clickup');
 
-const { loadCompanies } = require('./config/companiesStore');
+const { loadCompanies, loadAllCompanies } = require('./config/companiesStore');
 
 function findCompany(name) {
   const data = loadCompanies();
@@ -163,10 +163,11 @@ async function main() {
     }
 
     case 'list': {
-      const data = loadCompanies();
+      const data = loadAllCompanies();
       for (const c of data.companies) {
         const activePeople = c.salesPeople.filter(p => p.active).map(p => p.name);
-        console.log(`${c.name} (Sheet: ${c.sheetId || 'not created'})`);
+        const status = c.active === false ? ' [INACTIVE]' : '';
+        console.log(`${c.name}${status} (Sheet: ${c.sheetId || 'not created'})`);
         console.log(`  Owner: ${c.ownerName}`);
         console.log(`  Active Sales People: ${activePeople.join(', ') || 'none'}`);
         console.log();

@@ -246,10 +246,13 @@ async function getCompanyData(company, weekdays) {
   const dailyStats = {};
   const weeklyStats = {};
 
+  const jobDetailsByPerson = {};
+
   for (const person of activePeople) {
     dailyStats[person.name] = {};
     const weeklyCounts = {};
     let jobValue = 0;
+    jobDetailsByPerson[person.name] = [];
 
     for (const date of weekdays) {
       const filtered = filterActivities(activities, date, person.name);
@@ -269,6 +272,7 @@ async function getCompanyData(company, weekdays) {
 
       for (const job of (data.jobDetails || [])) {
         jobValue += job.value || 0;
+        jobDetailsByPerson[person.name].push(job);
       }
     }
 
@@ -338,6 +342,7 @@ async function getCompanyData(company, weekdays) {
     teamWeekly,
     rates,
     activities,
+    jobDetailsByPerson,
   };
 }
 
@@ -654,6 +659,28 @@ async function generateMeetingDoc(startDate, endDate) {
 
       lines.push(`**Sources:** ${formatSources(w._sources)}`);
       lines.push('');
+    }
+
+    // ── Jobs Won Details ──
+    if (data.jobDetailsByPerson) {
+      const allJobs = [];
+      for (const person of data.people) {
+        for (const job of (data.jobDetailsByPerson[person] || [])) {
+          allJobs.push({ ...job, salesPerson: person });
+        }
+      }
+      if (allJobs.length > 0) {
+        const totalRevenue = allJobs.reduce((sum, j) => sum + (j.value || 0), 0);
+        lines.push(`**🏆 Jobs Won — ${allJobs.length} | ${formatDollar(totalRevenue)}**`);
+        lines.push('');
+        lines.push('| Contact | Address | Value | Source | Sales Exec |');
+        lines.push('|---|---|---|---|---|');
+        for (const j of allJobs) {
+          const addr = (j.address || '-').replace(/[\n\r]+/g, ', ');
+          lines.push(`| ${j.contactName || '-'} | ${addr} | ${formatDollar(j.value || 0)} | ${j.source || '-'} | ${j.salesPerson} |`);
+        }
+        lines.push('');
+      }
     }
 
     // ── Team Summary (if multiple people) ──
