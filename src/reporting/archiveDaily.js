@@ -44,7 +44,7 @@ async function archiveDaily(spreadsheetId, salesPerson, date, message, counts, n
 
   // Update the "Last Generated" field on the EOD config tab
   const eodTab = salesPerson === 'Team' ? 'Team EOD' : `${salesPerson} EOD`;
-  const lastGenRow = salesPerson === 'Team' ? 3 : 4;
+  const lastGenRow = 4;
   const now = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney' });
   await writeSheet(spreadsheetId, `'${eodTab}'!B${lastGenRow}`, [[now]]);
 }
