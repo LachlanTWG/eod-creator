@@ -38,7 +38,7 @@ async function createSummarySheet(existingSheetId) {
   const execMap = buildExecMap();
   const execNames = Object.keys(execMap);
 
-  // Build tab names: display tabs + storage tabs
+  // Build tab names: display tabs + storage tabs + totals
   const tabNames = [];
   for (const name of execNames) {
     tabNames.push(
@@ -46,6 +46,10 @@ async function createSummarySheet(existingSheetId) {
       `${name} Daily`, `${name} Weekly`, `${name} Monthly`
     );
   }
+  tabNames.push(
+    'Total EOD', 'Total EOW', 'Total EOM',
+    'Total Daily', 'Total Weekly', 'Total Monthly'
+  );
 
   let spreadsheetId;
 
@@ -108,6 +112,14 @@ async function populateSummaryFormulas(summarySheetId) {
     await populateExecEOW(summarySheetId, execName, companies, outcomeNames);
     await populateExecEOM(summarySheetId, execName, companies, outcomeNames);
   }
+
+  // Total tabs — sum all execs
+  const execNames = Object.keys(execMap);
+  const firstCompany = Object.values(execMap)[0][0];
+  const outcomeNames = getOutcomeNames(firstCompany.ownerName, firstCompany.companyName);
+  await populateTotalTab(summarySheetId, 'Total EOD', 'EOD', execNames, outcomeNames);
+  await populateTotalTab(summarySheetId, 'Total EOW', 'EOW', execNames, outcomeNames);
+  await populateTotalTab(summarySheetId, 'Total EOM', 'EOM', execNames, outcomeNames);
 
   console.log('Summary display tabs populated.');
 }
@@ -208,6 +220,58 @@ async function populateExecEOM(summarySheetId, execName, companies, outcomeNames
   console.log(`  Populated ${tabName}`);
 }
 
+/**
+ * Populate a Total tab that sums all execs' display tabs.
+ * References each exec's column B (Total) from their corresponding display tab.
+ */
+async function populateTotalTab(summarySheetId, tabName, reportType, execNames, outcomeNames) {
+  const grid = [];
+
+  if (reportType === 'EOD') {
+    grid.push(['', 'Total', ...execNames]);
+    grid.push(['Companies', 'All']);
+    grid.push(['Date Mode', 'today']);
+    grid.push(['Manual Date', '']);
+    grid.push(['Target Date', '=IF(B3="today",TODAY(),B4)']);
+  } else if (reportType === 'EOW') {
+    grid.push(['', 'Total', ...execNames]);
+    grid.push(['Companies', 'All']);
+    grid.push(['Week Start', '=TODAY()-WEEKDAY(TODAY(),2)+1']);
+    grid.push(['Week End', '=B3+6']);
+  } else {
+    grid.push(['', 'Total', ...execNames]);
+    grid.push(['Companies', 'All']);
+    grid.push(['Month Start', '=DATE(YEAR(TODAY()),MONTH(TODAY()),1)']);
+    grid.push(['Month End', '=EOMONTH(B3,0)']);
+  }
+
+  grid.push(['']);
+  grid.push(['']);
+  grid.push(['Outcome', 'Total', ...execNames]);
+
+  for (let i = 0; i < outcomeNames.length; i++) {
+    const sourceRow = 8 + i;
+    const row = [outcomeNames[i]];
+
+    // Per-exec columns referencing their display tab's Total (column B)
+    const execCols = [];
+    for (const name of execNames) {
+      execCols.push(`=IFERROR('${name} ${reportType}'!B${sourceRow},0)`);
+    }
+
+    // Total = SUM of exec columns
+    const lastCol = String.fromCharCode(67 + execNames.length - 1);
+    row.push(`=SUM(C${sourceRow}:${lastCol}${sourceRow})`);
+    row.push(...execCols);
+    grid.push(row);
+  }
+
+  const lastRow = 8 + outcomeNames.length;
+  await clearRange(summarySheetId, `'${tabName}'!A1:${String.fromCharCode(67 + execNames.length)}${lastRow}`);
+  await writeSheet(summarySheetId, `'${tabName}'!A1`, grid);
+  console.log(`  Populated ${tabName}`);
+}
+
 // ─── Storage Tabs (Combined Daily/Weekly/Monthly) ───────────────────
 
 /**
@@ -246,9 +310,37 @@ async function writeStorageHeaders(summarySheetId) {
           console.log(`  Wrote headers for ${tabName}`);
         }
       } catch (e) {
-        // Tab might not exist yet
         console.error(`  Could not write headers for ${tabName}: ${e.message}`);
       }
+    }
+  }
+
+  // Total storage headers
+  const firstCompany = Object.values(execMap)[0][0];
+  const totalOutcomeNames = getOutcomeNames(firstCompany.ownerName, firstCompany.companyName);
+
+  const totalDailyHeader = ['Date'];
+  for (const name of totalOutcomeNames) totalDailyHeader.push(name);
+  totalDailyHeader.push('Total Revenue');
+
+  const totalWeeklyHeader = ['Week Start', 'Week End'];
+  for (const name of totalOutcomeNames) totalWeeklyHeader.push(name);
+  totalWeeklyHeader.push('Total Revenue');
+
+  const totalMonthlyHeader = ['Month'];
+  for (const name of totalOutcomeNames) totalMonthlyHeader.push(name);
+  totalMonthlyHeader.push('Total Revenue');
+
+  for (const [tabSuffix, header] of [['Daily', totalDailyHeader], ['Weekly', totalWeeklyHeader], ['Monthly', totalMonthlyHeader]]) {
+    const tabName = `Total ${tabSuffix}`;
+    try {
+      const existing = await readTab(summarySheetId, tabName);
+      if (existing.length === 0) {
+        await writeSheet(summarySheetId, `'${tabName}'!A1`, [header]);
+        console.log(`  Wrote headers for ${tabName}`);
+      }
+    } catch (e) {
+      console.error(`  Could not write headers for ${tabName}: ${e.message}`);
     }
   }
 }
@@ -465,6 +557,15 @@ async function backfillSummary(summarySheetId) {
     await backfillMonthly(summarySheetId, execName, companies, outcomeNames);
   }
 
+  // Backfill Total tabs by reading back all exec storage tabs and summing
+  console.log('\nBackfilling Total...');
+  const firstCompany = Object.values(execMap)[0][0];
+  const outcomeNames = getOutcomeNames(firstCompany.ownerName, firstCompany.companyName);
+  const execNames = Object.keys(execMap);
+  await backfillTotalDaily(summarySheetId, execNames, outcomeNames);
+  await backfillTotalWeekly(summarySheetId, execNames, outcomeNames);
+  await backfillTotalMonthly(summarySheetId, execNames, outcomeNames);
+
   console.log('\nBackfill complete.');
 }
 
@@ -628,6 +729,273 @@ async function backfillMonthly(summarySheetId, execName, companies, outcomeNames
   console.log(`  ${tabName}: ${months.length} months written.`);
 }
 
+// ─── Total Storage Backfill ─────────────────────────────────────────
+
+/**
+ * Read back all exec summary Daily tabs and sum into Total Daily.
+ */
+async function backfillTotalDaily(summarySheetId, execNames, outcomeNames) {
+  const dateMap = {};
+
+  for (const name of execNames) {
+    try {
+      const rows = await readTab(summarySheetId, `${name} Daily`);
+      if (rows.length < 2) continue;
+      for (let i = 1; i < rows.length; i++) {
+        const date = rows[i][0];
+        if (!date || date.length !== 10) continue;
+        if (!dateMap[date]) {
+          dateMap[date] = { counts: new Array(outcomeNames.length).fill(0), revenue: 0 };
+        }
+        for (let j = 0; j < outcomeNames.length; j++) {
+          const val = parseFloat(rows[i][1 + j] || '0');
+          if (!isNaN(val)) dateMap[date].counts[j] += val;
+        }
+        const rev = parseFloat(rows[i][1 + outcomeNames.length] || '0');
+        if (!isNaN(rev)) dateMap[date].revenue += rev;
+      }
+    } catch (e) {
+      console.error(`  Could not read ${name} Daily from summary: ${e.message}`);
+    }
+  }
+
+  const dates = Object.keys(dateMap).sort();
+  if (dates.length === 0) { console.log('  Total Daily: No data.'); return; }
+
+  const header = ['Date'];
+  for (const name of outcomeNames) header.push(name);
+  header.push('Total Revenue');
+
+  const grid = [header];
+  for (const date of dates) {
+    const d = dateMap[date];
+    grid.push([date, ...d.counts, d.revenue]);
+  }
+
+  await clearRange(summarySheetId, `'Total Daily'!A1:ZZ${grid.length + 1}`);
+  await writeSheet(summarySheetId, `'Total Daily'!A1`, grid);
+  console.log(`  Total Daily: ${dates.length} days written.`);
+}
+
+async function backfillTotalWeekly(summarySheetId, execNames, outcomeNames) {
+  const weekMap = {};
+
+  for (const name of execNames) {
+    try {
+      const rows = await readTab(summarySheetId, `${name} Weekly`);
+      if (rows.length < 2) continue;
+      for (let i = 1; i < rows.length; i++) {
+        const start = rows[i][0];
+        const end = rows[i][1];
+        if (!start || start.length !== 10) continue;
+        if (!weekMap[start]) {
+          weekMap[start] = { endDate: end, counts: new Array(outcomeNames.length).fill(0), revenue: 0 };
+        }
+        for (let j = 0; j < outcomeNames.length; j++) {
+          const val = parseFloat(rows[i][2 + j] || '0');
+          if (!isNaN(val)) weekMap[start].counts[j] += val;
+        }
+        const rev = parseFloat(rows[i][2 + outcomeNames.length] || '0');
+        if (!isNaN(rev)) weekMap[start].revenue += rev;
+      }
+    } catch (e) {
+      console.error(`  Could not read ${name} Weekly from summary: ${e.message}`);
+    }
+  }
+
+  const weeks = Object.keys(weekMap).sort();
+  if (weeks.length === 0) { console.log('  Total Weekly: No data.'); return; }
+
+  const header = ['Week Start', 'Week End'];
+  for (const name of outcomeNames) header.push(name);
+  header.push('Total Revenue');
+
+  const grid = [header];
+  for (const start of weeks) {
+    const w = weekMap[start];
+    grid.push([start, w.endDate, ...w.counts, w.revenue]);
+  }
+
+  await clearRange(summarySheetId, `'Total Weekly'!A1:ZZ${grid.length + 1}`);
+  await writeSheet(summarySheetId, `'Total Weekly'!A1`, grid);
+  console.log(`  Total Weekly: ${weeks.length} weeks written.`);
+}
+
+async function backfillTotalMonthly(summarySheetId, execNames, outcomeNames) {
+  const monthMap = {};
+
+  for (const name of execNames) {
+    try {
+      const rows = await readTab(summarySheetId, `${name} Monthly`);
+      if (rows.length < 2) continue;
+      for (let i = 1; i < rows.length; i++) {
+        const monthStr = rows[i][0];
+        if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) continue;
+        if (!monthMap[monthStr]) {
+          monthMap[monthStr] = { counts: new Array(outcomeNames.length).fill(0), revenue: 0 };
+        }
+        for (let j = 0; j < outcomeNames.length; j++) {
+          const val = parseFloat(rows[i][1 + j] || '0');
+          if (!isNaN(val)) monthMap[monthStr].counts[j] += val;
+        }
+        const rev = parseFloat(rows[i][1 + outcomeNames.length] || '0');
+        if (!isNaN(rev)) monthMap[monthStr].revenue += rev;
+      }
+    } catch (e) {
+      console.error(`  Could not read ${name} Monthly from summary: ${e.message}`);
+    }
+  }
+
+  const months = Object.keys(monthMap).sort();
+  if (months.length === 0) { console.log('  Total Monthly: No data.'); return; }
+
+  const header = ['Month'];
+  for (const name of outcomeNames) header.push(name);
+  header.push('Total Revenue');
+
+  const grid = [header];
+  for (const m of months) {
+    const d = monthMap[m];
+    grid.push([m, ...d.counts, d.revenue]);
+  }
+
+  await clearRange(summarySheetId, `'Total Monthly'!A1:ZZ${grid.length + 1}`);
+  await writeSheet(summarySheetId, `'Total Monthly'!A1`, grid);
+  console.log(`  Total Monthly: ${months.length} months written.`);
+}
+
+// ─── Total Archive (for cron) ───────────────────────────────────────
+
+/**
+ * Archive Total daily by summing all exec summary Daily rows for the date.
+ */
+async function archiveSummaryTotalDaily(summarySheetId, date) {
+  const execMap = buildExecMap();
+  const execNames = Object.keys(execMap);
+  const firstCompany = Object.values(execMap)[0][0];
+  const outcomeNames = getOutcomeNames(firstCompany.ownerName, firstCompany.companyName);
+
+  const combinedCounts = new Array(outcomeNames.length).fill(0);
+  let totalRevenue = 0;
+
+  for (const name of execNames) {
+    try {
+      const rows = await readTab(summarySheetId, `${name} Daily`);
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][0] === date) {
+          for (let j = 0; j < outcomeNames.length; j++) {
+            const val = parseFloat(rows[i][1 + j] || '0');
+            if (!isNaN(val)) combinedCounts[j] += val;
+          }
+          const rev = parseFloat(rows[i][1 + outcomeNames.length] || '0');
+          if (!isNaN(rev)) totalRevenue += rev;
+          break;
+        }
+      }
+    } catch (e) { /* skip */ }
+  }
+
+  const tabName = 'Total Daily';
+  const existing = await readTab(summarySheetId, tabName);
+  let existingRowIdx = -1;
+  for (let i = 1; i < existing.length; i++) {
+    if (existing[i][0] === date) { existingRowIdx = i; break; }
+  }
+
+  const row = [date, ...combinedCounts, totalRevenue];
+  if (existingRowIdx >= 0) {
+    await writeSheet(summarySheetId, `'${tabName}'!A${existingRowIdx + 1}`, [row]);
+  } else {
+    await appendRows(summarySheetId, tabName, [row]);
+  }
+  console.log(`  Updated Total Daily for ${date}`);
+}
+
+async function archiveSummaryTotalWeekly(summarySheetId, startDate, endDate) {
+  const execMap = buildExecMap();
+  const execNames = Object.keys(execMap);
+  const firstCompany = Object.values(execMap)[0][0];
+  const outcomeNames = getOutcomeNames(firstCompany.ownerName, firstCompany.companyName);
+
+  const combinedCounts = new Array(outcomeNames.length).fill(0);
+  let totalRevenue = 0;
+
+  for (const name of execNames) {
+    try {
+      const rows = await readTab(summarySheetId, `${name} Weekly`);
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][0] === startDate) {
+          for (let j = 0; j < outcomeNames.length; j++) {
+            const val = parseFloat(rows[i][2 + j] || '0');
+            if (!isNaN(val)) combinedCounts[j] += val;
+          }
+          const rev = parseFloat(rows[i][2 + outcomeNames.length] || '0');
+          if (!isNaN(rev)) totalRevenue += rev;
+          break;
+        }
+      }
+    } catch (e) { /* skip */ }
+  }
+
+  const tabName = 'Total Weekly';
+  const existing = await readTab(summarySheetId, tabName);
+  let existingRowIdx = -1;
+  for (let i = 1; i < existing.length; i++) {
+    if (existing[i][0] === startDate) { existingRowIdx = i; break; }
+  }
+
+  const row = [startDate, endDate, ...combinedCounts, totalRevenue];
+  if (existingRowIdx >= 0) {
+    await writeSheet(summarySheetId, `'${tabName}'!A${existingRowIdx + 1}`, [row]);
+  } else {
+    await appendRows(summarySheetId, tabName, [row]);
+  }
+  console.log(`  Updated Total Weekly for ${startDate}`);
+}
+
+async function archiveSummaryTotalMonthly(summarySheetId, year, month) {
+  const execMap = buildExecMap();
+  const execNames = Object.keys(execMap);
+  const firstCompany = Object.values(execMap)[0][0];
+  const outcomeNames = getOutcomeNames(firstCompany.ownerName, firstCompany.companyName);
+  const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+
+  const combinedCounts = new Array(outcomeNames.length).fill(0);
+  let totalRevenue = 0;
+
+  for (const name of execNames) {
+    try {
+      const rows = await readTab(summarySheetId, `${name} Monthly`);
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i][0] === monthStr) {
+          for (let j = 0; j < outcomeNames.length; j++) {
+            const val = parseFloat(rows[i][1 + j] || '0');
+            if (!isNaN(val)) combinedCounts[j] += val;
+          }
+          const rev = parseFloat(rows[i][1 + outcomeNames.length] || '0');
+          if (!isNaN(rev)) totalRevenue += rev;
+          break;
+        }
+      }
+    } catch (e) { /* skip */ }
+  }
+
+  const tabName = 'Total Monthly';
+  const existing = await readTab(summarySheetId, tabName);
+  let existingRowIdx = -1;
+  for (let i = 1; i < existing.length; i++) {
+    if (existing[i][0] === monthStr) { existingRowIdx = i; break; }
+  }
+
+  const row = [monthStr, ...combinedCounts, totalRevenue];
+  if (existingRowIdx >= 0) {
+    await writeSheet(summarySheetId, `'${tabName}'!A${existingRowIdx + 1}`, [row]);
+  } else {
+    await appendRows(summarySheetId, tabName, [row]);
+  }
+  console.log(`  Updated Total Monthly for ${monthStr}`);
+}
+
 module.exports = {
   createSummarySheet,
   populateSummaryFormulas,
@@ -636,5 +1004,8 @@ module.exports = {
   archiveSummaryDaily,
   archiveSummaryWeekly,
   archiveSummaryMonthly,
+  archiveSummaryTotalDaily,
+  archiveSummaryTotalWeekly,
+  archiveSummaryTotalMonthly,
   backfillSummary,
 };

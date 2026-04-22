@@ -17,7 +17,7 @@ const { sendReportToClickUp, createMeetingDocPage } = require('./integrations/cl
 
 const { readTab } = require('./sheets/readSheet');
 const { loadCompanies, getSummarySheetId } = require('./config/companiesStore');
-const { archiveSummaryDaily, archiveSummaryWeekly, archiveSummaryMonthly, buildExecMap } = require('./sheets/summarySheet');
+const { archiveSummaryDaily, archiveSummaryWeekly, archiveSummaryMonthly, archiveSummaryTotalDaily, archiveSummaryTotalWeekly, archiveSummaryTotalMonthly, buildExecMap } = require('./sheets/summarySheet');
 
 /**
  * Get today's date in a specific timezone.
@@ -577,6 +577,11 @@ async function runAllEOD(targetDate, mode = 'both') {
           console.error(`  Summary daily (${execName}): ${e.message}`);
         }
       }
+      try {
+        await archiveSummaryTotalDaily(summaryId, date);
+      } catch (e) {
+        console.error(`  Summary total daily: ${e.message}`);
+      }
     }
   }
 }
@@ -603,6 +608,11 @@ async function runAllEOW(startDate, endDate, mode = 'both') {
           console.error(`  Summary weekly (${execName}): ${e.message}`);
         }
       }
+      try {
+        await archiveSummaryTotalWeekly(summaryId, start, end);
+      } catch (e) {
+        console.error(`  Summary total weekly: ${e.message}`);
+      }
     }
   }
 }
@@ -628,6 +638,11 @@ async function runAllEOM(year, month) {
       } catch (e) {
         console.error(`  Summary monthly (${execName}): ${e.message}`);
       }
+    }
+    try {
+      await archiveSummaryTotalMonthly(summaryId, actualYear, m);
+    } catch (e) {
+      console.error(`  Summary total monthly: ${e.message}`);
     }
   }
 }
