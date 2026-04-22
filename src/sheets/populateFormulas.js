@@ -243,12 +243,12 @@ function notesBlock(cr) {
   // Extract rows where outcome has a non-empty 4th pipe segment (notes)
   // Outcome format: "LeadType | Answered | Outcome | Notes | Source"
   const fc = `${cr.df}${cr.pf},${AL}!D:D="EOD Update"`;
-  return `=IFERROR(LET(outcomes,FILTER(${AL}!E:E,${fc}),names,FILTER(${AL}!C:C,${fc}),notes,ARRAYFORMULA(TRIM(IFERROR(INDEX(SPLIT(outcomes," | ",FALSE,FALSE),0,4),""))),hasNote,ARRAYFORMULA(LEN(notes)>0),IF(OR(hasNote),"📝 Notes"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,IF(hasNote,"- "&names&": "&notes,"")),"")),"")`;
+  return `=IFERROR(LET(outcomes,FILTER(${AL}!E:E,${fc}),names,FILTER(${AL}!C:C,${fc}),notes,MAP(outcomes,LAMBDA(o,TRIM(IFERROR(INDEX(SPLIT(o," | ",FALSE,FALSE),1,4),"")))),hasNote,ARRAYFORMULA(LEN(notes)>0),IF(OR(hasNote),"📝 Notes"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,ARRAYFORMULA(IF(hasNote,"- "&names&": "&notes,""))),"")),"")`;
 }
 
 function eowNotesBlock(cr) {
   const fc = `${cr.df}${cr.pf},${col('D')}="EOD Update"`;
-  return `=IFERROR(LET(outcomes,FILTER(${col('E')},${fc}),names,FILTER(${col('C')},${fc}),notes,ARRAYFORMULA(TRIM(IFERROR(INDEX(SPLIT(outcomes," | ",FALSE,FALSE),0,4),""))),hasNote,ARRAYFORMULA(LEN(notes)>0),IF(OR(hasNote),CHAR(10)&"📝 Notes"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,IF(hasNote,CHAR(8226)&" "&names&": "&notes,"")),"")),"")`;
+  return `=IFERROR(LET(outcomes,FILTER(${col('E')},${fc}),names,FILTER(${col('C')},${fc}),notes,MAP(outcomes,LAMBDA(o,TRIM(IFERROR(INDEX(SPLIT(o," | ",FALSE,FALSE),1,4),"")))),hasNote,ARRAYFORMULA(LEN(notes)>0),IF(OR(hasNote),CHAR(10)&"📝 Notes"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,ARRAYFORMULA(IF(hasNote,CHAR(8226)&" "&names&": "&notes,""))),"")),"")`;
 }
 
 // --- Special EOW blocks (range dates, bounded refs) ---
