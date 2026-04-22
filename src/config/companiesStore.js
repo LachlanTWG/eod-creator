@@ -31,4 +31,15 @@ function saveCompanies(data) {
   fs.writeFileSync(COMPANIES_PATH, JSON.stringify(data, null, 2) + '\n');
 }
 
-module.exports = { loadCompanies, loadAllCompanies, saveCompanies, COMPANIES_PATH };
+function getSummarySheetId() {
+  const data = loadAllCompanies();
+  return data.summarySheetId || null;
+}
+
+function setSummarySheetId(id) {
+  const data = loadAllCompanies();
+  data.summarySheetId = id;
+  saveCompanies(data);
+}
+
+module.exports = { loadCompanies, loadAllCompanies, saveCompanies, getSummarySheetId, setSummarySheetId, COMPANIES_PATH };

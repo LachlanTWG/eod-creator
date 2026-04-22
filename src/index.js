@@ -20,7 +20,8 @@ const { populateAllFormulas, populateLiveFormulas } = require('./sheets/populate
 const { sendReportToSlack } = require('./integrations/slack');
 const { sendReportToClickUp } = require('./integrations/clickup');
 
-const { loadCompanies, loadAllCompanies } = require('./config/companiesStore');
+const { createSummarySheet, populateSummaryFormulas, backfillSummary } = require('./sheets/summarySheet');
+const { loadCompanies, loadAllCompanies, getSummarySheetId, setSummarySheetId } = require('./config/companiesStore');
 
 function findCompany(name) {
   const data = loadCompanies();
@@ -358,6 +359,31 @@ async function main() {
       break;
     }
 
+    case 'create-summary': {
+      const sheetIdx = args.indexOf('--sheet');
+      const existingSheetId = sheetIdx !== -1 ? args[sheetIdx + 1] : null;
+      const sheetId = await createSummarySheet(existingSheetId);
+      setSummarySheetId(sheetId);
+      console.log(`\nSummary Sheet ID: ${sheetId}`);
+      console.log(`URL: https://docs.google.com/spreadsheets/d/${sheetId}`);
+      console.log(`\nIMPORTANT: Open the sheet and authorize IMPORTRANGE for each company source.`);
+      break;
+    }
+
+    case 'populate-summary': {
+      const sheetId = getSummarySheetId();
+      if (!sheetId) { console.error('No summary sheet configured. Run create-summary first.'); return; }
+      await populateSummaryFormulas(sheetId);
+      break;
+    }
+
+    case 'backfill-summary': {
+      const sheetId = getSummarySheetId();
+      if (!sheetId) { console.error('No summary sheet configured. Run create-summary first.'); return; }
+      await backfillSummary(sheetId);
+      break;
+    }
+
     default:
       console.error(`Unknown command: ${command}`);
       printUsage();
@@ -389,6 +415,11 @@ Automation:
   npm run eom       — Run EOM for all companies
   npm run eoy       — Run EOY for all companies
   npm run meeting   — Generate weekly meeting doc
+
+Summary:
+  create-summary [--sheet <id>]        — Create Sales Exec Summary sheet
+  populate-summary                     — Re-populate summary sheet formulas
+  backfill-summary                     — Backfill historical data into summary storage tabs
 `);
 }
 
