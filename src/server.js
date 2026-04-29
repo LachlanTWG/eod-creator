@@ -224,6 +224,22 @@ const server = http.createServer(async (req, res) => {
     return new Date().toLocaleDateString('en-CA', { timeZone: tz });
   }
 
+  // Normalize GHL outcome values to canonical names used in reporting
+  const OUTCOME_ALIASES = {
+    'Not Ready to Proceed w. Job': 'Not Ready Yet - Post Quote',
+    'Not Ready for Site Visit': 'Not Ready Yet - Pre-Quote',
+    'Rescheduled Site Visit': 'Not Ready Yet - Pre-Quote',
+    'Rough Figures Sent': 'Requires Quoting',
+    'Disqualified - Extent of Works': 'DQ - Extent of Works',
+    'Disqualified - Out of Service Area': 'DQ - Out of Service Area',
+    'Disqualified - Wrong Contact/Number': 'DQ - Wrong Contact / Spam',
+    'Disqualified - Price': 'DQ - Price',
+    'Disqualified - Lead Looking for Work': 'DQ - Lead Looking for Work',
+  };
+  function normalizeOutcome(val) {
+    return OUTCOME_ALIASES[val] || val;
+  }
+
   // Shared: search GHL customFields array by display name or key
   // GHL sends custom fields as: [{ id, key, value, field_value }]
   // key is snake_case like "eod_1___stage", display name is "EOD 1 - Stage"
@@ -291,7 +307,7 @@ const server = http.createServer(async (req, res) => {
 
     const eod1 = deepFindField(body, 'EOD 1 - Stage') || '';
     const eod2 = deepFindField(body, 'EOD 2 - Answered?') || '';
-    const eod3 = deepFindField(body, 'EOD 3 - Standard Outcome') || '';
+    const eod3 = normalizeOutcome(deepFindField(body, 'EOD 3 - Standard Outcome') || '');
     const eod4 = deepFindField(body, 'EOD 4 - Custom Outcome') || '';
     const eod5 = deepFindField(body, 'EOD 5 - Contact Source') || '';
 
@@ -482,7 +498,7 @@ const server = http.createServer(async (req, res) => {
 
     const eod1 = deepFindField(body, 'EOD 1 - Stage') || '';
     const eod2 = deepFindField(body, 'EOD 2 - Answered?') || '';
-    const eod3 = deepFindField(body, 'EOD 3 - Standard Outcome') || '';
+    const eod3 = normalizeOutcome(deepFindField(body, 'EOD 3 - Standard Outcome') || '');
     const eod4 = deepFindField(body, 'EOD 4 - Custom Outcome') || '';
     const eod5 = deepFindField(body, 'EOD 5 - Contact Source') || '';
 

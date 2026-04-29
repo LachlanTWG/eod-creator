@@ -86,6 +86,23 @@ function resolveLeadSource(contactName, contactId, allActivities) {
   return '';
 }
 
+// GHL dropdown values that differ from internal outcome names
+const OUTCOME_ALIASES = {
+  'Not Ready to Proceed w. Job': 'Not Ready Yet - Post Quote',
+  'Not Ready for Site Visit': 'Not Ready Yet - Pre-Quote',
+  'Rescheduled Site Visit': 'Not Ready Yet - Pre-Quote',
+  'Rough Figures Sent': 'Requires Quoting',
+  'Disqualified - Extent of Works': 'DQ - Extent of Works',
+  'Disqualified - Out of Service Area': 'DQ - Out of Service Area',
+  'Disqualified - Wrong Contact/Number': 'DQ - Wrong Contact / Spam',
+  'Disqualified - Price': 'DQ - Price',
+  'Disqualified - Lead Looking for Work': 'DQ - Lead Looking for Work',
+};
+
+function resolveAlias(name) {
+  return OUTCOME_ALIASES[name] || name;
+}
+
 /**
  * Count outcomes from filtered EOD Update activities.
  * @param {Array} allActivities - ALL activity log rows (for cross-referencing lead sources)
@@ -191,8 +208,7 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
 
       // Action/Outcome
       if (parsed.action) {
-        // Handle "Passed Onto {owner}" matching
-        let actionKey = parsed.action;
+        let actionKey = resolveAlias(parsed.action);
         const passedOntoKey = `Passed Onto ${ownerName}`;
         if (actionKey.startsWith('Passed Onto')) {
           actionKey = passedOntoKey;
