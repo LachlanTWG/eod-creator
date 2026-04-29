@@ -224,6 +224,40 @@ const server = http.createServer(async (req, res) => {
     return new Date().toLocaleDateString('en-CA', { timeZone: tz });
   }
 
+  // Shared: search GHL customFields array by display name or key
+  // GHL sends custom fields as: [{ id, key, value, field_value }]
+  // key is snake_case like "eod_1___stage", display name is "EOD 1 - Stage"
+  function findGHLCustomField(obj, fieldName) {
+    const arrays = [];
+    function collectCustomFields(o, visited = new Set()) {
+      if (!o || typeof o !== 'object' || visited.has(o)) return;
+      visited.add(o);
+      if (Array.isArray(o)) {
+        for (const item of o) collectCustomFields(item, visited);
+        return;
+      }
+      if (o.customFields && Array.isArray(o.customFields)) arrays.push(o.customFields);
+      if (o.customData && Array.isArray(o.customData)) arrays.push(o.customData);
+      for (const val of Object.values(o)) {
+        if (val && typeof val === 'object') collectCustomFields(val, visited);
+      }
+    }
+    collectCustomFields(obj);
+
+    const normalised = fieldName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const arr of arrays) {
+      for (const entry of arr) {
+        if (!entry || typeof entry !== 'object') continue;
+        const entryKey = (entry.key || entry.name || entry.fieldKey || entry.field_key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (entryKey === normalised) {
+          const v = entry.field_value ?? entry.fieldValue ?? entry.value ?? '';
+          if (v !== '' && v !== null && v !== undefined) return v;
+        }
+      }
+    }
+    return undefined;
+  }
+
   // Shared: extract a field value by key from anywhere in the body (GHL nests fields inconsistently)
   function deepFindField(obj, fieldName, visited = new Set()) {
     if (!obj || typeof obj !== 'object' || visited.has(obj)) return undefined;
@@ -242,6 +276,11 @@ const server = http.createServer(async (req, res) => {
         if (found !== undefined) return found;
       }
     }
+    // Fall back to GHL customFields array search
+    if (visited.size <= 1) {
+      const ghlVal = findGHLCustomField(obj, fieldName);
+      if (ghlVal !== undefined) return ghlVal;
+    }
     return undefined;
   }
 
@@ -258,7 +297,8 @@ const server = http.createServer(async (req, res) => {
 
     if (!eod1 && !eod2 && !eod3) {
       console.log(`[GHL EOD] No EOD fields found. Full body keys: ${JSON.stringify(Object.keys(body))}`);
-      console.log(`[GHL EOD] Full body: ${JSON.stringify(body).substring(0, 2000)}`);
+      console.log(`[GHL EOD] customFields: ${JSON.stringify(body.customFields || body.customData?.customFields || 'none')}`);
+      console.log(`[GHL EOD] Full body: ${JSON.stringify(body).substring(0, 3000)}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'skipped', reason: 'No EOD fields populated' }));
       return;
@@ -448,7 +488,8 @@ const server = http.createServer(async (req, res) => {
 
     if (!eod1 && !eod2 && !eod3) {
       console.log(`[GHL EOD legacy] No EOD fields found. Full body keys: ${JSON.stringify(Object.keys(body))}`);
-      console.log(`[GHL EOD legacy] Full body: ${JSON.stringify(body).substring(0, 2000)}`);
+      console.log(`[GHL EOD legacy] customFields: ${JSON.stringify(body.customFields || body.customData?.customFields || 'none')}`);
+      console.log(`[GHL EOD legacy] Full body: ${JSON.stringify(body).substring(0, 3000)}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'skipped', reason: 'No EOD fields populated' }));
       return;
