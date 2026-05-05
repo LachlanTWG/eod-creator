@@ -350,7 +350,7 @@ const server = http.createServer(async (req, res) => {
     if (!company) return;
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
-    const value = deepFindField(body, 'Job Won Quote Value ($) - Entered ') || deepFindField(body, 'Job Won Quote Value ($) - Entered') || body.lead_value || '';
+    const value = deepFindField(body, 'Job Won Value - incl. GST') || deepFindField(body, 'Job Won Quote Value ($) - Entered ') || deepFindField(body, 'Job Won Quote Value ($) - Entered') || body.lead_value || '';
     const comment = deepFindField(body, 'Job Won Client Comment - Entered') || '';
     const source = deepFindField(body, 'EOD 5 - Contact Source') || '';
 
