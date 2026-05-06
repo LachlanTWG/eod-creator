@@ -13,6 +13,16 @@ const {
 const { logActivity } = require('./sheets/logActivity');
 const { appendRows } = require('./sheets/writeSheet');
 const { populateAllFormulas } = require('./sheets/populateFormulas');
+const {
+  archiveSummaryDaily,
+  archiveSummaryWeekly,
+  archiveSummaryMonthly,
+  archiveSummaryTotalDaily,
+  archiveSummaryTotalWeekly,
+  archiveSummaryTotalMonthly,
+  buildExecMap,
+} = require('./sheets/summarySheet');
+const { getSummarySheetId } = require('./config/companiesStore');
 
 const PORT = process.env.PORT || 3000;
 
@@ -89,6 +99,80 @@ function scheduleCompanyJobs() {
 
     console.log(`  ${name}: 8 jobs scheduled (tz: ${tz})`);
   }
+}
+
+// Summary archive helpers — run after per-company archives have written their daily rows.
+async function runSummaryDailyArchive() {
+  const summaryId = getSummarySheetId();
+  if (!summaryId) return;
+  const date = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' });
+  const execMap = buildExecMap();
+  for (const execName of Object.keys(execMap)) {
+    try { await archiveSummaryDaily(summaryId, execName, date); }
+    catch (e) { console.error(`  Summary daily (${execName}): ${e.message}`); }
+  }
+  try { await archiveSummaryTotalDaily(summaryId, date); }
+  catch (e) { console.error(`  Summary total daily: ${e.message}`); }
+}
+
+async function runSummaryWeeklyArchive() {
+  const summaryId = getSummarySheetId();
+  if (!summaryId) return;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' });
+  const d = new Date(today + 'T00:00:00');
+  const dow = d.getDay() || 7; // 1=Mon..7=Sun
+  const monday = new Date(d); monday.setDate(d.getDate() - (dow - 1));
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  const start = monday.toISOString().slice(0, 10);
+  const end = sunday.toISOString().slice(0, 10);
+  const execMap = buildExecMap();
+  for (const execName of Object.keys(execMap)) {
+    try { await archiveSummaryWeekly(summaryId, execName, start, end); }
+    catch (e) { console.error(`  Summary weekly (${execName}): ${e.message}`); }
+  }
+  try { await archiveSummaryTotalWeekly(summaryId, start, end); }
+  catch (e) { console.error(`  Summary total weekly: ${e.message}`); }
+}
+
+async function runSummaryMonthlyArchive() {
+  const summaryId = getSummarySheetId();
+  if (!summaryId) return;
+  // Cron fires on the 1st at local time AFTER per-company EOM has run.
+  // Archive the PREVIOUS month, since EOM reports look back at the just-finished month.
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' });
+  const today = new Date(todayStr + 'T00:00:00');
+  const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const year = prev.getFullYear();
+  const month = prev.getMonth() + 1;
+  const execMap = buildExecMap();
+  for (const execName of Object.keys(execMap)) {
+    try { await archiveSummaryMonthly(summaryId, execName, year, month); }
+    catch (e) { console.error(`  Summary monthly (${execName}): ${e.message}`); }
+  }
+  try { await archiveSummaryTotalMonthly(summaryId, year, month); }
+  catch (e) { console.error(`  Summary total monthly: ${e.message}`); }
+}
+
+function scheduleSummaryArchive() {
+  // Daily — 11:59pm AEST Mon-Fri (4 min after per-company 11:55pm archives)
+  scheduledJobs.push(cron.schedule('59 23 * * 1-5', () => {
+    console.log(`[${new Date().toISOString()}] ARCHIVE SUMMARY DAILY`);
+    runSummaryDailyArchive().catch(e => console.error('Summary daily archive error:', e.message));
+  }, { timezone: 'Australia/Sydney' }));
+
+  // Weekly — Friday 11:59pm AEST (after per-company EOW archive at 11:55pm)
+  scheduledJobs.push(cron.schedule('59 23 * * 5', () => {
+    console.log(`[${new Date().toISOString()}] ARCHIVE SUMMARY WEEKLY`);
+    runSummaryWeeklyArchive().catch(e => console.error('Summary weekly archive error:', e.message));
+  }, { timezone: 'Australia/Sydney' }));
+
+  // Monthly — 1st of month at 2pm AEST (after slowest per-company EOM at 9am Perth = 11am AEST)
+  scheduledJobs.push(cron.schedule('0 14 1 * *', () => {
+    console.log(`[${new Date().toISOString()}] ARCHIVE SUMMARY MONTHLY`);
+    runSummaryMonthlyArchive().catch(e => console.error('Summary monthly archive error:', e.message));
+  }, { timezone: 'Australia/Sydney' }));
+
+  console.log(`  Summary Archive: Daily 11:59pm Mon-Fri, Weekly 11:59pm Fri, Monthly 2pm 1st (all AEST)`);
 }
 
 // Meeting Doc — Friday 6pm AEST (after all EOW sends have fired)
@@ -653,6 +737,7 @@ function start() {
 
   scheduleCompanyJobs();
   scheduleMeetingDoc();
+  scheduleSummaryArchive();
 
   console.log(`\nTotal cron jobs: ${scheduledJobs.length}`);
 
