@@ -102,7 +102,8 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   if (has('Quote Sent')) {
     lines.push('');
     lines.push(`💰 Revenue`);
-    lines.push(`Quotes Sent: ${yearlyCounts['Quote Sent'] || 0} (${yearlyCounts['Total Individual Quotes'] || 0} individual)`);
+    lines.push(`Total Contacts Quoted: ${yearlyCounts['Quote Sent'] || 0}`);
+    lines.push(`Total Individual Quotes: ${yearlyCounts['Total Individual Quotes'] || 0}`);
     lines.push(`Total Pipeline Value: ${formatDollar(yearlyCounts['Pipeline Value'] || 0)}`);
     if (has('Site Visit Booked')) lines.push(`Site Visits: ${yearlyCounts['Site Visit Booked'] || 0}`);
     if (has('Job Won')) lines.push(`Jobs Won: ${yearlyCounts['Job Won'] || 0}`);

@@ -46,7 +46,7 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 6: {
       const quoteCount = weeklyCounts[outcomeName] || 0;
       if (quoteCount === 0) return null;
-      return `• ${outcomeName}: ${quoteCount}`;
+      return `• Total Contacts Quoted: ${quoteCount}`;
     }
 
     case 7: {

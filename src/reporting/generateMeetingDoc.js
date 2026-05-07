@@ -391,7 +391,7 @@ function buildPersonMetrics(name, w, companyType) {
 
   if (companyType === 'trade') {
     lines.push(`| 📋 Requires Quoting | ${w['Requires Quoting'] || 0} |`);
-    lines.push(`| 📤 Quotes Sent | ${w['Quote Sent'] || 0} |`);
+    lines.push(`| 📤 Contacts Quoted | ${w['Quote Sent'] || 0} |`);
     lines.push(`| 📄 Individual Quotes | ${w['Total Individual Quotes'] || 0} |`);
     lines.push(`| 🚙 Site Visits Booked | ${w['Site Visit Booked'] || 0} |`);
     lines.push(`| 🤝 Verbal Confirmations | ${w['Verbal Confirmation'] || 0} |`);
@@ -452,7 +452,7 @@ function buildTrendTable(trend, companyType, totalFieldLabel) {
     { label: '📞 ' + totalFieldLabel, key: totalKey },
     { label: '📱 Answered', key: 'Answered' },
     { label: '🌱 New Leads', key: 'New Leads' },
-    { label: '📤 Quotes Sent', key: 'Quote Sent' },
+    { label: '📤 Contacts Quoted', key: 'Quote Sent' },
     { label: '🚙 Site Visits', key: 'Site Visit Booked' },
     { label: '🏆 Jobs Won', key: 'Job Won' },
     { label: '💰 Revenue', key: 'Total Revenue', dollar: true },
@@ -695,7 +695,8 @@ async function generateMeetingDoc(startDate, endDate) {
       lines.push(`| ⚡ Pick Up Rate | ${data.rates.pickUp}% |`);
 
       if (companyType === 'trade') {
-        lines.push(`| 📤 Quotes Sent | ${t['Quote Sent'] || 0} (${t['Total Individual Quotes'] || 0} individual) |`);
+        lines.push(`| 📤 Contacts Quoted | ${t['Quote Sent'] || 0} |`);
+        lines.push(`| 📄 Individual Quotes | ${t['Total Individual Quotes'] || 0} |`);
         lines.push(`| 📈 Pipeline Value | ${formatDollar(t['Pipeline Value'] || 0)} |`);
         lines.push(`| 🚙 Site Visits | ${t['Site Visit Booked'] || 0} |`);
         lines.push(`| 🏆 Jobs Won | ${t['Job Won'] || 0} |`);

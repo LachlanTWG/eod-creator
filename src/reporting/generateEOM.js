@@ -170,7 +170,8 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   if (has('Quote Sent')) {
     lines.push('');
     lines.push(`💰 Revenue Pipeline`);
-    lines.push(`Quotes Sent: ${monthlyCounts['Quote Sent'] || 0} (${monthlyCounts['Total Individual Quotes'] || 0} individual)`);
+    lines.push(`Total Contacts Quoted: ${monthlyCounts['Quote Sent'] || 0}`);
+    lines.push(`Total Individual Quotes: ${monthlyCounts['Total Individual Quotes'] || 0}`);
     lines.push(`Pipeline Value: ${formatDollar(monthlyCounts['Pipeline Value'] || 0)}`);
     if (has('Site Visit Booked')) lines.push(`Site Visits: ${monthlyCounts['Site Visit Booked'] || 0}`);
     if (has('Job Won')) {

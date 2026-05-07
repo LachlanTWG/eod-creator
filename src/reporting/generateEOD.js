@@ -344,14 +344,13 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
       const validQuotes = quoteDetails.filter(q => q.contactName || q.values.length > 0);
       if (validQuotes.length === 0) return null;
       if (isTeam) {
-        const totalQuotes = validQuotes.reduce((sum, q) => sum + q.values.length, 0);
-        const totalValue = validQuotes.reduce((sum, q) => sum + q.values.reduce((s, v) => s + v, 0), 0);
-        return `Quotes Sent: ${totalQuotes} (${formatDollar(totalValue)})`;
+        return `Total Contacts Quoted: ${validQuotes.length}`;
       }
-      const lines = validQuotes.map(q => {
+      const lines = [`Total Contacts Quoted: ${validQuotes.length}`];
+      for (const q of validQuotes) {
         const valStr = q.values.map(v => formatDollar(v)).join(', ');
-        return `- ${q.contactName} - ${q.values.length} - (${valStr})`;
-      });
+        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
+      }
       return lines.join('\n');
     }
 

@@ -176,7 +176,8 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
   if (has('Quote Sent')) {
     lines.push('');
     lines.push(`💰 Revenue Pipeline`);
-    lines.push(`Quotes Sent: ${quarterlyCounts['Quote Sent'] || 0} (${quarterlyCounts['Total Individual Quotes'] || 0} individual)`);
+    lines.push(`Total Contacts Quoted: ${quarterlyCounts['Quote Sent'] || 0}`);
+    lines.push(`Total Individual Quotes: ${quarterlyCounts['Total Individual Quotes'] || 0}`);
     lines.push(`Pipeline Value: ${formatDollar(quarterlyCounts['Pipeline Value'] || 0)}`);
     if (has('Site Visit Booked')) lines.push(`Site Visits: ${quarterlyCounts['Site Visit Booked'] || 0}`);
     if (has('Job Won')) {
