@@ -224,7 +224,7 @@ function quotesBlock(cr, rowMap) {
   const pvRow = rowMap['Pipeline Value'];
   const tiqRow = rowMap['Total Individual Quotes'];
   const fc = `${cr.df}${cr.pf},${AL}!D:D="Quote Sent"`;
-  return `=IFERROR(LET(numQ,COUNTIFS(${cr.dc}${cr.pc},${AL}!D:D,"Quote Sent"),IF(numQ=0,"","💰 Quotes Sent"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${AL}!C:C,${fc}),FILTER(${AL}!G:G,${fc}),LAMBDA(nm,v,IF(""&v="","- "&nm&" - 0 - ()",LET(t,SUBSTITUTE(SUBSTITUTE(""&v,"$",""),",",""),parts,SPLIT(t,"|"),nums,ARRAYFORMULA(VALUE(TRIM(parts))),cnt,COUNTA(parts),"- "&nm&" - "&cnt&" - ("&TEXTJOIN(", ",TRUE,ARRAYFORMULA("$"&TEXT(nums,"#,##0")))&")")))))&CHAR(10)&"Pipeline Value (Sum of Averages): $"&TEXT(B${pvRow},"#,##0")&CHAR(10)&"Total Individual Quotes: "&B${tiqRow})),"")`;
+  return `=IFERROR(LET(numQ,COUNTIFS(${cr.dc}${cr.pc},${AL}!D:D,"Quote Sent"),IF(numQ=0,"","💰 Quotes Sent"&CHAR(10)&"Total Contacts Quoted: "&IFERROR(COUNTA(UNIQUE(FILTER(${AL}!C:C,${fc}))),numQ)&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${AL}!C:C,${fc}),FILTER(${AL}!G:G,${fc}),LAMBDA(nm,v,IF(""&v="","- "&nm&" - 0 - ()",LET(t,SUBSTITUTE(SUBSTITUTE(""&v,"$",""),",",""),parts,SPLIT(t,"|"),nums,ARRAYFORMULA(VALUE(TRIM(parts))),cnt,COUNTA(parts),"- "&nm&" - "&cnt&" - ("&TEXTJOIN(", ",TRUE,ARRAYFORMULA("$"&TEXT(nums,"#,##0")))&")")))))&CHAR(10)&"Pipeline Value (Sum of Averages): $"&TEXT(B${pvRow},"#,##0")&CHAR(10)&"Total Individual Quotes: "&B${tiqRow})),"")`;
 }
 
 function siteVisitsBlock(cr) {
