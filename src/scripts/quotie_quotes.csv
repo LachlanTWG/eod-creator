@@ -1,0 +1,237 @@
+sent_date,salesperson,customer,customer_company,group_name,total_quotes,pipeline_value,outcome,quote_name,quote_full_number,grand_total
+2026-05-11,Lachlan Boys,Colin Bell,,3 quotes for Colin,3,124115.51000000001,null,6160 - Colin Bell - Bolton EC - Solar,Quote 6160,40930.05
+2026-05-11,Lachlan Boys,Colin Bell,,3 quotes for Colin,3,124115.51000000001,null,6161 - Colin Bell - Bolton EC - Solar,Quote 6161,39027.33
+2026-05-11,Lachlan Boys,Colin Bell,,3 quotes for Colin,3,124115.51000000001,null,6162 - Colin Bell - Bolton EC - Solar,Quote 6162,44158.13
+2026-05-11,Lachlan Boys,Colin Bell,,3 quotes for Colin,3,124115.51000000001,null,6164 - Colin Bell - Bolton EC - Solar,Quote 6164,40096.00
+2026-05-11,Lachlan Boys,Colin Bell,,3 quotes for Colin,3,124115.51000000001,null,6165 - Colin Bell - Bolton EC - Solar,Quote 6165,45254.24
+2026-05-11,Lachlan Boys,Colin Bell,,3 quotes for Colin,3,124115.51000000001,null,6166 - Colin Bell - Bolton EC - Solar,Quote 6166,42003.87
+2026-05-11,Lachlan Boys,Hassan Sherifi,,4 quotes for Hassan,4,50674.41,null,6156 - Hassan Sherifi - Bolton EC - Solar,Quote 6156,15880.45
+2026-05-11,Lachlan Boys,Hassan Sherifi,,4 quotes for Hassan,4,50674.41,null,6157 - Hassan Sherifi - Bolton EC - Solar,Quote 6157,12246.03
+2026-05-11,Lachlan Boys,Hassan Sherifi,,4 quotes for Hassan,4,50674.41,null,6158 - Hassan Sherifi - Bolton EC - Solar,Quote 6158,12607.54
+2026-05-11,Lachlan Boys,Hassan Sherifi,,4 quotes for Hassan,4,50674.41,null,6159 - Hassan Sherifi - Bolton EC - Solar,Quote 6159,9940.39
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 1003 - Mike Barron - Hughes Electrical,Quote 1003,23849.13
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 1004 - Mike Barron - Hughes Electrical,Quote 1004,20113.08
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 1005 - Mike Barron - Hughes Electrical,Quote 1005,21425.39
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 1006 - Mike Barron - Hughes Electrical,Quote 1006,18073.29
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 981 - Mike Barron - Hughes Electrical,Quote 981,22054.68
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 982 - Mike Barron - Hughes Electrical,Quote 982,26480.38
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 985 - Mike Barron - Hughes Electrical,Quote 985,23952.49
+2026-05-11,Buzz Brady,Mike Barron,,4 quotes for Mike,4,101278.1,null,Quote 986 - Mike Barron - Hughes Electrical,Quote 986,28790.55
+2026-05-11,Lachlan Boys,Paul Thariyan,,4 quotes for Paul,4,58092.19,null,Quote 1000 - Paul Thariyan - Hughes Electrical,Quote 1000,18432.42
+2026-05-11,Lachlan Boys,Paul Thariyan,,4 quotes for Paul,4,58092.19,null,Quote 1001 - Paul Thariyan - Hughes Electrical,Quote 1001,11268.76
+2026-05-11,Lachlan Boys,Paul Thariyan,,4 quotes for Paul,4,58092.19,null,Quote 1002 - Paul Thariyan - Hughes Electrical,Quote 1002,15554.05
+2026-05-11,Lachlan Boys,Paul Thariyan,,4 quotes for Paul,4,58092.19,null,Quote 999 - Paul Thariyan - Hughes Electrical,Quote 999,12836.96
+2026-05-11,Lachlan Boys,Henry Chuma,,4 quotes for Henry,4,56280.479999999996,null,Quote 991 - Henry Chuma - Hughes Electrical,Quote 991,18432.41
+2026-05-11,Lachlan Boys,Henry Chuma,,4 quotes for Henry,4,56280.479999999996,null,Quote 992 - Henry Chuma - Hughes Electrical,Quote 992,10897.79
+2026-05-11,Lachlan Boys,Henry Chuma,,4 quotes for Henry,4,56280.479999999996,null,Quote 993 - Henry Chuma - Hughes Electrical,Quote 993,15554.05
+2026-05-11,Lachlan Boys,Henry Chuma,,4 quotes for Henry,4,56280.479999999996,null,Quote 994 - Henry Chuma - Hughes Electrical,Quote 994,11396.23
+2026-05-11,Zac Russell,Fadi Dorkhom,null,4 quotes for Fadi,4,125142.45,null,5098 - Fadi Dorkhom - Bolton EC - Solar,Quote 5098,24911.43
+2026-05-11,Zac Russell,Fadi Dorkhom,null,4 quotes for Fadi,4,125142.45,null,5099 - Fadi Dorkhom - Bolton EC - Solar,Quote 5099,29451.10
+2026-05-11,Zac Russell,Fadi Dorkhom,null,4 quotes for Fadi,4,125142.45,null,5100 - Fadi Dorkhom - Bolton EC - Solar,Quote 5100,34148.72
+2026-05-11,Zac Russell,Fadi Dorkhom,null,4 quotes for Fadi,4,125142.45,null,5101 - Fadi Dorkhom - Bolton EC - Solar,Quote 5101,36631.20
+2026-05-11,Zac Russell,Fadi Dorkhom,null,4 quotes for Fadi,4,125142.45,null,6027 - Fadi Dorkhom - Bolton EC - Solar,Quote 6027,29616.66
+2026-05-11,Zac Russell,Fadi Dorkhom,null,4 quotes for Fadi,4,125142.45,null,6153 - Fadi Dorkhom - Bolton EC - Solar,Quote 6153,42531.65
+2026-05-11,Zac Russell,Fadi Dorkhom,null,4 quotes for Fadi,4,125142.45,null,6154 - Fadi Dorkhom - Bolton EC - Solar,Quote 6154,37100.32
+2026-05-11,Zac Russell,Aneesh Augustian,,3 quotes for Aneesh,3,51347.96,null,6150 - Aneesh Augustian - Bolton EC - Solar,Quote 6150,12768.98
+2026-05-11,Zac Russell,Aneesh Augustian,,3 quotes for Aneesh,3,51347.96,null,6151 - Aneesh Augustian - Bolton EC - Solar,Quote 6151,17466.11
+2026-05-11,Zac Russell,Aneesh Augustian,,3 quotes for Aneesh,3,51347.96,null,6152 - Aneesh Augustian - Bolton EC - Solar,Quote 6152,21112.87
+2026-05-11,Zac Russell,Steven Stampalia,,4 quotes for Steven,4,141846.53,null,6146 - Steven Stampalia - Bolton EC - Solar,Quote 6146,29557.45
+2026-05-11,Zac Russell,Steven Stampalia,,4 quotes for Steven,4,141846.53,null,6147 - Steven Stampalia - Bolton EC - Solar,Quote 6147,31402.68
+2026-05-11,Zac Russell,Steven Stampalia,,4 quotes for Steven,4,141846.53,null,6148 - Steven Stampalia - Bolton EC - Solar,Quote 6148,37993.49
+2026-05-11,Zac Russell,Steven Stampalia,,4 quotes for Steven,4,141846.53,null,6149 - Steven Stampalia - Bolton EC - Solar,Quote 6149,42892.91
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6128 - Gary Gilmore - Bolton EC - Solar,Quote 6128,31155.42
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6129 - Gary Gilmore - Bolton EC - Solar,Quote 6129,32495.60
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6130 - Gary Gilmore - Bolton EC - Solar,Quote 6130,32233.44
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6131 - Gary Gilmore - Bolton EC - Solar,Quote 6131,33611.43
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6142 - Gary Gilmore - Bolton EC - Solar,Quote 6142,27109.03
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6143 - Gary Gilmore - Bolton EC - Solar,Quote 6143,28409.03
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6144 - Gary Gilmore - Bolton EC - Solar,Quote 6144,26148.07
+2026-05-11,Lachlan Boys,Gary Gilmore,,2 quotes for Gary,2,63651.02,null,6145 - Gary Gilmore - Bolton EC - Solar,Quote 6145,27448.07
+2026-05-11,Zac Russell,Leon Hansen,,2 quotes for Leon,2,37184.59,null,5871 - Leon Hansen - Bolton EC - Solar,Quote 5871,18294.35
+2026-05-11,Zac Russell,Leon Hansen,,2 quotes for Leon,2,37184.59,null,5875 - Leon Hansen - Bolton EC - Solar,Quote 5875,18890.24
+2026-05-11,Zac Russell,Leon Hansen,,2 quotes for Leon,2,37184.59,null,6141 - Leon Hansen - Bolton EC - Solar,Quote 6141,16957.08
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5634 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5634,24462.68
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5635 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5635,30251.27
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5636 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5636,24244.18
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5637 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5637,28321.85
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5707 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5707,26241.69
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5708 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5708,31168.83
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5709 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5709,30355.65
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5710 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5710,35362.08
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5738 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5738,32998.24
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5739 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5739,37589.44
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5740 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5740,37844.00
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5741 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5741,40829.90
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5742 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5742,32998.24
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5789 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5789,32998.22
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,5790 - Chrismaz Simarmata - Bolton EC - Solar,Quote 5790,37589.44
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,6082 - Chrismaz Simarmata - Bolton EC - Solar,Quote 6082,32657.84
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,6136 - Chrismaz Simarmata - Bolton EC - Solar,Quote 6136,29866.69
+2026-05-11,Zac Russell,Chrismaz Simarmata,,4 quotes for Chrismaz,4,107279.98000000001,null,6138 - Chrismaz Simarmata - Bolton EC - Solar,Quote 6138,35051.34
+2026-05-11,Lachlan Boys,Anthony Caranna,,2 quotes for Anthony,2,39508.28,null,Quote 975 - Anthony Caranna - Hughes Electrical,Quote 975,20825.25
+2026-05-11,Lachlan Boys,Anthony Caranna,,2 quotes for Anthony,2,39508.28,null,Quote 976 - Anthony Caranna - Hughes Electrical,Quote 976,18683.03
+2026-05-11,Lachlan Boys,Sidney Tuitama,,Quote 1394 - Sidney Tuitama - HDK Long Run Roofing,1,20947.06,null,Quote 1394 - Sidney Tuitama - HDK Long Run Roofing,Quote 1394,20947.06
+2026-05-11,Lachlan Boys,Sidney Tuitama,,Quote 1394 - Sidney Tuitama - HDK Long Run Roofing,1,20947.06,null,Quote 1434 - Sidney Tuitama - HDK Long Run Roofing,Quote 1434,18742.77
+2026-05-11,Buzz Brady,Jason Mcdonald,,4 quotes for Jason,4,58270.759999999995,null,Quote 968 - Jason Mcdonald - Hughes Electrical,Quote 968,17549.78
+2026-05-11,Buzz Brady,Jason Mcdonald,,4 quotes for Jason,4,58270.759999999995,null,Quote 969 - Jason Mcdonald - Hughes Electrical,Quote 969,13768.13
+2026-05-11,Buzz Brady,Jason Mcdonald,,4 quotes for Jason,4,58270.759999999995,null,Quote 970 - Jason Mcdonald - Hughes Electrical,Quote 970,15112.69
+2026-05-11,Buzz Brady,Jason Mcdonald,,4 quotes for Jason,4,58270.759999999995,null,Quote 971 - Jason Mcdonald - Hughes Electrical,Quote 971,11840.16
+2026-05-11,Zac Russell,Gus Lacey,,4 quotes for gus,4,104075.93,null,6122 - Gus Lacey - Bolton EC - Solar,Quote 6122,20142.95
+2026-05-11,Zac Russell,Gus Lacey,,4 quotes for gus,4,104075.93,null,6123 - Gus Lacey - Bolton EC - Solar,Quote 6123,23847.60
+2026-05-11,Zac Russell,Gus Lacey,,4 quotes for gus,4,104075.93,null,6124 - Gus Lacey - Bolton EC - Solar,Quote 6124,29017.67
+2026-05-11,Zac Russell,Gus Lacey,,4 quotes for gus,4,104075.93,null,6125 - Gus Lacey - Bolton EC - Solar,Quote 6125,31067.71
+2026-05-11,Lachlan Boys,"Hugh ",null,2 quotes for Hugh,2,40253.869999999995,null,5902 - Hugh - Bolton EC - Solar,Quote 5902,15846.14
+2026-05-11,Lachlan Boys,"Hugh ",null,2 quotes for Hugh,2,40253.869999999995,null,5903 - Hugh - Bolton EC - Solar,Quote 5903,24407.73
+2026-05-11,Lachlan Boys,"Hugh ",null,2 quotes for Hugh,2,40253.869999999995,null,5904 - Hugh - Bolton EC - Solar,Quote 5904,30386.00
+2026-05-11,Lachlan Boys,"Hugh ",null,2 quotes for Hugh,2,40253.869999999995,null,6121 - Hugh - Bolton EC - Solar,Quote 6121,31655.38
+2026-05-11,Zac Russell,Jordan Aran Whittaker,,4 quotes for jordan,4,140166.65,null,6117 - Jordan Aran whittaker - Bolton EC - Solar,Quote 6117,27011.69
+2026-05-11,Zac Russell,Jordan Aran Whittaker,,4 quotes for jordan,4,140166.65,null,6118 - Jordan Aran whittaker - Bolton EC - Solar,Quote 6118,34155.69
+2026-05-11,Zac Russell,Jordan Aran Whittaker,,4 quotes for jordan,4,140166.65,null,6119 - Jordan Aran whittaker - Bolton EC - Solar,Quote 6119,36153.74
+2026-05-11,Zac Russell,Jordan Aran Whittaker,,4 quotes for jordan,4,140166.65,null,6120 - Jordan Aran whittaker - Bolton EC - Solar,Quote 6120,42845.53
+2026-05-11,Lachlan Boys,Isaac Hinton,,2 quotes for isaac,2,48370.42,null,Quote 949 - Isaac Hinton - Hughes Electrical,Quote 949,23608.48
+2026-05-11,Lachlan Boys,Isaac Hinton,,2 quotes for isaac,2,48370.42,null,Quote 950 - Isaac Hinton - Hughes Electrical,Quote 950,24761.94
+2026-05-11,Lachlan Boys,Isaac Hinton,,2 quotes for isaac,2,48370.42,null,Quote 962 - Isaac Hinton - Hughes Electrical,Quote 962,24916.73
+2026-05-11,Lachlan Boys,Isaac Hinton,,2 quotes for isaac,2,48370.42,null,Quote 963 - Isaac Hinton - Hughes Electrical,Quote 963,26070.20
+2026-05-11,Lachlan Boys,"Nilesh ",,4 quotes for Nilesh,4,61184,null,Quote 958 - Nilesh - Hughes Electrical,Quote 958,15086.64
+2026-05-11,Lachlan Boys,"Nilesh ",,4 quotes for Nilesh,4,61184,null,Quote 959 - Nilesh - Hughes Electrical,Quote 959,13054.54
+2026-05-11,Lachlan Boys,"Nilesh ",,4 quotes for Nilesh,4,61184,null,Quote 960 - Nilesh - Hughes Electrical,Quote 960,17572.09
+2026-05-11,Lachlan Boys,"Nilesh ",,4 quotes for Nilesh,4,61184,null,Quote 961 - Nilesh - Hughes Electrical,Quote 961,15470.73
+2026-05-11,Buzz Brady,Arvin Arvin,,Quote 1432 - Arvin Arvin - HDK Long Run Roofing,1,21185.54,null,Quote 1432 - Arvin Arvin - HDK Long Run Roofing,Quote 1432,21185.54
+2026-05-11,Lachlan Boys,Aileen Dave,null,Quote 1431 - Aileen Dave - HDK Long Run Roofing,1,22236.65,null,Quote 1431 - Aileen Dave - HDK Long Run Roofing,Quote 1431,22236.65
+2026-05-11,Lachlan Boys,"Danny ",null,Quote 1430 - Danny - HDK Long Run Roofing,1,18268.03,null,Quote 1430 - Danny - HDK Long Run Roofing,Quote 1430,18268.03
+2026-05-10,Lachlan Boys,Gino Anderson,null,6116 - Gino Anderson - Bolton EC - Solar,1,17393.21,null,6116 - Gino Anderson - Bolton EC - Solar,Quote 6116,17393.21
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6103 - Kevin - Bolton EC - Solar,Quote 6103,17407.17
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6104 - Kevin - Bolton EC - Solar,Quote 6104,22128.77
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6105 - Kevin - Bolton EC - Solar,Quote 6105,14331.86
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6106 - Kevin - Bolton EC - Solar,Quote 6106,17683.94
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6107 - Kevin - Bolton EC - Solar,Quote 6107,17407.17
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6108 - Kevin - Bolton EC - Solar,Quote 6108,22128.77
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6109 - Kevin - Bolton EC - Solar,Quote 6109,14331.86
+2026-05-08,Lachlan Boys,"Kevin ",null,4 quotes for kevin,4,71551.74,null,6110 - Kevin - Bolton EC - Solar,Quote 6110,17683.94
+2026-05-08,Buzz Brady,"Yogesh ",,4 quotes for yogesh,4,39995.72,null,Quote 938 - Yogesh - Hughes Electrical,Quote 938,6967.88
+2026-05-08,Buzz Brady,"Yogesh ",,4 quotes for yogesh,4,39995.72,null,Quote 939 - Yogesh - Hughes Electrical,Quote 939,13768.02
+2026-05-08,Buzz Brady,"Yogesh ",,4 quotes for yogesh,4,39995.72,null,Quote 940 - Yogesh - Hughes Electrical,Quote 940,6634.23
+2026-05-08,Buzz Brady,"Yogesh ",,4 quotes for yogesh,4,39995.72,null,Quote 941 - Yogesh - Hughes Electrical,Quote 941,12625.59
+2026-05-08,Buzz Brady,Sheryn Miller,,2 quotes for Sheryn,2,41690.259999999995,null,Quote 1407 - Sheryn Miller - HDK Long Run Roofing,Quote 1407,17800.34
+2026-05-08,Buzz Brady,Sheryn Miller,,2 quotes for Sheryn,2,41690.259999999995,null,Quote 1408 - Sheryn Miller - HDK Long Run Roofing,Quote 1408,23889.92
+2026-05-08,Buzz Brady,Sheryn Miller,,2 quotes for Sheryn,2,41690.259999999995,null,Quote 1426 - Sheryn Miller - HDK Long Run Roofing,Quote 1426,20990.21
+2026-05-08,Buzz Brady,Sheryn Miller,,2 quotes for Sheryn,2,41690.259999999995,null,Quote 1427 - Sheryn Miller - HDK Long Run Roofing,Quote 1427,24660.73
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,5107 - Priscilla - Bolton EC - Solar,Quote 5107,15156.23
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,5108 - Priscilla - Bolton EC - Solar,Quote 5108,18508.32
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,5109 - Priscilla - Bolton EC - Solar,Quote 5109,18424.18
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,5110 - Priscilla - Bolton EC - Solar,Quote 5110,22197.60
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,5323 - Priscilla - Bolton EC - Solar,Quote 5323,9849.60
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,5324 - Priscilla - Bolton EC - Solar,Quote 5324,8495.62
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,5328 - Priscilla - Bolton EC - Solar,Quote 5328,11875.73
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,6029 - Priscilla - Bolton EC - Solar,Quote 6029,16536.46
+2026-05-07,Zac Russell,"Priscilla ",null,4 quotes for Priscilla,4,74286.33,null,6084 - Priscilla - Bolton EC - Solar,Quote 6084,15921.88
+2026-05-07,Zac Russell,Prabhakar Sweet,,4 quotes for Prabhakar,4,105384.44,null,5517 - Prabhakar Sweet - Bolton EC - Solar,Quote 5517,19856.45
+2026-05-07,Zac Russell,Prabhakar Sweet,,4 quotes for Prabhakar,4,105384.44,null,5518 - Prabhakar Sweet - Bolton EC - Solar,Quote 5518,23572.60
+2026-05-07,Zac Russell,Prabhakar Sweet,,4 quotes for Prabhakar,4,105384.44,null,5520 - Prabhakar Sweet - Bolton EC - Solar,Quote 5520,28093.11
+2026-05-07,Zac Russell,Prabhakar Sweet,,4 quotes for Prabhakar,4,105384.44,null,5521 - Prabhakar Sweet - Bolton EC - Solar,Quote 5521,33862.28
+2026-05-07,Zac Russell,Prabhakar Sweet,,4 quotes for Prabhakar,4,105384.44,null,5677 - Prabhakar Sweet - Bolton EC - Solar,Quote 5677,33862.28
+2026-05-07,Zac Russell,Prabhakar Sweet,,4 quotes for Prabhakar,4,105384.44,null,6083 - Prabhakar Sweet - Bolton EC - Solar,Quote 6083,33939.28
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 923 - Warren Richards - Hughes Electrical,Quote 923,13839.12
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 924 - Warren Richards - Hughes Electrical,Quote 924,41081.48
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 925 - Warren Richards - Hughes Electrical,Quote 925,17120.66
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 926 - Warren Richards - Hughes Electrical,Quote 926,45556.97
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 933 - Warren Richards - Hughes Electrical,Quote 933,33275.63
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 934 - Warren Richards - Hughes Electrical,Quote 934,17117.90
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 936 - Warren Richards - Hughes Electrical,Quote 936,25070.00
+2026-05-07,Buzz Brady,Warren Richards,null,Solar Options for Warren Richards - 168 Tuart Dr Baldivis,4,0,open,Quote 937 - Warren Richards - Hughes Electrical,Quote 937,13025.82
+2026-05-07,Lachlan Boys,Brock Rynski,,4 quotes for Brock,4,57615.33,null,6077 - Brock Rynski - Bolton EC - Solar,Quote 6077,14236.21
+2026-05-07,Lachlan Boys,Brock Rynski,,4 quotes for Brock,4,57615.33,null,6078 - Brock Rynski - Bolton EC - Solar,Quote 6078,17388.84
+2026-05-07,Lachlan Boys,Brock Rynski,,4 quotes for Brock,4,57615.33,null,6079 - Brock Rynski - Bolton EC - Solar,Quote 6079,11676.80
+2026-05-07,Lachlan Boys,Brock Rynski,,4 quotes for Brock,4,57615.33,null,6080 - Brock Rynski - Bolton EC - Solar,Quote 6080,14313.48
+2026-05-07,Lachlan Boys,Nicholas Taylor,null,4 quotes for Nicholas,4,74136.05,null,Quote 919 - Nicholas Taylor - Hughes Electrical,Quote 919,17801.26
+2026-05-07,Lachlan Boys,Nicholas Taylor,null,4 quotes for Nicholas,4,74136.05,null,Quote 920 - Nicholas Taylor - Hughes Electrical,Quote 920,21582.91
+2026-05-07,Lachlan Boys,Nicholas Taylor,null,4 quotes for Nicholas,4,74136.05,null,Quote 921 - Nicholas Taylor - Hughes Electrical,Quote 921,15699.89
+2026-05-07,Lachlan Boys,Nicholas Taylor,null,4 quotes for Nicholas,4,74136.05,null,Quote 922 - Nicholas Taylor - Hughes Electrical,Quote 922,19051.99
+2026-05-07,Lachlan Boys,Akhil Gandhi,null,Quote 1424 - Akhil Gandhi - HDK Long Run Roofing,1,20371.03,null,Quote 1424 - Akhil Gandhi - HDK Long Run Roofing,Quote 1424,20371.03
+2026-05-07,Zac Russell,"Asher ",,2 quotes for Asher,2,88279.58,null,6072 - Asher - Bolton EC - Solar,Quote 6072,43705.05
+2026-05-07,Zac Russell,"Asher ",,2 quotes for Asher,2,88279.58,null,6073 - Asher - Bolton EC - Solar,Quote 6073,44574.53
+2026-05-07,Zac Russell,"Asher ",,2 quotes for Asher,2,88279.58,null,6074 - Asher - Bolton EC - Solar,Quote 6074,43705.07
+2026-05-07,Zac Russell,"Asher ",,2 quotes for Asher,2,88279.58,null,6075 - Asher - Bolton EC - Solar,Quote 6075,44574.53
+2026-05-06,Lachlan Boys,"Seng ",,2 quotes for Seng,2,37830.22,null,6039 - Seng - Bolton EC - Solar,Quote 6039,17024.29
+2026-05-06,Lachlan Boys,"Seng ",,2 quotes for Seng,2,37830.22,null,6040 - Seng - Bolton EC - Solar,Quote 6040,20805.93
+2026-05-06,Lachlan Boys,"Seng ",,2 quotes for Seng,2,37830.22,null,6041 - Seng - Bolton EC - Solar,Quote 6041,17006.15
+2026-05-06,Lachlan Boys,"Seng ",,2 quotes for Seng,2,37830.22,null,6042 - Seng - Bolton EC - Solar,Quote 6042,21733.10
+2026-05-06,Lachlan Boys,"Seng ",,2 quotes for Seng,2,37830.22,null,6062 - Seng - Bolton EC - Solar,Quote 6062,24050.99
+2026-05-06,Lachlan Boys,"Seng ",,2 quotes for Seng,2,37830.22,null,6063 - Seng - Bolton EC - Solar,Quote 6063,28134.25
+2026-05-06,Lachlan Boys,"John ",,4 quotes for John,4,134683.63,null,6056 - John - Bolton EC - Solar,Quote 6056,48111.14
+2026-05-06,Lachlan Boys,"John ",,4 quotes for John,4,134683.63,null,6057 - John - Bolton EC - Solar,Quote 6057,20927.76
+2026-05-06,Lachlan Boys,"John ",,4 quotes for John,4,134683.63,null,6058 - John - Bolton EC - Solar,Quote 6058,46427.22
+2026-05-06,Lachlan Boys,"John ",,4 quotes for John,4,134683.63,null,6059 - John - Bolton EC - Solar,Quote 6059,19217.51
+2026-05-06,Lachlan Boys,Elliot Barrett,null,4 quotes for Elliot,4,64490.32,null,Quote 915 - Elliot Barrett - Hughes Electrical,Quote 915,15338.73
+2026-05-06,Lachlan Boys,Elliot Barrett,null,4 quotes for Elliot,4,64490.32,null,Quote 916 - Elliot Barrett - Hughes Electrical,Quote 916,19120.38
+2026-05-06,Lachlan Boys,Elliot Barrett,null,4 quotes for Elliot,4,64490.32,null,Quote 917 - Elliot Barrett - Hughes Electrical,Quote 917,13347.93
+2026-05-06,Lachlan Boys,Elliot Barrett,null,4 quotes for Elliot,4,64490.32,null,Quote 918 - Elliot Barrett - Hughes Electrical,Quote 918,16683.28
+2026-05-06,Zac Russell,Chad Mid,,3 quotes for Chad,3,97181.73999999999,null,5409 - Chad Mid - Bolton EC - Solar,Quote 5409,38881.59
+2026-05-06,Zac Russell,Chad Mid,,3 quotes for Chad,3,97181.73999999999,null,5410 - Chad Mid - Bolton EC - Solar,Quote 5410,32120.98
+2026-05-06,Zac Russell,Chad Mid,,3 quotes for Chad,3,97181.73999999999,null,5411 - Chad Mid - Bolton EC - Solar,Quote 5411,26179.17
+2026-05-06,Zac Russell,Chad Mid,,3 quotes for Chad,3,97181.73999999999,null,5542 - Chad Mid - Bolton EC - Solar,Quote 5542,36823.87
+2026-05-06,Zac Russell,Chad Mid,,3 quotes for Chad,3,97181.73999999999,null,5987 - Chad Mid - Bolton EC - Solar,Quote 5987,41061.22
+2026-05-06,Zac Russell,Chad Mid,,3 quotes for Chad,3,97181.73999999999,null,6047 - Chad Mid - Bolton EC - Solar,Quote 6047,41336.22
+2026-05-06,Lachlan Boys,Neil Alassadi,null,Quote 1423 - Neil Alassadi - HDK Long Run Roofing,1,12065.62,null,Quote 1423 - Neil Alassadi - HDK Long Run Roofing,Quote 1423,12065.62
+2026-05-06,Zac Russell,Julie Low,,3 quotes for Julie,3,83293.83,null,6043 - Julie Low - Bolton EC - Solar,Quote 6043,23959.15
+2026-05-06,Zac Russell,Julie Low,,3 quotes for Julie,3,83293.83,null,6044 - Julie Low - Bolton EC - Solar,Quote 6044,27589.53
+2026-05-06,Zac Russell,Julie Low,,3 quotes for Julie,3,83293.83,null,6045 - Julie Low - Bolton EC - Solar,Quote 6045,31745.15
+2026-05-05,Buzz Brady,Carol Marshall,,Quote 1419 - Carol Marshall - HDK Long Run Roofing,1,21824.56,null,Quote 1419 - Carol Marshall - HDK Long Run Roofing,Quote 1419,21824.56
+2026-05-05,Buzz Brady,Carol Marshall,,Quote 1419 - Carol Marshall - HDK Long Run Roofing,1,21824.56,null,Quote 1420 - Carol Marshall - HDK Long Run Roofing,Quote 1420,21824.56
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5906 - Anthony Brekalo - Bolton EC - Solar,Quote 5906,32710.74
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5907 - Anthony Brekalo - Bolton EC - Solar,Quote 5907,28073.28
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5908 - Anthony Brekalo - Bolton EC - Solar,Quote 5908,23537.13
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5909 - Anthony Brekalo - Bolton EC - Solar,Quote 5909,19347.79
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5912 - Anthony Brekalo - Bolton EC - Solar,Quote 5912,39523.35
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5913 - Anthony Brekalo - Bolton EC - Solar,Quote 5913,34987.20
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5914 - Anthony Brekalo - Bolton EC - Solar,Quote 5914,30315.53
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5915 - Anthony Brekalo - Bolton EC - Solar,Quote 5915,26202.80
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5916 - Anthony Brekalo - Bolton EC - Solar,Quote 5916,39523.35
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5917 - Anthony Brekalo - Bolton EC - Solar,Quote 5917,34987.20
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5918 - Anthony Brekalo - Bolton EC - Solar,Quote 5918,30315.53
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5919 - Anthony Brekalo - Bolton EC - Solar,Quote 5919,26202.80
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5947 - Anthony Brekalo - Bolton EC - Solar,Quote 5947,40754.64
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5948 - Anthony Brekalo - Bolton EC - Solar,Quote 5948,36218.50
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5949 - Anthony Brekalo - Bolton EC - Solar,Quote 5949,31584.91
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,5950 - Anthony Brekalo - Bolton EC - Solar,Quote 5950,27434.09
+2026-05-05,Lachlan Boys,Anthony Brekalo,,4 quotes for Anthony,4,103668.94,null,6038 - Anthony Brekalo - Bolton EC - Solar,Quote 6038,40754.64
+2026-05-05,Lachlan Boys,"Hussain ",,Hussain,1,0,won,6031 - Hussain - Bolton EC - Solar,Quote 6031,18825.23
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5808 - Owen Hall - Bolton EC - Solar,Quote 5808,21231.48
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5810 - Owen Hall - Bolton EC - Solar,Quote 5810,24892.60
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5811 - Owen Hall - Bolton EC - Solar,Quote 5811,28975.87
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5824 - Owen Hall - Bolton EC - Solar,Quote 5824,12933.77
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5825 - Owen Hall - Bolton EC - Solar,Quote 5825,14998.35
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5876 - Owen Hall - Bolton EC - Solar,Quote 5876,19182.91
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5877 - Owen Hall - Bolton EC - Solar,Quote 5877,20314.81
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5878 - Owen Hall - Bolton EC - Solar,Quote 5878,24012.60
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5879 - Owen Hall - Bolton EC - Solar,Quote 5879,19182.93
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5880 - Owen Hall - Bolton EC - Solar,Quote 5880,20314.81
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5881 - Owen Hall - Bolton EC - Solar,Quote 5881,24012.60
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5882 - Owen Hall - Bolton EC - Solar,Quote 5882,19182.93
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5883 - Owen Hall - Bolton EC - Solar,Quote 5883,20314.81
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,5884 - Owen Hall - Bolton EC - Solar,Quote 5884,24012.60
+2026-05-05,Zac Russell,Owen Hall,,3 quotes for Owen,3,75099.95,null,6028 - Owen Hall - Bolton EC - Solar,Quote 6028,32996.93
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 867 - Dion J mellidis - Hughes Electrical,Quote 867,10623.66
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 868 - Dion J mellidis - Hughes Electrical,Quote 868,9255.23
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 871 - Dion J mellidis - Hughes Electrical,Quote 871,5867.85
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 873 - Dion J mellidis - Hughes Electrical,Quote 873,7236.27
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 907 - Dion J mellidis - Hughes Electrical,Quote 907,7576.69
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 910 - Dion J mellidis - Hughes Electrical,Quote 910,10964.08
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 911 - Dion J mellidis - Hughes Electrical,Quote 911,9595.66
+2026-05-05,Buzz Brady,Dion J Mellidis,null,4 quotes for Dion,4,32983.009999999995,null,Quote 912 - Dion J mellidis - Hughes Electrical,Quote 912,6208.27
+2026-05-05,Lachlan Boys,Nitz Kash,,2 quotes for Nitz,2,37827.7,null,Quote 906 - Nitz Kash - Hughes Electrical,Quote 906,20179.31
+2026-05-05,Lachlan Boys,Nitz Kash,,2 quotes for Nitz,2,37827.7,null,Quote 908 - Nitz Kash - Hughes Electrical,Quote 908,17648.39
+2026-05-05,Buzz Brady,Hugh Mccrackan,null,4 quotes for Hugh,4,99559.7,null,Quote 901 - Hugh Mccrackan - Hughes Electrical,Quote 901,21341.34
+2026-05-05,Buzz Brady,Hugh Mccrackan,null,4 quotes for Hugh,4,99559.7,null,Quote 902 - Hugh Mccrackan - Hughes Electrical,Quote 902,24548.25
+2026-05-05,Buzz Brady,Hugh Mccrackan,null,4 quotes for Hugh,4,99559.7,null,Quote 903 - Hugh Mccrackan - Hughes Electrical,Quote 903,25038.59
+2026-05-05,Buzz Brady,Hugh Mccrackan,null,4 quotes for Hugh,4,99559.7,null,Quote 904 - Hugh Mccrackan - Hughes Electrical,Quote 904,28631.52
+2026-05-05,Zac Russell,Anthony Garbutt,,4 quotes for Anthony,4,125973.69,null,6019 - Anthony Garbutt - Bolton EC - Solar,Quote 6019,27957.89
+2026-05-05,Zac Russell,Anthony Garbutt,,4 quotes for Anthony,4,125973.69,null,6020 - Anthony Garbutt - Bolton EC - Solar,Quote 6020,30071.95
+2026-05-05,Zac Russell,Anthony Garbutt,,4 quotes for Anthony,4,125973.69,null,6021 - Anthony Garbutt - Bolton EC - Solar,Quote 6021,31911.64
+2026-05-05,Zac Russell,Anthony Garbutt,,4 quotes for Anthony,4,125973.69,null,6022 - Anthony Garbutt - Bolton EC - Solar,Quote 6022,36032.21
+2026-05-05,Zac Russell,Anthony Garbutt,,4 quotes for Anthony,4,125973.69,null,6025 - Anthony Garbutt - Bolton EC - Solar,Quote 6025,23420.01
+2026-05-05,Buzz Brady,"Ahsan ",,2 quotes for Ahsan,2,23468.29,null,Quote 899 - Ahsan - Hughes Electrical,Quote 899,10545.70
+2026-05-05,Buzz Brady,"Ahsan ",,2 quotes for Ahsan,2,23468.29,null,Quote 900 - Ahsan - Hughes Electrical,Quote 900,12922.59
+2026-05-05,Lachlan Boys,Selvaraj Muthusamy,null,3 quotes for Selvaraj,3,33716.869999999995,abandoned,Quote 895 - Selvaraj Muthusamy - Hughes Electrical,Quote 895,8378.76
+2026-05-05,Lachlan Boys,Selvaraj Muthusamy,null,3 quotes for Selvaraj,3,33716.869999999995,abandoned,Quote 896 - Selvaraj Muthusamy - Hughes Electrical,Quote 896,12098.20
+2026-05-05,Lachlan Boys,Selvaraj Muthusamy,null,3 quotes for Selvaraj,3,33716.869999999995,abandoned,Quote 897 - Selvaraj Muthusamy - Hughes Electrical,Quote 897,13239.91
