@@ -164,19 +164,19 @@ function namesFormula(o, cr) {
 function pipelineCountFormula(cr) {
   if (cr.dateType === 'range') {
     const fc = `${cr.df}${cr.pf},${col('D')}="Quote Sent"`;
-    return `=IFERROR(SUM(MAP(FILTER(${col('G')},${fc}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
+    return `=IFERROR(SUM(MAP(FILTER(${col('G')},${fc}),LAMBDA(v,IF(""&v="",0,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",","")))))))),0)`;
   }
   const fc = `${cr.df}${cr.pf},${AL}!D:D="Quote Sent"`;
-  return `=IFERROR(SUM(MAP(FILTER(${AL}!G:G,${fc}),LAMBDA(v,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",",""))))))),0)`;
+  return `=IFERROR(SUM(MAP(FILTER(${AL}!G:G,${fc}),LAMBDA(v,IF(""&v="",0,AVERAGE(ARRAYFORMULA(VALUE(SUBSTITUTE(SUBSTITUTE(TRIM(SPLIT(""&v,"|")),"$",""),",","")))))))),0)`;
 }
 
 function totalQuotesCountFormula(cr) {
   if (cr.dateType === 'range') {
     const fc = `${cr.df}${cr.pf},${col('D')}="Quote Sent"`;
-    return `=IFERROR(LET(vals,FILTER(${col('G')},${fc}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
+    return `=IFERROR(LET(vals,FILTER(${col('G')},${fc}),SUM(ARRAYFORMULA(IF(LEN(""&vals)=0,0,LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1)))),0)`;
   }
   const fc = `${cr.df}${cr.pf},${AL}!D:D="Quote Sent"`;
-  return `=IFERROR(LET(vals,FILTER(${AL}!G:G,${fc}),SUM(ARRAYFORMULA(LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1))),0)`;
+  return `=IFERROR(LET(vals,FILTER(${AL}!G:G,${fc}),SUM(ARRAYFORMULA(IF(LEN(""&vals)=0,0,LEN(""&vals)-LEN(SUBSTITUTE(""&vals,"|",""))+1)))),0)`;
 }
 
 // ─── Formatted Line Builders ─────────────────────────────────────────
@@ -224,7 +224,7 @@ function quotesBlock(cr, rowMap) {
   const pvRow = rowMap['Pipeline Value'];
   const tiqRow = rowMap['Total Individual Quotes'];
   const fc = `${cr.df}${cr.pf},${AL}!D:D="Quote Sent"`;
-  return `=IFERROR(LET(numQ,COUNTIFS(${cr.dc}${cr.pc},${AL}!D:D,"Quote Sent"),IF(numQ=0,"","💰 Quotes Sent"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${AL}!C:C,${fc}),FILTER(${AL}!G:G,${fc}),LAMBDA(nm,v,LET(t,SUBSTITUTE(SUBSTITUTE(""&v,"$",""),",",""),parts,SPLIT(t,"|"),nums,ARRAYFORMULA(VALUE(TRIM(parts))),cnt,COUNTA(parts),"- "&nm&" - "&cnt&" - ("&TEXTJOIN(", ",TRUE,ARRAYFORMULA("$"&TEXT(nums,"#,##0")))&")"))))&CHAR(10)&"Pipeline Value (Sum of Averages): $"&TEXT(B${pvRow},"#,##0")&CHAR(10)&"Total Individual Quotes: "&B${tiqRow})),"")`;
+  return `=IFERROR(LET(numQ,COUNTIFS(${cr.dc}${cr.pc},${AL}!D:D,"Quote Sent"),IF(numQ=0,"","💰 Quotes Sent"&CHAR(10)&TEXTJOIN(CHAR(10),TRUE,MAP(FILTER(${AL}!C:C,${fc}),FILTER(${AL}!G:G,${fc}),LAMBDA(nm,v,IF(""&v="","- "&nm&" - 0 - ()",LET(t,SUBSTITUTE(SUBSTITUTE(""&v,"$",""),",",""),parts,SPLIT(t,"|"),nums,ARRAYFORMULA(VALUE(TRIM(parts))),cnt,COUNTA(parts),"- "&nm&" - "&cnt&" - ("&TEXTJOIN(", ",TRUE,ARRAYFORMULA("$"&TEXT(nums,"#,##0")))&")")))))&CHAR(10)&"Pipeline Value (Sum of Averages): $"&TEXT(B${pvRow},"#,##0")&CHAR(10)&"Total Individual Quotes: "&B${tiqRow})),"")`;
 }
 
 function siteVisitsBlock(cr) {
