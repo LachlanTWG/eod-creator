@@ -204,6 +204,18 @@ function sanitizeJsonString(text) {
   return result;
 }
 
+// Last-resort extractor: pull simple "key":"value" string pairs out of a body
+// whose JSON is broken (e.g. Make.com pastes an unescaped JSON object into a
+// string field). Misses the broken field but recovers everything else, so a
+// single bad value doesn't 404 the whole webhook.
+function bestEffortExtract(text) {
+  const out = {};
+  const re = /"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+  let m;
+  while ((m = re.exec(text)) !== null) out[m[1]] = m[2];
+  return out;
+}
+
 function parseBody(req) {
   return new Promise((resolve) => {
     const encoding = (req.headers['content-encoding'] || '').toLowerCase();
@@ -213,9 +225,14 @@ function parseBody(req) {
       const raw = Buffer.concat(chunks);
       const decode = (buf) => {
         const text = buf.toString();
-        try { resolve(JSON.parse(text)); } catch {
-          try { resolve(JSON.parse(sanitizeJsonString(text))); } catch { resolve({}); }
+        try { return resolve(JSON.parse(text)); } catch {}
+        try { return resolve(JSON.parse(sanitizeJsonString(text))); } catch {}
+        const extracted = bestEffortExtract(text);
+        if (Object.keys(extracted).length > 0) {
+          console.log(`[parseBody] JSON malformed, recovered ${Object.keys(extracted).length} fields via regex`);
+          return resolve(extracted);
         }
+        resolve({});
       };
       if (encoding === 'gzip') {
         zlib.gunzip(raw, (err, result) => decode(err ? raw : result));
