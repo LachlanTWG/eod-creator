@@ -264,6 +264,10 @@ const server = http.createServer(async (req, res) => {
     const authHeader = req.headers['authorization'];
     const queryToken = url.searchParams.get('token');
     if (authHeader !== `Bearer ${webhookSecret}` && queryToken !== webhookSecret) {
+      const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
+      const reason = !authHeader && !queryToken ? 'no credential'
+        : authHeader ? 'header mismatch' : 'query token mismatch';
+      console.warn(`[401] ${req.method} ${pathname} from ${ip} (${reason})`);
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
