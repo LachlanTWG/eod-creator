@@ -140,7 +140,14 @@ async function getWeeklyTrend(company, currentWeekStart) {
     headers.forEach((h, i) => {
       const val = row[i] || '';
       const num = parseFloat(val);
-      obj[h] = isNaN(num) ? val : num;
+      // Duplicate headers can exist if a storage tab was migrated mid-schema.
+      // Prefer a numeric value over an empty one so a trailing blank column
+      // doesn't clobber an earlier column's real value.
+      if (!isNaN(num)) {
+        obj[h] = num;
+      } else if (obj[h] === undefined) {
+        obj[h] = val;
+      }
     });
     // Only include weeks with some activity
     const totalField = headers.find(h => h === 'Total Calls' || h === 'Total Contact Attempts');

@@ -857,7 +857,10 @@ async function populateDailyStorage(spreadsheetId, tabName, personName, companyN
     grid.push(buildDailyStorageRow(existingData[i].date, i + 2, personName, companyName, ownerName, isTeam, existingData[i].message));
   }
 
-  const lastCol = getColLetter(2 + defs.length * 2);
+  // Clear a wider range than the new schema width to wipe any stale columns
+  // from a previous schema (e.g. removed efficiency-rate columns) that would
+  // otherwise survive and create duplicate header names.
+  const lastCol = getColLetter(2 + defs.length * 2 + 1 + 20);
   await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(existingData.length + 10, 500)}`);
   await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
   console.log(`  Populated ${tabName} with ${existingData.length} rows of live formulas`);
@@ -942,7 +945,10 @@ async function populateWeeklyStorage(spreadsheetId, tabName, personName, company
     grid.push(buildWeeklyStorageRow(weeks[i].start, weeks[i].end, i + 2, personName, companyName, ownerName, isTeam, weeks[i].message));
   }
 
-  const lastCol = getColLetter(3 + defs.length + computedEntries.length);
+  // Clear a wider range than the new schema width to wipe any stale columns
+  // from a previous schema (e.g. removed efficiency-rate columns) that would
+  // otherwise survive and create duplicate header names.
+  const lastCol = getColLetter(3 + defs.length + computedEntries.length + 1 + 20);
   await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(weeks.length + 10, 500)}`);
   await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
   console.log(`  Populated ${tabName} with ${weeks.length} rows of live formulas`);
@@ -1027,7 +1033,10 @@ async function populateMonthlyStorage(spreadsheetId, tabName, personName, compan
     grid.push(buildMonthlyStorageRow(monthData[i].month, i + 2, personName, companyName, ownerName, isTeam, monthData[i].message));
   }
 
-  const lastCol = getColLetter(2 + defs.length + computedEntries.length);
+  // Clear a wider range than the new schema width to wipe any stale columns
+  // from a previous schema (e.g. removed efficiency-rate columns) that would
+  // otherwise survive and create duplicate header names.
+  const lastCol = getColLetter(2 + defs.length + computedEntries.length + 1 + 20);
   await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(monthData.length + 10, 500)}`);
   await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
   console.log(`  Populated ${tabName} with ${monthData.length} rows of live formulas`);
@@ -1183,7 +1192,10 @@ async function populateQuarterlyStorage(spreadsheetId, tabName, personName, comp
     grid.push(buildQuarterlyStorageRow(quarterData[i].quarter, i + 2, personName, companyName, ownerName, isTeam, quarterData[i].message));
   }
 
-  const lastCol = getColLetter(2 + defs.length + computedEntries.length);
+  // Clear a wider range than the new schema width to wipe any stale columns
+  // from a previous schema (e.g. removed efficiency-rate columns) that would
+  // otherwise survive and create duplicate header names.
+  const lastCol = getColLetter(2 + defs.length + computedEntries.length + 1 + 20);
   await clearRange(spreadsheetId, `'${tabName}'!A1:${lastCol}${Math.max(quarterData.length + 10, 500)}`);
   await writeSheet(spreadsheetId, `'${tabName}'!A1`, grid);
   console.log(`  Populated ${tabName} with ${quarterData.length} rows of live formulas`);
