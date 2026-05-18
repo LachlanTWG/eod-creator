@@ -23,6 +23,7 @@ const {
   buildExecMap,
 } = require('./sheets/summarySheet');
 const { getSummarySheetId } = require('./config/companiesStore');
+const { previewEOD, previewEOW, previewEOM, previewEOQ, previewEOY } = require('./preview');
 
 const PORT = process.env.PORT || 3000;
 
@@ -272,6 +273,45 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
+  }
+
+  // ─── Preview endpoints (read-only, return report as JSON) ────────────
+  // GET /preview/<eod|eow|eom|eoq|eoy>/<company>
+  // Optional query params per report:
+  //   eod: ?date=YYYY-MM-DD
+  //   eow: ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+  //   eom: ?year=YYYY&month=1-12
+  //   eoq: ?year=YYYY&quarter=1-4
+  //   eoy: ?year=YYYY
+  // Returns { company, report, period, team:{formatted,counts,names?}, people:[{name,formatted,counts,names?}] }
+  // Reads the activity log + runs the same generators as the scheduled jobs, without posting to Slack/ClickUp or archiving.
+  const previewMatch = pathname.match(/^\/preview\/(eod|eow|eom|eoq|eoy)\/(.+)$/);
+  if (previewMatch && req.method === 'GET') {
+    const [, reportType, companySlug] = previewMatch;
+    const companyName = decodeURIComponent(companySlug);
+    const { companies } = loadCompanies();
+    const company = companies.find(c => c.name.toLowerCase() === companyName.toLowerCase());
+    if (!company) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Company "${companyName}" not found` }));
+      return;
+    }
+    const opts = {};
+    for (const k of ['date', 'startDate', 'endDate', 'year', 'month', 'quarter']) {
+      const v = url.searchParams.get(k);
+      if (v) opts[k] = v;
+    }
+    const fns = { eod: previewEOD, eow: previewEOW, eom: previewEOM, eoq: previewEOQ, eoy: previewEOY };
+    try {
+      const data = await fns[reportType](company, opts);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+    } catch (e) {
+      console.error(`[preview] ${reportType}/${companyName}: ${e.message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
   }
 
   const body = await parseBody(req);
