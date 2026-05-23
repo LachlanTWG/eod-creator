@@ -2,6 +2,7 @@ const { appendRows } = require('../sheets/writeSheet');
 const { writeSheet } = require('../sheets/writeSheet');
 const { readTab } = require('../sheets/readSheet');
 const { buildDailyStorageRow } = require('../sheets/populateFormulas');
+const db = require('../db');
 
 function parseSerialDate(val) {
   if (/^\d{4,5}$/.test(val)) {
@@ -47,6 +48,18 @@ async function archiveDaily(spreadsheetId, salesPerson, date, message, counts, n
   const lastGenRow = 4;
   const now = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney' });
   await writeSheet(spreadsheetId, `'${eodTab}'!B${lastGenRow}`, [[now]]);
+
+  if (db.isEnabled() && companyName) {
+    try {
+      await db.insertReport({
+        companyName, salesPersonName: salesPerson,
+        reportType: 'eod', periodStart: date, periodEnd: date,
+        formattedText: message, counts, names,
+      });
+    } catch (e) {
+      console.error(`[archiveDaily] db insert failed (${companyName}/${salesPerson}/${date}):`, e.message);
+    }
+  }
 }
 
 module.exports = { archiveDaily };

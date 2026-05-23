@@ -2,6 +2,7 @@ const { appendRows } = require('../sheets/writeSheet');
 const { writeSheet } = require('../sheets/writeSheet');
 const { readTab } = require('../sheets/readSheet');
 const { buildWeeklyStorageRow } = require('../sheets/populateFormulas');
+const db = require('../db');
 
 function parseSerialDate(val) {
   if (/^\d{4,5}$/.test(val)) {
@@ -43,6 +44,18 @@ async function archiveWeekly(spreadsheetId, salesPerson, startDate, endDate, mes
   }
 
   // Note: EOW tab has no "Last Generated" row (Row 4 = Week End formula), so skip timestamp update
+
+  if (db.isEnabled() && companyName) {
+    try {
+      await db.insertReport({
+        companyName, salesPersonName: salesPerson,
+        reportType: 'eow', periodStart: startDate, periodEnd: endDate,
+        formattedText: message, counts, efficiencyRates,
+      });
+    } catch (e) {
+      console.error(`[archiveWeekly] db insert failed (${companyName}/${salesPerson}/${startDate}):`, e.message);
+    }
+  }
 }
 
 module.exports = { archiveWeekly };

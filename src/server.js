@@ -483,7 +483,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'eod', company: company.name, salesPerson: salesPersonName }));
 
-    logActivity(company.sheetId, activityData).then(() => {
+    logActivity(company.sheetId, activityData, {
+      companyName: company.name, source: 'ghl', rawPayload: body,
+    }).then(() => {
       console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${contactName || '?'}`);
     }).catch(e => console.error(`[GHL EOD] Error ${company.name}:`, e.message));
     return;
@@ -514,7 +516,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'job-won', company: company.name, salesPerson: salesPersonName, value }));
 
-    logActivity(company.sheetId, activityData).then(() => {
+    logActivity(company.sheetId, activityData, {
+      companyName: company.name, source: 'ghl', rawPayload: body,
+    }).then(() => {
       console.log(`[GHL JOB WON] ${company.name} / ${salesPersonName} / ${body.full_name || '?'} / $${value}`);
     }).catch(e => console.error(`[GHL JOB WON] Error ${company.name}:`, e.message));
     return;
@@ -546,7 +550,9 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ status: 'logged', type: 'site-visit', company: company.name, salesPerson: salesPersonName }));
 
     Promise.all([
-      logActivity(company.sheetId, activityData),
+      logActivity(company.sheetId, activityData, {
+        companyName: company.name, source: 'ghl', rawPayload: body,
+      }),
       appendRows(company.sheetId, 'Site Visits', [[
         deepFindField(body, 'full_name') || '',
         deepFindField(body, 'address1') || '',
@@ -594,7 +600,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'quote', company: company.name, salesPerson: body.salesPerson }));
 
-    logActivity(company.sheetId, activityData).then(() => {
+    logActivity(company.sheetId, activityData, {
+      companyName: company.name, source: 'quotie', rawPayload: body,
+    }).then(() => {
       console.log(`[QUOTE] ${company.name} / ${body.salesPerson} / ${body.contactName || '?'} / $${body.quoteValue}`);
     }).catch(e => console.error(`[QUOTE] Error ${company.name}:`, e.message));
     return;
@@ -630,7 +638,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'email', company: company.name, salesPerson: activityData.salesPerson, date: activityData.date, contact: activityData.contactName }));
 
-    logActivity(company.sheetId, activityData).then(() => {
+    logActivity(company.sheetId, activityData, {
+      companyName: company.name, source: 'make', rawPayload: body,
+    }).then(() => {
       console.log(`[EMAIL] ${company.name} / ${activityData.salesPerson} / ${activityData.contactName || '?'} / ${activityData.date}`);
     }).catch(e => console.error(`[EMAIL] Error ${company.name}:`, e.message));
     return;
@@ -674,7 +684,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'eod', company: company.name, salesPerson: salesPersonName }));
 
-    logActivity(company.sheetId, activityData).then(() => {
+    logActivity(company.sheetId, activityData, {
+      companyName: company.name, source: 'ghl', rawPayload: body,
+    }).then(() => {
       console.log(`[GHL EOD] ${company.name} / ${salesPersonName} / ${contactName || '?'}`);
     }).catch(e => console.error(`[GHL EOD] Error ${company.name}:`, e.message));
     return;

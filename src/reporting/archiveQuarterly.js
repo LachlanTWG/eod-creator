@@ -2,6 +2,7 @@ const { appendRows } = require('../sheets/writeSheet');
 const { writeSheet } = require('../sheets/writeSheet');
 const { readTab } = require('../sheets/readSheet');
 const { buildQuarterlyStorageRow } = require('../sheets/populateFormulas');
+const db = require('../db');
 
 /**
  * Archive an EOQ snapshot to the Quarterly Storage tab using live formulas.
@@ -34,6 +35,21 @@ async function archiveQuarterly(spreadsheetId, salesPerson, year, quarter, messa
     const row = buildQuarterlyStorageRow(quarterStr, newRowNum, salesPerson, companyName, ownerName, isTeam, message);
     await appendRows(spreadsheetId, tabName, [row]);
     console.log(`Archived quarterly data for ${salesPerson} (${quarterStr}) to "${tabName}" (formula row ${newRowNum}).`);
+  }
+
+  if (db.isEnabled() && companyName) {
+    const startMonth = (quarter - 1) * 3 + 1;
+    const periodStart = `${year}-${String(startMonth).padStart(2, '0')}-01`;
+    const periodEnd = new Date(year, startMonth + 2, 0).toISOString().slice(0, 10);  // last day of quarter
+    try {
+      await db.insertReport({
+        companyName, salesPersonName: salesPerson,
+        reportType: 'eoq', periodStart, periodEnd,
+        formattedText: message, counts,
+      });
+    } catch (e) {
+      console.error(`[archiveQuarterly] db insert failed (${companyName}/${salesPerson}/${quarterStr}):`, e.message);
+    }
   }
 }
 

@@ -2,6 +2,7 @@ const { appendRows } = require('../sheets/writeSheet');
 const { writeSheet } = require('../sheets/writeSheet');
 const { readTab } = require('../sheets/readSheet');
 const { buildMonthlyStorageRow } = require('../sheets/populateFormulas');
+const db = require('../db');
 
 /**
  * Archive an EOM snapshot to the Monthly Storage tab using live formulas.
@@ -34,6 +35,20 @@ async function archiveMonthly(spreadsheetId, salesPerson, year, month, message, 
     const row = buildMonthlyStorageRow(monthStr, newRowNum, salesPerson, companyName, ownerName, isTeam, message);
     await appendRows(spreadsheetId, tabName, [row]);
     console.log(`Archived monthly data for ${salesPerson} (${monthStr}) to "${tabName}" (formula row ${newRowNum}).`);
+  }
+
+  if (db.isEnabled() && companyName) {
+    const periodStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const periodEnd = new Date(year, month, 0).toISOString().slice(0, 10);  // last day of month
+    try {
+      await db.insertReport({
+        companyName, salesPersonName: salesPerson,
+        reportType: 'eom', periodStart, periodEnd,
+        formattedText: message, counts, efficiencyRates,
+      });
+    } catch (e) {
+      console.error(`[archiveMonthly] db insert failed (${companyName}/${salesPerson}/${monthStr}):`, e.message);
+    }
   }
 }
 

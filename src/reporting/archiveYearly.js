@@ -1,6 +1,7 @@
 const { appendRows } = require('../sheets/writeSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
+const db = require('../db');
 
 /**
  * Archive an EOY snapshot to the Yearly Storage tab.
@@ -25,6 +26,18 @@ async function archiveYearly(spreadsheetId, salesPerson, year, message, counts, 
 
   await appendRows(spreadsheetId, tabName, [row]);
   console.log(`Archived yearly data for ${salesPerson} (${year}) to "${tabName}".`);
+
+  if (db.isEnabled() && companyName) {
+    try {
+      await db.insertReport({
+        companyName, salesPersonName: salesPerson,
+        reportType: 'eoy', periodStart: `${year}-01-01`, periodEnd: `${year}-12-31`,
+        formattedText: message, counts, efficiencyRates,
+      });
+    } catch (e) {
+      console.error(`[archiveYearly] db insert failed (${companyName}/${salesPerson}/${year}):`, e.message);
+    }
+  }
 }
 
 module.exports = { archiveYearly };

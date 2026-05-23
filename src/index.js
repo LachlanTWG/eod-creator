@@ -245,7 +245,7 @@ async function main() {
         adSource: getArg('--source'),
         quoteJobValue: getArg('--value'),
         contactAddress: getArg('--address'),
-      });
+      }, { companyName: company.name, source: 'cli' });
       console.log('Activity logged.');
       break;
     }
