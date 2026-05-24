@@ -20,6 +20,7 @@ import { BarChart, HBars } from "@/components/BarChart";
 import { Heatmap } from "@/components/Heatmap";
 import { Matrix } from "@/components/Matrix";
 import { LiveBadge } from "./LiveBadge";
+import { loadAllExecHeatmaps } from "@/lib/analytics";
 
 export const dynamic = "force-dynamic";
 
@@ -44,13 +45,14 @@ export default async function OverviewPage({
   const period: Period = PERIODS.some(p => p.key === requested) ? requested : "week";
 
   const supabase = await createClient();
-  const [data, recent, quotie] = await Promise.all([
+  const [data, recent, quotie, execHeatmaps] = await Promise.all([
     loadOverviewByPeriod(supabase, period),
     loadRecentActivityFeed(supabase, 15),
     loadQuotieBreakdown().catch(e => {
       console.warn("[quotie] fetch failed:", e?.message || e);
       return null;
     }),
+    loadAllExecHeatmaps(supabase),
   ]);
 
   const quotieSlice = quotie ? quotieOurSlice(quotie) : null;
@@ -265,6 +267,39 @@ export default async function OverviewPage({
         <Panel title="Activity heatmap · last 90 days" hint={heatmapMax > 0 ? `Peak day: ${heatmapMax} activities` : "No activity yet"}>
           <Heatmap days={heatmap} />
         </Panel>
+      </section>
+
+      {/* Per-exec heatmaps */}
+      <section>
+        <SectionHeader title="Per-exec activity · last 90 days" hint={`${execHeatmaps.length} exec${execHeatmaps.length === 1 ? "" : "s"} active`} />
+        {execHeatmaps.length === 0 ? (
+          <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-8 text-center text-sm text-zinc-500">
+            No exec activity in the last 90 days.
+          </div>
+        ) : (
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+            {execHeatmaps.map(h => {
+              const peak = Math.max(0, ...h.days.map(d => d.count));
+              return (
+                <Link
+                  key={h.execName}
+                  href={`/execs/${encodeURIComponent(h.execName)}`}
+                  className="block rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 transition-colors hover:border-zinc-700"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="font-semibold text-zinc-100">{h.execName}</div>
+                    <div className="text-[11px] text-zinc-500">
+                      {h.totalActivities.toLocaleString()} acts · peak {peak}/day
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <Heatmap days={h.days} />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Per-exec × per-client matrix */}

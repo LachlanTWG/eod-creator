@@ -8,7 +8,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer, gateExecName } from "@/lib/viewer";
-import { loadExecDetail } from "@/lib/analytics";
+import { loadExecDetail, loadExecHeatmap } from "@/lib/analytics";
+import { Heatmap } from "@/components/Heatmap";
+import { loadExecWonJobsSummary } from "@/lib/wonJobs";
 import { EVENT_LABELS, formatCurrency, relativeTime, sumQuoteValues, todayInTz, SYDNEY_TZ } from "@/lib/format";
 import { mondayOf, addDaysIso, shortDate, type Period } from "@/lib/dates";
 import { BarChart, HBars } from "@/components/BarChart";
@@ -57,7 +59,12 @@ export default async function ExecDetail({
   const targetSalesPersonIds = new Set((targetRows || []).map(r => r.id as string));
   const targetCompanyIds = new Set((targetRows || []).map(r => r.company_id as string));
 
-  const { totals, perCompany, weekly, outcomes, recent } = await loadExecDetail(supabase, name);
+  const [{ totals, perCompany, weekly, outcomes, recent }, heatmap, pipeline] = await Promise.all([
+    loadExecDetail(supabase, name),
+    loadExecHeatmap(supabase, name),
+    loadExecWonJobsSummary(supabase, name),
+  ]);
+  const heatmapPeak = Math.max(0, ...heatmap.days.map(d => d.count));
 
   if (totals.eod_update + totals.quote_sent + totals.job_won + totals.site_visit_booked + totals.email_sent === 0) {
     notFound();
@@ -123,6 +130,80 @@ export default async function ExecDetail({
           basePath={basePath}
         />
       </div>
+
+      {/* Won-jobs pipeline */}
+      <section className="mt-10">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Won-jobs pipeline
+          </h2>
+          <Link
+            href="/wins"
+            className="text-[11px] text-zinc-500 hover:text-zinc-300"
+          >
+            All wins →
+          </Link>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {pipeline.byStage.map(s => {
+            const accentBg: Record<typeof s.stage, string> = {
+              verbal_confirmation: "border-zinc-800 from-zinc-900/40 to-zinc-900/10",
+              client_approved:     "border-amber-900/40 from-amber-950/30 to-zinc-950/20",
+              invoiced:            "border-sky-900/40 from-sky-950/30 to-zinc-950/20",
+              paid:                "border-emerald-900/40 from-emerald-950/30 to-zinc-950/20",
+            };
+            const accentText: Record<typeof s.stage, string> = {
+              verbal_confirmation: "text-zinc-200",
+              client_approved:     "text-amber-300",
+              invoiced:            "text-sky-300",
+              paid:                "text-emerald-300",
+            };
+            const label: Record<typeof s.stage, string> = {
+              verbal_confirmation: "Verbal",
+              client_approved:     "Approved",
+              invoiced:            "Invoiced",
+              paid:                "Paid",
+            };
+            return (
+              <div key={s.stage} className={`rounded-xl border bg-gradient-to-br p-4 ${accentBg[s.stage]}`}>
+                <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{label[s.stage]}</div>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <div className={`text-2xl font-semibold tabular-nums ${accentText[s.stage]}`}>{s.count}</div>
+                  <div className="text-xs text-zinc-500">jobs</div>
+                </div>
+                <div className="mt-1 text-sm tabular-nums text-zinc-300">
+                  {s.commission > 0 ? formatCurrency(s.commission) : <span className="text-zinc-600">$0</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {pipeline.totalJobs > 0 && (
+          <div className="mt-2 text-[11px] text-zinc-500">
+            {pipeline.totalJobs} jobs · {formatCurrency(pipeline.totalCommission)} commission · {formatCurrency(pipeline.totalJobValue)} job value
+          </div>
+        )}
+      </section>
+
+      {/* Heatmap */}
+      <section className="mt-10 rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Activity heatmap · last 90 days
+          </h2>
+          <span className="text-[11px] text-zinc-500">
+            {heatmap.totalActivities.toLocaleString()} activities
+            {heatmapPeak > 0 ? ` · peak ${heatmapPeak}/day` : ""}
+          </span>
+        </div>
+        <div className="mt-4">
+          {heatmap.totalActivities === 0 ? (
+            <div className="text-sm text-zinc-500 italic">No activity in the last 90 days.</div>
+          ) : (
+            <Heatmap days={heatmap.days} />
+          )}
+        </div>
+      </section>
 
       {/* Divider */}
       <div className="mt-12 border-t border-zinc-800 pt-8">

@@ -4,8 +4,9 @@
 // dashboard views.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sumQuoteValues } from "./format";
-import { mondayOf } from "./dates";
+import { sumQuoteValues, todayInTz, SYDNEY_TZ } from "./format";
+import { mondayOf, addDaysIso } from "./dates";
+import type { HeatmapDay } from "./queries";
 
 // Fetch the set of active company IDs. Cheap (one query, returns ~5 UUIDs).
 // Every analytic that aggregates across companies must filter by this.
@@ -412,4 +413,117 @@ export async function loadBacklog(supabase: SupabaseClient): Promise<{
   pendingVisits.sort((a, b) => a.days_open - b.days_open);
 
   return { openQuotes, pendingVisits };
+}
+
+/* ─── Activity heatmaps (90 days) ──────────────────────────────────── */
+
+export type ExecHeatmap = {
+  execName: string;
+  totalActivities: number;
+  days: HeatmapDay[];                 // 90 days, oldest first
+};
+
+/**
+ * 90-day daily activity heatmap for one exec. Sums across every company
+ * they're on the roster of (an exec has one sales_people row per company).
+ */
+export async function loadExecHeatmap(
+  supabase: SupabaseClient,
+  execName: string,
+): Promise<ExecHeatmap> {
+  const today = todayInTz(SYDNEY_TZ);
+  const start = addDaysIso(today, -89);
+
+  const { data: salesRows } = await supabase
+    .from("sales_people")
+    .select("id")
+    .ilike("name", execName);
+  const ids = (salesRows || []).map(r => r.id as string);
+
+  let rows: { occurred_on: string }[] = [];
+  if (ids.length > 0) {
+    rows = await pageAll<{ occurred_on: string }>((from, to) =>
+      supabase
+        .from("activities")
+        .select("occurred_on")
+        .in("sales_person_id", ids)
+        .gte("occurred_on", start)
+        .lte("occurred_on", today)
+        .range(from, to),
+    );
+  }
+
+  const counts = new Map<string, number>();
+  for (const r of rows) counts.set(r.occurred_on, (counts.get(r.occurred_on) || 0) + 1);
+
+  const days: HeatmapDay[] = [];
+  for (let i = 89; i >= 0; i--) {
+    const d = addDaysIso(today, -i);
+    days.push({ date: d, count: counts.get(d) || 0 });
+  }
+  return { execName, totalActivities: rows.length, days };
+}
+
+/**
+ * 90-day daily heatmaps for every exec with at least one activity. One
+ * query, JS groups by exec name. Returns sorted by total activities desc.
+ * Execs with no activity in the window are skipped.
+ */
+export async function loadAllExecHeatmaps(
+  supabase: SupabaseClient,
+): Promise<ExecHeatmap[]> {
+  const today = todayInTz(SYDNEY_TZ);
+  const start = addDaysIso(today, -89);
+
+  const { data: salesRows } = await supabase
+    .from("sales_people")
+    .select("id, name");
+  const idToName = new Map<string, string>();
+  const namesInRoster = new Set<string>();
+  for (const r of salesRows || []) {
+    idToName.set(r.id as string, r.name as string);
+    namesInRoster.add(r.name as string);
+  }
+
+  const activeIds = await activeCompanyIds(supabase);
+  if (activeIds.length === 0) return [];
+
+  const rows = await pageAll<{ sales_person_id: string | null; occurred_on: string }>((from, to) =>
+    supabase
+      .from("activities")
+      .select("sales_person_id, occurred_on")
+      .not("sales_person_id", "is", null)
+      .in("company_id", activeIds)
+      .gte("occurred_on", start)
+      .lte("occurred_on", today)
+      .range(from, to),
+  );
+
+  // Bucket: exec name → date → count. (Same exec across multiple companies
+  // shares a name, so this naturally aggregates them.)
+  const byName = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    if (!r.sales_person_id) continue;
+    const name = idToName.get(r.sales_person_id);
+    if (!name) continue;
+    let inner = byName.get(name);
+    if (!inner) { inner = new Map(); byName.set(name, inner); }
+    inner.set(r.occurred_on, (inner.get(r.occurred_on) || 0) + 1);
+  }
+
+  const result: ExecHeatmap[] = [];
+  for (const [name, counts] of byName) {
+    const days: HeatmapDay[] = [];
+    let total = 0;
+    for (let i = 89; i >= 0; i--) {
+      const d = addDaysIso(today, -i);
+      const c = counts.get(d) || 0;
+      days.push({ date: d, count: c });
+      total += c;
+    }
+    result.push({ execName: name, totalActivities: total, days });
+  }
+
+  result.sort((a, b) => b.totalActivities - a.totalActivities);
+  return result;
 }
