@@ -4,7 +4,7 @@
 // dashboard views.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sumQuoteValues, todayInTz, SYDNEY_TZ } from "./format";
+import { quoteGroupValue, todayInTz, SYDNEY_TZ } from "./format";
 import { mondayOf, addDaysIso } from "./dates";
 import type { HeatmapDay } from "./queries";
 
@@ -136,7 +136,7 @@ export async function loadExecSummaries(
     else if (r.event_type === "email_sent") s.totals.email_sent++;
     else if (r.event_type === "job_won") {
       s.totals.job_won++;
-      s.totals.job_won_value += sumQuoteValues(r.quote_job_value);
+      s.totals.job_won_value += quoteGroupValue(r.quote_job_value);
     }
 
     if (!s.lastActivityAt || r.created_at > s.lastActivityAt) s.lastActivityAt = r.created_at;
@@ -198,7 +198,7 @@ export async function loadExecDetail(
     else if (r.event_type === "email_sent") t.email_sent++;
     else if (r.event_type === "job_won") {
       t.job_won++;
-      t.job_won_value += sumQuoteValues(r.quote_job_value);
+      t.job_won_value += quoteGroupValue(r.quote_job_value);
     }
 
     const co = perCompanyMap.get(r.company_id) || { eod_update: 0, quote_sent: 0, job_won: 0, site_visit_booked: 0, email_sent: 0, job_won_value: 0 };
@@ -206,14 +206,14 @@ export async function loadExecDetail(
     else if (r.event_type === "quote_sent") co.quote_sent++;
     else if (r.event_type === "site_visit_booked") co.site_visit_booked++;
     else if (r.event_type === "email_sent") co.email_sent++;
-    else if (r.event_type === "job_won") { co.job_won++; co.job_won_value += sumQuoteValues(r.quote_job_value); }
+    else if (r.event_type === "job_won") { co.job_won++; co.job_won_value += quoteGroupValue(r.quote_job_value); }
     perCompanyMap.set(r.company_id, co);
 
     // Week bucket — Monday-based, computed in UTC.
     const wk = mondayOf(r.occurred_on);
     const w = weeklyMap.get(wk) || { activity_count: 0, won_value: 0 };
     w.activity_count++;
-    if (r.event_type === "job_won") w.won_value += sumQuoteValues(r.quote_job_value);
+    if (r.event_type === "job_won") w.won_value += quoteGroupValue(r.quote_job_value);
     weeklyMap.set(wk, w);
 
     if (r.event_type === "eod_update" && r.outcome) {
@@ -306,7 +306,7 @@ export async function loadCompanyAnalytics(
     const wk = mondayOf(r.occurred_on);
     const w = weeklyMap.get(wk) || { activity_count: 0, won_value: 0 };
     w.activity_count++;
-    if (r.event_type === "job_won") w.won_value += sumQuoteValues(r.quote_job_value);
+    if (r.event_type === "job_won") w.won_value += quoteGroupValue(r.quote_job_value);
     weeklyMap.set(wk, w);
   }
 
@@ -401,7 +401,7 @@ export async function loadBacklog(supabase: SupabaseClient): Promise<{
       sales_person_name: last.sales_person_name,
       last_event_type: last.event_type,
       last_event_at: last.created_at,
-      last_event_value: sumQuoteValues(last.quote_job_value),
+      last_event_value: quoteGroupValue(last.quote_job_value),
       days_open: days,
     };
 

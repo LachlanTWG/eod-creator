@@ -17,14 +17,18 @@ export function relativeTime(iso: string | null): string {
   return `${Math.round(seconds / 86400)}d ago`;
 }
 
-// Sum a pipe-delimited list of numbers like "1200|3500" → 4700
-export function sumQuoteValues(raw: string | null | undefined): number {
+// Resolve a pipe-delimited quote_job_value to a single group value. The
+// pipe parts are alternative quote options offered for the same job — the
+// customer picks one — so the group's representative value is the mean,
+// not the sum. Example: "1200|3500|5000" → ~$3,233.
+export function quoteGroupValue(raw: string | null | undefined): number {
   if (!raw) return 0;
-  return String(raw)
+  const parts = String(raw)
     .split("|")
     .map(v => Number(v.replace(/[^\d.]/g, "")))
-    .filter(n => Number.isFinite(n))
-    .reduce((a, b) => a + b, 0);
+    .filter(n => Number.isFinite(n) && n > 0);
+  if (parts.length === 0) return 0;
+  return parts.reduce((a, b) => a + b, 0) / parts.length;
 }
 
 export function formatCurrency(n: number): string {

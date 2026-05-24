@@ -17,6 +17,29 @@ export function addDaysIso(dateStr: string, n: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Days between two calendar dates: returns (b - a). */
+export function daysBetweenIso(a: string, b: string): number {
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  const aMs = Date.UTC(ay, am - 1, ad);
+  const bMs = Date.UTC(by, bm - 1, bd);
+  return Math.round((bMs - aMs) / 86400000);
+}
+
+/** Count Mon-Fri days inclusive between start and end (YYYY-MM-DD). */
+export function businessDaysBetween(startIso: string, endIso: string): number {
+  if (startIso > endIso) return 0;
+  let count = 0;
+  let cursor = startIso;
+  while (cursor <= endIso) {
+    const [y, m, d] = cursor.split("-").map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (dow !== 0 && dow !== 6) count++;
+    cursor = addDaysIso(cursor, 1);
+  }
+  return count;
+}
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -73,10 +96,15 @@ export function periodRange(period: Period, today: string): PeriodRange {
 
     case "week": {
       const monday = mondayOf(today);
+      const prevMonday = addDaysIso(monday, -7);
+      // Pace-match: previous window covers the same number of elapsed days
+      // (today - monday) so we compare like-for-like rather than partial-week
+      // vs full-week.
+      const elapsed = daysBetweenIso(monday, today);
       return {
         type: "week",
         start: monday, end: today,
-        prevStart: addDaysIso(monday, -7), prevEnd: addDaysIso(monday, -1),
+        prevStart: prevMonday, prevEnd: addDaysIso(prevMonday, elapsed),
         label: "This week", prevLabel: "Last week",
         trendBuckets: 12, bucketBy: "week",
       };
@@ -85,10 +113,11 @@ export function periodRange(period: Period, today: string): PeriodRange {
     case "month": {
       const monthStart = `${y}-${pad2(m)}-01`;
       const prevMonth = m === 1 ? `${y - 1}-12-01` : `${y}-${pad2(m - 1)}-01`;
+      const elapsed = daysBetweenIso(monthStart, today);
       return {
         type: "month",
         start: monthStart, end: today,
-        prevStart: prevMonth, prevEnd: addDaysIso(monthStart, -1),
+        prevStart: prevMonth, prevEnd: addDaysIso(prevMonth, elapsed),
         label: monthLabel(monthStart), prevLabel: monthLabel(prevMonth),
         trendBuckets: 12, bucketBy: "month",
       };
@@ -103,10 +132,11 @@ export function periodRange(period: Period, today: string): PeriodRange {
         : `${y}-${pad2(qStartMonth - 3)}-01`;
       const prevQ = q === 1 ? 4 : q - 1;
       const prevQYear = q === 1 ? y - 1 : y;
+      const elapsed = daysBetweenIso(qStart, today);
       return {
         type: "quarter",
         start: qStart, end: today,
-        prevStart: prevQStart, prevEnd: addDaysIso(qStart, -1),
+        prevStart: prevQStart, prevEnd: addDaysIso(prevQStart, elapsed),
         label: `Q${q} ${y}`, prevLabel: `Q${prevQ} ${prevQYear}`,
         trendBuckets: 8, bucketBy: "quarter",
       };
@@ -115,10 +145,11 @@ export function periodRange(period: Period, today: string): PeriodRange {
     case "year": {
       const yStart = `${y}-01-01`;
       const prevYStart = `${y - 1}-01-01`;
+      const elapsed = daysBetweenIso(yStart, today);
       return {
         type: "year",
         start: yStart, end: today,
-        prevStart: prevYStart, prevEnd: `${y - 1}-12-31`,
+        prevStart: prevYStart, prevEnd: addDaysIso(prevYStart, elapsed),
         label: `${y}`, prevLabel: `${y - 1}`,
         trendBuckets: 5, bucketBy: "year",
       };

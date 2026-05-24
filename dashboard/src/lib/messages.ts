@@ -8,7 +8,7 @@
 // (eodBlocks vs eowBlocks) (b) formula key (eod vs eow) (c) header.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { todayInTz, sumQuoteValues, SYDNEY_TZ } from "./format";
+import { todayInTz, quoteGroupValue, SYDNEY_TZ } from "./format";
 import { mondayOf, type Period } from "./dates";
 import { listCompanies, type CompanyRow } from "./queries";
 import blocksConfig from "./configs/blocks.json";

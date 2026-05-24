@@ -11,7 +11,7 @@ import { getViewer, gateExecName } from "@/lib/viewer";
 import { loadExecDetail, loadExecHeatmap } from "@/lib/analytics";
 import { Heatmap } from "@/components/Heatmap";
 import { loadExecWonJobsSummary } from "@/lib/wonJobs";
-import { EVENT_LABELS, formatCurrency, relativeTime, sumQuoteValues, todayInTz, SYDNEY_TZ } from "@/lib/format";
+import { EVENT_LABELS, formatCurrency, relativeTime, quoteGroupValue, todayInTz, SYDNEY_TZ } from "@/lib/format";
 import { mondayOf, addDaysIso, shortDate, type Period } from "@/lib/dates";
 import { BarChart, HBars } from "@/components/BarChart";
 import { LiveMessagesPanel } from "@/components/LiveMessagesPanel";
@@ -301,7 +301,7 @@ export default async function ExecDetail({
                 <div className="mt-0.5 flex items-center gap-2 text-zinc-500">
                   <span>{r.company_name}</span>
                   {r.event_type === "job_won" && r.quote_job_value && (
-                    <span className="text-emerald-400">{formatCurrency(sumQuoteValues(r.quote_job_value))}</span>
+                    <span className="text-emerald-400">{formatCurrency(quoteGroupValue(r.quote_job_value))}</span>
                   )}
                 </div>
                 {r.outcome && <div className="mt-0.5 truncate text-zinc-600">{r.outcome}</div>}

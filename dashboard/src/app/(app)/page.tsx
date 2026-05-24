@@ -10,13 +10,13 @@ import {
 } from "@/lib/queries";
 import {
   loadQuotieBreakdown,
-  quotieByClient,
+  quotieByClientExecOnly,
   quotieByExec,
-  quotieOurSlice,
+  quotieOurExecSlice,
 } from "@/lib/quotie";
 import type { Period, PeriodRange } from "@/lib/dates";
-import { shortDate } from "@/lib/dates";
-import { EVENT_LABELS, formatCurrency, relativeTime, sumQuoteValues } from "@/lib/format";
+import { shortDate, businessDaysBetween } from "@/lib/dates";
+import { EVENT_LABELS, formatCurrency, relativeTime, quoteGroupValue } from "@/lib/format";
 import { BarChart, HBars } from "@/components/BarChart";
 import { Heatmap } from "@/components/Heatmap";
 import { Matrix } from "@/components/Matrix";
@@ -56,11 +56,11 @@ export default async function OverviewPage({
     loadAllExecHeatmaps(supabase),
   ]);
 
-  const quotieSlice = quotie ? quotieOurSlice(quotie) : null;
-  const quotieByClientMap = quotie ? quotieByClient(quotie) : {};
+  const quotieSlice = quotie ? quotieOurExecSlice(quotie) : null;
+  const quotieByClientMap = quotie ? quotieByClientExecOnly(quotie) : {};
   const quotieByExecMap = quotie ? quotieByExec(quotie) : {};
 
-  const { range, totals, perClient, perExec, trend, wins, sources, outcomes, aging, matrix, heatmap, productivity, valueBuckets } = data;
+  const { range, totals, perClient, perExec, trend, wins, sources, outcomes, matrix, heatmap, productivity, valueBuckets } = data;
 
   // Pre-compute matrix cell index for fast lookup in the component
   const matrixIndex = new Map(matrix.map(c => [`${c.exec}|${c.company_id}`, {
@@ -68,6 +68,12 @@ export default async function OverviewPage({
   }]));
   const execNames = perExec.map(e => e.name);
   const heatmapMax = Math.max(0, ...heatmap.map(d => d.count));
+
+  // Per-day average denominators for the hero stats. Pace-matching keeps
+  // these aligned, so the comparison reads like-for-like rather than
+  // partial-period vs. full-period.
+  const currentBizDays = Math.max(1, businessDaysBetween(range.start, range.end));
+  const prevBizDays = Math.max(1, businessDaysBetween(range.prevStart, range.prevEnd));
 
   return (
     <div className="px-8 py-6 space-y-8">
@@ -88,32 +94,32 @@ export default async function OverviewPage({
 
       {/* Hero stats — 8 cards */}
       <section className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
-        <HeroStat label="Revenue"     value={formatCurrency(totals.current.revenue)}      current={totals.current.revenue}     previous={totals.previous.revenue}     fmt="currency" accent />
+        <HeroStat label="Revenue"     value={formatCurrency(totals.current.revenue)}      current={totals.current.revenue}     previous={totals.previous.revenue}     currentDays={currentBizDays} previousDays={prevBizDays} fmt="currency" accent />
         <HeroStat label="Pipeline $"  value={formatCurrency(totals.current.pipeline)}     sub={`${totals.current.pipelineCount} open`}                              accent />
-        <HeroStat label="Wins"        value={totals.current.wins}        current={totals.current.wins}        previous={totals.previous.wins} />
+        <HeroStat label="Wins"        value={totals.current.wins}        current={totals.current.wins}        previous={totals.previous.wins}        currentDays={currentBizDays} previousDays={prevBizDays} />
         <HeroStat label="Avg deal"    value={totals.current.avgDeal > 0 ? formatCurrency(totals.current.avgDeal) : "—"} />
-        <HeroStat label="Quotes"      value={totals.current.quotes}      current={totals.current.quotes}      previous={totals.previous.quotes} />
-        <HeroStat label="People quoted" value={totals.current.peopleQuoted} current={totals.current.peopleQuoted} previous={totals.previous.peopleQuoted} />
-        <HeroStat label="Calls (EOD)" value={totals.current.calls}       current={totals.current.calls}       previous={totals.previous.calls} />
-        <HeroStat label="Site visits" value={totals.current.visits}      current={totals.current.visits}      previous={totals.previous.visits} />
+        <HeroStat label="Quotes"      value={totals.current.quotes}      current={totals.current.quotes}      previous={totals.previous.quotes}      currentDays={currentBizDays} previousDays={prevBizDays} />
+        <HeroStat label="People quoted" value={totals.current.peopleQuoted} current={totals.current.peopleQuoted} previous={totals.previous.peopleQuoted} currentDays={currentBizDays} previousDays={prevBizDays} />
+        <HeroStat label="Calls (EOD)" value={totals.current.calls}       current={totals.current.calls}       previous={totals.previous.calls}       currentDays={currentBizDays} previousDays={prevBizDays} />
+        <HeroStat label="Site visits" value={totals.current.visits}      current={totals.current.visits}      previous={totals.previous.visits}      currentDays={currentBizDays} previousDays={prevBizDays} />
       </section>
 
       <section className="grid gap-3 grid-cols-2 md:grid-cols-4">
         <HeroStat label="Quote→Win"   value={pct(totals.current.closeRate)}   sub={`vs ${pct(totals.previous.closeRate)}`} />
         <HeroStat label="Call→Quote"  value={pct(totals.current.callToQuote)} sub={`vs ${pct(totals.previous.callToQuote)}`} />
-        <HeroStat label="People worked" value={totals.current.peopleWorked} current={totals.current.peopleWorked} previous={totals.previous.peopleWorked} />
-        <HeroStat label="Emails"      value={totals.current.emails}      current={totals.current.emails}      previous={totals.previous.emails} />
+        <HeroStat label="People worked" value={totals.current.peopleWorked} current={totals.current.peopleWorked} previous={totals.previous.peopleWorked} currentDays={currentBizDays} previousDays={prevBizDays} />
+        <HeroStat label="Emails"      value={totals.current.emails}      current={totals.current.emails}      previous={totals.previous.emails}      currentDays={currentBizDays} previousDays={prevBizDays} />
       </section>
 
-      {/* Quotie band — separate because Quotie data is lifetime / this-month
-          rollups, not period-driven like our EOD data. */}
+      {/* Quotie band — lifetime totals, filtered to sales-exec-attributed
+          jobs only (via Quotie's lead-owner attribution). Client-added job-
+          management entries with no sales-exec touch are excluded. */}
       {quotieSlice && (
         <section>
-          <SectionHeader title="Quotie (lifetime, our execs only)" hint="Direct from quotie.com.au — sales execs + active client companies. Updates every 5 min." />
-          <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
+          <SectionHeader title="Quotie (lifetime, sales-exec-attributed only)" hint="Direct from quotie.com.au — only jobs where a roster exec owns the lead. Client-added jobs excluded. Updates every 5 min." />
+          <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
             <HeroStat label="Pipeline $"   value={formatCurrency(quotieSlice.groups.pipeline_value)} sub={`${quotieSlice.groups.pending} open`}                                  accent />
             <HeroStat label="Quotie Won $" value={formatCurrency(quotieSlice.groups.won_value)}      sub={`${quotieSlice.groups.won} wins`}                                       accent />
-            <HeroStat label="Pending invoicing" value={formatCurrency(Math.max(0, quotieSlice.groups.won_value - perClient.reduce((s, c) => s + c.previous.revenue + c.current.revenue, 0)))} sub="Quotie won − our invoiced" />
             <HeroStat label="Groups sent"  value={quotieSlice.groups.total_sent}                     sub={`${quotieSlice.groups.sent_this_month} this month`} />
             <HeroStat label="Quotes sent"  value={quotieSlice.quotes.sent}                           sub={`${quotieSlice.quotes.sent_this_month} this month`} />
             <HeroStat label="Pending"      value={quotieSlice.groups.pending} />
@@ -125,7 +131,7 @@ export default async function OverviewPage({
 
       {quotie && (
         <section className="grid gap-6 lg:grid-cols-2">
-          <Panel title="Quotie · by client" hint="Active clients, lifetime totals">
+          <Panel title="Quotie · by client" hint="Lifetime totals · sales-exec-attributed only">
             <div className="overflow-hidden rounded border border-zinc-800">
               <table className="w-full text-xs">
                 <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
@@ -330,6 +336,8 @@ export default async function OverviewPage({
             secondary: c.timezone,
             current: c.current,
             previous: c.previous,
+            currentDays: c.currentActiveDays,
+            previousDays: c.previousActiveDays,
             stale: c.lastActivityAt
               ? (Date.now() - new Date(c.lastActivityAt).getTime()) / 3600000 > 48
               : true,
@@ -353,6 +361,8 @@ export default async function OverviewPage({
             secondary: e.companies.map(c => c.name).join(" · ") || "—",
             current: e.current,
             previous: e.previous,
+            currentDays: e.currentActiveDays,
+            previousDays: e.previousActiveDays,
           }))}
           execStyle
         />
@@ -402,45 +412,8 @@ export default async function OverviewPage({
         </Panel>
       </section>
 
-      {/* Pipeline aging + Lead value distribution */}
-      <section className="grid gap-6 lg:grid-cols-[3fr_2fr]">
-        <Panel title="Pipeline aging" hint="Oldest open quotes — chase these first">
-          {aging.length === 0 ? (
-            <div className="py-6 text-center text-sm text-zinc-500">No open quotes.</div>
-          ) : (
-            <div className="overflow-hidden rounded border border-zinc-800">
-              <table className="w-full text-xs">
-                <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    <th className="px-3 py-1.5 text-left font-normal">Contact</th>
-                    <th className="px-3 py-1.5 text-left font-normal">Client</th>
-                    <th className="px-3 py-1.5 text-left font-normal">Exec</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Value</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Days</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {aging.map(a => (
-                    <tr key={`${a.company_id}-${a.contact_id}`} className="border-t border-zinc-800">
-                      <td className="px-3 py-1.5 font-medium text-zinc-100 truncate max-w-[18ch]">{a.contact_name || "—"}</td>
-                      <td className="px-3 py-1.5">
-                        <Link href={`/companies/${a.company_slug}`} className="text-zinc-400 hover:text-zinc-200">{a.company_name}</Link>
-                      </td>
-                      <td className="px-3 py-1.5 text-zinc-400">{a.sales_person_name}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">
-                        {a.value > 0 ? formatCurrency(a.value) : "—"}
-                      </td>
-                      <td className={`px-3 py-1.5 text-right tabular-nums ${a.days_open > 60 ? "text-red-400" : a.days_open > 30 ? "text-amber-400" : "text-zinc-300"}`}>
-                        {a.days_open}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-
+      {/* Lead value distribution — pipeline aging lives in Quotie, not here */}
+      <section>
         <Panel title="Open quote sizes" hint="Pipeline value buckets">
           {valueBuckets.every(b => b.count === 0) ? (
             <div className="py-6 text-center text-sm text-zinc-500">No open quotes.</div>
@@ -512,7 +485,7 @@ export default async function OverviewPage({
                   </div>
                   <div className="shrink-0 text-right text-zinc-500">
                     {r.event_type === "job_won" && r.quote_job_value && (
-                      <div className="text-emerald-400">{formatCurrency(sumQuoteValues(r.quote_job_value))}</div>
+                      <div className="text-emerald-400">{formatCurrency(quoteGroupValue(r.quote_job_value))}</div>
                     )}
                     <div>{relativeTime(r.created_at)}</div>
                   </div>
@@ -553,13 +526,17 @@ function pct(v: number): string {
 }
 
 function HeroStat({
-  label, value, sub, current, previous, fmt = "number", accent = false,
+  label, value, sub, current, previous, currentDays, previousDays,
+  fmt = "number", accent = false,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   current?: number;
   previous?: number;
+  /** Business-day denominator for the per-day average sub-label. */
+  currentDays?: number;
+  previousDays?: number;
   fmt?: "number" | "currency";
   accent?: boolean;
 }) {
@@ -571,6 +548,11 @@ function HeroStat({
     return { dir: p >= 0 ? ("up" as const) : ("down" as const), pct: Math.abs(p) };
   })();
   const valueColor = accent ? "text-emerald-400" : "text-zinc-100";
+
+  const fmtVal = (n: number) =>
+    fmt === "currency" ? formatCurrency(n) : n.toLocaleString();
+  const fmtAvg = (n: number) =>
+    fmt === "currency" ? formatCurrency(Math.round(n)) : n.toFixed(1);
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3">
@@ -585,9 +567,16 @@ function HeroStat({
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
       {sub
         ? <div className="mt-0.5 text-[10px] text-zinc-600">{sub}</div>
-        : previous !== undefined && (
+        : current !== undefined && currentDays && currentDays > 0 ? (
           <div className="mt-0.5 text-[10px] text-zinc-600 tabular-nums">
-            prev {fmt === "currency" ? formatCurrency(previous) : previous.toLocaleString()}
+            {fmtAvg(current / currentDays)}/day
+            {previous !== undefined && previousDays && previousDays > 0 && (
+              <span className="ml-1 text-zinc-700">· prev {fmtAvg(previous / previousDays)}</span>
+            )}
+          </div>
+        ) : previous !== undefined && (
+          <div className="mt-0.5 text-[10px] text-zinc-600 tabular-nums">
+            prev {fmtVal(previous)}
           </div>
         )}
     </div>
@@ -632,6 +621,11 @@ type MetricRow = {
   secondary?: string;
   current: PeriodMetrics;
   previous: PeriodMetrics;
+  // Active business days for per-day averages — based on the entity's
+  // first activity in each window, so a newly-onboarded exec/client isn't
+  // penalised by a full-period denominator.
+  currentDays: number;
+  previousDays: number;
   stale?: boolean;
   lastActivityAt?: string | null;
 };
@@ -655,6 +649,11 @@ function MetricTable({
   // Compact period strings reused in column headers + sub-labels.
   const periodLabel = range.label.toLowerCase();        // "this week"
   const prevLabel   = range.prevLabel.toLowerCase();    // "last week"
+
+  // Per-day denominators for the metric cells. Each entity carries its own
+  // active-day count so a new exec/client with fewer days in the window
+  // still shows a meaningful pace number.
+  const dashLabel = execStyle ? "exec dashboard" : "client dashboard";
   return (
     <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800">
       <table className="w-full text-sm">
@@ -671,13 +670,14 @@ function MetricTable({
             <PeriodHeader label="Close%" period={periodLabel} />
             <PeriodHeader label="Avg deal" period={periodLabel} />
             {!execStyle && <th className="px-4 py-2 text-right font-normal">Last activity</th>}
+            <th className="px-3 py-2 text-right font-normal"><span className="sr-only">Open dashboard</span></th>
           </tr>
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.key} className="border-t border-zinc-800 hover:bg-zinc-900/40">
+            <tr key={r.key} className="group border-t border-zinc-800 transition-colors hover:bg-zinc-800/60">
               <td className="px-4 py-2.5">
-                <Link href={r.href} className="font-medium text-zinc-100 hover:text-white">
+                <Link href={r.href} className="font-medium text-zinc-100 underline-offset-4 hover:text-white hover:underline">
                   {r.primary}
                 </Link>
                 {r.secondary && <div className="text-[10px] text-zinc-500 truncate">{r.secondary}</div>}
@@ -685,6 +685,8 @@ function MetricTable({
               <CurrencyCell
                 current={r.current.revenue}
                 previous={r.previous.revenue}
+                currentDays={r.currentDays}
+                previousDays={r.previousDays}
                 prevLabel={prevLabel}
                 accent="emerald"
               />
@@ -696,11 +698,11 @@ function MetricTable({
                   </div>
                 </td>
               )}
-              <NumCell current={r.current.wins} previous={r.previous.wins} prevLabel={prevLabel} />
-              <NumCell current={r.current.quotes} previous={r.previous.quotes} prevLabel={prevLabel} />
-              <NumCell current={r.current.peopleQuoted} previous={r.previous.peopleQuoted} prevLabel={prevLabel} />
-              <NumCell current={r.current.calls} previous={r.previous.calls} prevLabel={prevLabel} />
-              <NumCell current={r.current.visits} previous={r.previous.visits} prevLabel={prevLabel} />
+              <NumCell current={r.current.wins} previous={r.previous.wins} currentDays={r.currentDays} previousDays={r.previousDays} prevLabel={prevLabel} />
+              <NumCell current={r.current.quotes} previous={r.previous.quotes} currentDays={r.currentDays} previousDays={r.previousDays} prevLabel={prevLabel} />
+              <NumCell current={r.current.peopleQuoted} previous={r.previous.peopleQuoted} currentDays={r.currentDays} previousDays={r.previousDays} prevLabel={prevLabel} />
+              <NumCell current={r.current.calls} previous={r.previous.calls} currentDays={r.currentDays} previousDays={r.previousDays} prevLabel={prevLabel} />
+              <NumCell current={r.current.visits} previous={r.previous.visits} currentDays={r.currentDays} previousDays={r.previousDays} prevLabel={prevLabel} />
               <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">
                 {pct(r.current.closeRate)}
                 {r.previous.closeRate > 0 && (
@@ -715,6 +717,16 @@ function MetricTable({
                   </div>
                 </td>
               )}
+              <td className="px-3 py-2.5 text-right">
+                <Link
+                  href={r.href}
+                  aria-label={`Open ${r.primary} ${dashLabel}`}
+                  className="inline-flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-zinc-300 transition-colors hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-300 group-hover:border-zinc-600 group-hover:text-zinc-100"
+                >
+                  Dashboard
+                  <span aria-hidden>→</span>
+                </Link>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -736,14 +748,26 @@ function PeriodHeader({ label, period }: { label: string; period: string }) {
   );
 }
 
-function NumCell({ current, previous, prevLabel }: { current: number; previous: number; prevLabel: string }) {
+function NumCell({
+  current, previous, prevLabel, currentDays, previousDays,
+}: {
+  current: number; previous: number; prevLabel: string;
+  currentDays?: number; previousDays?: number;
+}) {
   // Show explicit "0" rather than "—" when prev had data, so you can see
   // the comparison is "0 now vs N then" not "value unknown".
   const showZero = current === 0 && previous > 0;
+  const curAvg = current > 0 && currentDays && currentDays > 0 ? current / currentDays : null;
+  const prevAvg = previous > 0 && previousDays && previousDays > 0 ? previous / previousDays : null;
   return (
     <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">
       {current > 0 ? current : (showZero ? <span className="text-zinc-500">0</span> : "—")}
-      {previous > 0 && <div className="text-[10px] text-zinc-600">{prevLabel} {previous}</div>}
+      {curAvg !== null && <div className="text-[10px] text-zinc-600">{curAvg.toFixed(1)}/day</div>}
+      {previous > 0 && (
+        <div className="text-[10px] text-zinc-600">
+          {prevLabel} {previous}{prevAvg !== null && ` · ${prevAvg.toFixed(1)}/day`}
+        </div>
+      )}
     </td>
   );
 }
@@ -752,19 +776,30 @@ function CurrencyCell({
   current,
   previous,
   prevLabel,
+  currentDays,
+  previousDays,
   accent,
 }: {
   current: number;
   previous: number;
   prevLabel: string;
+  currentDays?: number;
+  previousDays?: number;
   accent?: "emerald";
 }) {
   const showZero = current === 0 && previous > 0;
   const colour = accent === "emerald" ? "text-emerald-400" : "text-zinc-300";
+  const curAvg = current > 0 && currentDays && currentDays > 0 ? current / currentDays : null;
+  const prevAvg = previous > 0 && previousDays && previousDays > 0 ? previous / previousDays : null;
   return (
     <td className={`px-3 py-2.5 text-right tabular-nums ${colour}`}>
       {current > 0 ? formatCurrency(current) : (showZero ? <span className="text-zinc-500">$0</span> : "—")}
-      {previous > 0 && <div className="text-[10px] text-zinc-600">{prevLabel} {formatCurrency(previous)}</div>}
+      {curAvg !== null && <div className="text-[10px] text-zinc-600">{formatCurrency(Math.round(curAvg))}/day</div>}
+      {previous > 0 && (
+        <div className="text-[10px] text-zinc-600">
+          {prevLabel} {formatCurrency(previous)}{prevAvg !== null && ` · ${formatCurrency(Math.round(prevAvg))}/day`}
+        </div>
+      )}
     </td>
   );
 }

@@ -5,7 +5,7 @@ import { getViewer, gateCompanySlug } from "@/lib/viewer";
 import { loadCompanyAnalytics } from "@/lib/analytics";
 import { BarChart, HBars } from "@/components/BarChart";
 import { Funnel } from "@/components/Funnel";
-import { EVENT_LABELS, formatCurrency, relativeTime, sumQuoteValues, todayInTz } from "@/lib/format";
+import { EVENT_LABELS, formatCurrency, relativeTime, quoteGroupValue, todayInTz } from "@/lib/format";
 import { mondayOf, addDaysIso, shortDate, weekdayShort } from "@/lib/dates";
 
 // Page-through helper — Supabase caps single responses at db-max-rows (1000).
@@ -86,7 +86,7 @@ export default async function CompanyDrilldown({
       site_visit_booked: 0, email_sent: 0, won_value: 0,
     };
     if (EVENT_TYPES.includes(r.event_type as EventType)) slot[r.event_type as EventType]++;
-    if (r.event_type === "job_won") slot.won_value += sumQuoteValues(r.quote_job_value);
+    if (r.event_type === "job_won") slot.won_value += quoteGroupValue(r.quote_job_value);
     execTally.set(name, slot);
   }
 
@@ -263,7 +263,7 @@ export default async function CompanyDrilldown({
               </div>
               <div className="shrink-0 text-right text-xs text-zinc-500">
                 {r.event_type === "job_won" && r.quote_job_value && (
-                  <div className="text-emerald-400">{formatCurrency(sumQuoteValues(r.quote_job_value))}</div>
+                  <div className="text-emerald-400">{formatCurrency(quoteGroupValue(r.quote_job_value))}</div>
                 )}
                 <div>{relativeTime(r.created_at)}</div>
               </div>

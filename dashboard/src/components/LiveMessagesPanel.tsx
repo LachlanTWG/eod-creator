@@ -62,20 +62,22 @@ export async function LiveMessagesPanel({
         </section>
       )}
 
-      <section className="mt-8">
-        <SectionHeader
-          title="Team"
-          subtitle={isAdmin ? "Every exec across every active company." : "Limited to what RLS lets you see."}
-        />
-        <CardRow>
-          {ordered.map(c => (
-            <LiveMessage key={`t-${c.company.id}`} data={c.team} variant="hero" />
-          ))}
-          {messages.grandTotal && (
-            <LiveMessage key="t-total" data={messages.grandTotal} variant="hero" />
-          )}
-        </CardRow>
-      </section>
+      {isAdmin && (
+        <section className="mt-8">
+          <SectionHeader
+            title="Team"
+            subtitle="Every exec across every active company."
+          />
+          <CardRow>
+            {ordered.map(c => (
+              <LiveMessage key={`t-${c.company.id}`} data={c.team} variant="hero" />
+            ))}
+            {messages.grandTotal && (
+              <LiveMessage key="t-total" data={messages.grandTotal} variant="hero" />
+            )}
+          </CardRow>
+        </section>
+      )}
     </>
   );
 }

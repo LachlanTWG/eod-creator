@@ -285,6 +285,11 @@ export function quotieByClient(
  * Platform-level rollup limited to our roster execs + mapped clients.
  * (The raw platform.* totals include Coastal Cleans, archived companies,
  * other staff — we want just our slice.)
+ *
+ * NOTE: this sums the WHOLE company in Quotie, which includes job-management
+ * entries the client added themselves (recurring work, walk-ins) that no
+ * sales exec touched. Prefer `quotieOurExecSlice` for surfaces that should
+ * only reflect sales-exec-driven activity.
  */
 export function quotieOurSlice(data: QuotieBreakdown): {
   quotes: QuotieCounts;
@@ -297,4 +302,45 @@ export function quotieOurSlice(data: QuotieBreakdown): {
     addGroups(totals.groups, company.groups);
   }
   return totals;
+}
+
+/**
+ * Sales-exec-attributed Quotie totals — sums per-exec rollups (which use
+ * lead-owner attribution), so client-added job-management entries that no
+ * sales exec was involved in are excluded.
+ */
+export function quotieOurExecSlice(data: QuotieBreakdown): {
+  quotes: QuotieCounts;
+  groups: QuotieGroups;
+} {
+  const totals = { quotes: zeroCounts(), groups: zeroGroups() };
+  const byExec = quotieByExec(data);
+  for (const exec of Object.values(byExec)) {
+    addCounts(totals.quotes, exec.quotes);
+    addGroups(totals.groups, exec.groups);
+  }
+  return totals;
+}
+
+/**
+ * Per-client rollup filtered to sales-exec-attributed activity only — built
+ * from the `perCompany` slices of each exec aggregate. Keyed by our DB
+ * client name.
+ */
+export function quotieByClientExecOnly(
+  data: QuotieBreakdown,
+): Record<string, { quotes: QuotieCounts; groups: QuotieGroups }> {
+  const out: Record<string, { quotes: QuotieCounts; groups: QuotieGroups }> = {};
+  const byExec = quotieByExec(data);
+  for (const exec of Object.values(byExec)) {
+    for (const slice of exec.perCompany) {
+      if (!slice.ourClientName) continue;
+      const slot = out[slice.ourClientName] ||= {
+        quotes: zeroCounts(), groups: zeroGroups(),
+      };
+      addCounts(slot.quotes, slice.quotes);
+      addGroups(slot.groups, slice.groups);
+    }
+  }
+  return out;
 }

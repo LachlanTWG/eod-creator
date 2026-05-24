@@ -2,9 +2,9 @@
 // has the user's session, so RLS naturally scopes results to what they can see.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sumQuoteValues, todayInTz } from "./format";
+import { quoteGroupValue, todayInTz } from "./format";
 import {
-  mondayOf, addDaysIso,
+  mondayOf, addDaysIso, businessDaysBetween,
   bucketKey, bucketLabel, trendBucketKeys, periodRange,
   type Period, type PeriodRange,
 } from "./dates";
@@ -82,7 +82,7 @@ function bumpCounts(bucket: EventCounts, eventType: string, quoteJobValue: strin
   else if (eventType === "email_sent") bucket.email_sent++;
   else if (eventType === "job_won") {
     bucket.job_won++;
-    bucket.job_won_value += sumQuoteValues(quoteJobValue);
+    bucket.job_won_value += quoteGroupValue(quoteJobValue);
   }
 }
 
@@ -290,7 +290,7 @@ export async function loadOverviewTotals(supabase: SupabaseClient): Promise<Over
   for (const r of bgRows) {
     const key = `${r.company_id}|${r.contact_id}`;
     if (!latest.has(key)) {
-      latest.set(key, { event_type: r.event_type, value: sumQuoteValues(r.quote_job_value) });
+      latest.set(key, { event_type: r.event_type, value: quoteGroupValue(r.quote_job_value) });
     }
     if (r.event_type === "job_won") hasWin.set(key, true);
   }
@@ -350,7 +350,7 @@ export async function loadCombinedWeeklyTrend(
     b.activity_count++;
     if (r.event_type === "job_won") {
       b.wins++;
-      b.won_value += sumQuoteValues(r.quote_job_value);
+      b.won_value += quoteGroupValue(r.quote_job_value);
     }
     buckets.set(wk, b);
   }
@@ -407,7 +407,7 @@ export async function loadWeekExecLeaderboard(supabase: SupabaseClient): Promise
     e.activities++;
     if (r.event_type === "job_won") {
       e.wins++;
-      e.revenue += sumQuoteValues(r.quote_job_value);
+      e.revenue += quoteGroupValue(r.quote_job_value);
     } else if (r.event_type === "quote_sent") {
       e.quotes++;
     }
@@ -482,7 +482,7 @@ export async function loadCompanyBacklogMap(supabase: SupabaseClient): Promise<M
   for (const r of rows) {
     const key = `${r.company_id}|${r.contact_id}`;
     if (!latest.has(key)) {
-      latest.set(key, { event_type: r.event_type, value: sumQuoteValues(r.quote_job_value) });
+      latest.set(key, { event_type: r.event_type, value: quoteGroupValue(r.quote_job_value) });
     }
     if (r.event_type === "job_won") hasWin.set(key, true);
   }
@@ -561,7 +561,7 @@ function bumpMetrics(m: PeriodMetrics, d: DistinctSets, r: {
   else if (r.event_type === "email_sent") m.emails++;
   else if (r.event_type === "job_won") {
     m.wins++;
-    m.revenue += sumQuoteValues(r.quote_job_value);
+    m.revenue += quoteGroupValue(r.quote_job_value);
   }
   if (r.contact_id) {
     d.worked.add(r.contact_id);
@@ -577,6 +577,11 @@ export type OverviewClient = {
   current: PeriodMetrics;
   previous: PeriodMetrics;
   lastActivityAt: string | null;
+  // Business-day denominators for per-day averages — based on the entity's
+  // first activity in each window, so a new client doesn't get penalised for
+  // not being active the whole period.
+  currentActiveDays: number;
+  previousActiveDays: number;
 };
 
 export type OverviewExec = {
@@ -584,6 +589,8 @@ export type OverviewExec = {
   companies: { id: string; name: string; slug: string }[];
   current: PeriodMetrics;
   previous: PeriodMetrics;
+  currentActiveDays: number;
+  previousActiveDays: number;
 };
 
 export type OverviewTrendPoint = {
@@ -621,15 +628,14 @@ export type OutcomeStat = {
   n: number;
 };
 
-export type AgingRow = {
-  contact_id: string | null;
-  contact_name: string | null;
+/**
+ * Per-open-quote detail used to build value-bucket histograms. Pipeline
+ * aging (chase-list) lives in Quotie, not here, so no contact name / days
+ * open are needed downstream.
+ */
+type PipelineItem = {
   company_id: string;
-  company_name: string;
-  company_slug: string;
-  sales_person_name: string;
   value: number;
-  days_open: number;
 };
 
 export type MatrixCell = {
@@ -669,7 +675,6 @@ export type OverviewByPeriod = {
   wins: WinRow[];                       // every win in the period
   sources: SourceStat[];                // top sources by activity, with conv
   outcomes: OutcomeStat[];              // top EOD outcomes
-  aging: AgingRow[];                    // oldest open quotes (top 15)
   matrix: MatrixCell[];                 // exec × client revenue+activity
   heatmap: HeatmapDay[];                // last 90 days of activity counts
   productivity: ProductivityRow[];      // per-exec activities/business-day
@@ -708,6 +713,13 @@ export async function loadOverviewByPeriod(
         label: bucketLabel(k, range.bucketBy),
         revenue: 0, wins: 0, calls: 0, quotes: 0, activities: 0,
       })),
+      wins: [],
+      sources: [],
+      outcomes: [],
+      matrix: [],
+      heatmap: [],
+      productivity: [],
+      valueBuckets: [],
     };
   }
 
@@ -755,6 +767,8 @@ export async function loadOverviewByPeriod(
     current: PeriodMetrics; previous: PeriodMetrics;
     cDistinct: DistinctSets; pDistinct: DistinctSets;
     lastActivityAt: string | null;
+    firstSeenCurrent: string | null;
+    firstSeenPrevious: string | null;
   };
   const perClient = new Map<string, ClientBuckets>();
   for (const c of companies) {
@@ -762,6 +776,7 @@ export async function loadOverviewByPeriod(
       current: emptyMetrics(), previous: emptyMetrics(),
       cDistinct: emptyDistinct(), pDistinct: emptyDistinct(),
       lastActivityAt: null,
+      firstSeenCurrent: null, firstSeenPrevious: null,
     });
   }
 
@@ -771,6 +786,8 @@ export async function loadOverviewByPeriod(
     companies: Map<string, { id: string; name: string; slug: string }>;
     current: PeriodMetrics; previous: PeriodMetrics;
     cDistinct: DistinctSets; pDistinct: DistinctSets;
+    firstSeenCurrent: string | null;
+    firstSeenPrevious: string | null;
   };
   const perExec = new Map<string, ExecBuckets>();
 
@@ -809,7 +826,12 @@ export async function loadOverviewByPeriod(
     if (inCurrent) {
       bumpMetrics(totals.current, totalsDistinct.current, r);
       const cb = perClient.get(r.company_id);
-      if (cb) bumpMetrics(cb.current, cb.cDistinct, r);
+      if (cb) {
+        bumpMetrics(cb.current, cb.cDistinct, r);
+        if (!cb.firstSeenCurrent || r.occurred_on < cb.firstSeenCurrent) {
+          cb.firstSeenCurrent = r.occurred_on;
+        }
+      }
       if (r.sales_person_id) {
         let e = perExec.get(r.sales_person_name);
         if (!e) {
@@ -817,10 +839,14 @@ export async function loadOverviewByPeriod(
             name: r.sales_person_name, companies: new Map(),
             current: emptyMetrics(), previous: emptyMetrics(),
             cDistinct: emptyDistinct(), pDistinct: emptyDistinct(),
+            firstSeenCurrent: null, firstSeenPrevious: null,
           };
           perExec.set(r.sales_person_name, e);
         }
         bumpMetrics(e.current, e.cDistinct, r);
+        if (!e.firstSeenCurrent || r.occurred_on < e.firstSeenCurrent) {
+          e.firstSeenCurrent = r.occurred_on;
+        }
         const co = companyById.get(r.company_id);
         if (co && !e.companies.has(co.id)) {
           e.companies.set(co.id, { id: co.id, name: co.name, slug: co.slug });
@@ -829,7 +855,12 @@ export async function loadOverviewByPeriod(
     } else if (inPrev) {
       bumpMetrics(totals.previous, totalsDistinct.previous, r);
       const cb = perClient.get(r.company_id);
-      if (cb) bumpMetrics(cb.previous, cb.pDistinct, r);
+      if (cb) {
+        bumpMetrics(cb.previous, cb.pDistinct, r);
+        if (!cb.firstSeenPrevious || r.occurred_on < cb.firstSeenPrevious) {
+          cb.firstSeenPrevious = r.occurred_on;
+        }
+      }
       if (r.sales_person_id) {
         let e = perExec.get(r.sales_person_name);
         if (!e) {
@@ -837,10 +868,14 @@ export async function loadOverviewByPeriod(
             name: r.sales_person_name, companies: new Map(),
             current: emptyMetrics(), previous: emptyMetrics(),
             cDistinct: emptyDistinct(), pDistinct: emptyDistinct(),
+            firstSeenCurrent: null, firstSeenPrevious: null,
           };
           perExec.set(r.sales_person_name, e);
         }
         bumpMetrics(e.previous, e.pDistinct, r);
+        if (!e.firstSeenPrevious || r.occurred_on < e.firstSeenPrevious) {
+          e.firstSeenPrevious = r.occurred_on;
+        }
       }
     }
 
@@ -860,7 +895,7 @@ export async function loadOverviewByPeriod(
       else if (r.event_type === "quote_sent") tb.quotes++;
       else if (r.event_type === "job_won") {
         tb.wins++;
-        tb.revenue += sumQuoteValues(r.quote_job_value);
+        tb.revenue += quoteGroupValue(r.quote_job_value);
       }
     }
 
@@ -882,7 +917,7 @@ export async function loadOverviewByPeriod(
         company_slug: co?.slug || "",
         sales_person_name: r.sales_person_name,
         contact_name: r.contact_name,
-        value: sumQuoteValues(r.quote_job_value),
+        value: quoteGroupValue(r.quote_job_value),
         occurred_on: r.occurred_on,
         created_at: r.created_at,
       });
@@ -896,7 +931,7 @@ export async function loadOverviewByPeriod(
         if (r.event_type === "quote_sent") slot.quotes++;
         else if (r.event_type === "job_won") {
           slot.wins++;
-          slot.revenue += sumQuoteValues(r.quote_job_value);
+          slot.revenue += quoteGroupValue(r.quote_job_value);
         }
         sourceMap.set(src, slot);
       }
@@ -921,16 +956,16 @@ export async function loadOverviewByPeriod(
       cell.activities++;
       if (r.event_type === "job_won") {
         cell.wins++;
-        cell.revenue += sumQuoteValues(r.quote_job_value);
+        cell.revenue += quoteGroupValue(r.quote_job_value);
       }
       matrixMap.set(mKey, cell);
     }
   }
 
-  // Pipeline (open quote value + count) + per-contact details for aging
-  // and value-bucket analysis — current state, separate scan.
+  // Pipeline (open quote value + count) + per-quote items for the value-
+  // bucket histogram — current state, separate scan.
   const { byCompany: pipelineByCompany, items: pipelineItems } =
-    await loadOpenPipeline(supabase, activeIds, companyById);
+    await loadOpenPipeline(supabase, activeIds);
   const totalPipeline = Array.from(pipelineByCompany.values()).reduce(
     (acc, p) => ({ count: acc.count + p.count, value: acc.value + p.value }),
     { count: 0, value: 0 },
@@ -962,6 +997,8 @@ export async function loadOverviewByPeriod(
       id: c.id, name: c.name, slug: c.slug, timezone: c.timezone,
       current: cb.current, previous: cb.previous,
       lastActivityAt: cb.lastActivityAt,
+      currentActiveDays: activeBusinessDays(cb.firstSeenCurrent, range.start, range.end),
+      previousActiveDays: activeBusinessDays(cb.firstSeenPrevious, range.prevStart, range.prevEnd),
     };
   });
   perClientArr.sort((a, b) => b.current.revenue - a.current.revenue || b.current.calls - a.current.calls);
@@ -972,6 +1009,8 @@ export async function loadOverviewByPeriod(
       companies: Array.from(e.companies.values()),
       current: e.current,
       previous: e.previous,
+      currentActiveDays: activeBusinessDays(e.firstSeenCurrent, range.start, range.end),
+      previousActiveDays: activeBusinessDays(e.firstSeenPrevious, range.prevStart, range.prevEnd),
     }))
     .sort((a, b) => b.current.revenue - a.current.revenue || b.current.calls - a.current.calls);
 
@@ -998,11 +1037,6 @@ export async function loadOverviewByPeriod(
     .sort((a, b) => b.n - a.n)
     .slice(0, 10);
 
-  // Aging — top 15 oldest open quotes
-  const aging: AgingRow[] = pipelineItems
-    .sort((a, b) => b.days_open - a.days_open)
-    .slice(0, 15);
-
   // Matrix — exec × client
   const matrix: MatrixCell[] = Array.from(matrixMap.values());
 
@@ -1014,7 +1048,7 @@ export async function loadOverviewByPeriod(
   }
 
   // Productivity — activities per business day (Mon-Fri) within the period
-  const workingDays = countBusinessDays(range.start, range.end);
+  const workingDays = businessDaysBetween(range.start, range.end);
   const productivity: ProductivityRow[] = perExecArr.map(e => {
     const total = e.current.calls + e.current.quotes + e.current.visits + e.current.emails + e.current.wins;
     return {
@@ -1045,7 +1079,7 @@ export async function loadOverviewByPeriod(
   return {
     range, totals,
     perClient: perClientArr, perExec: perExecArr,
-    trend, wins, sources, outcomes, aging, matrix, heatmap, productivity, valueBuckets,
+    trend, wins, sources, outcomes, matrix, heatmap, productivity, valueBuckets,
   };
 }
 
@@ -1105,31 +1139,29 @@ export async function loadReports(
   });
 }
 
-/** Count Mon-Fri days inclusive between start and end (YYYY-MM-DD). */
-function countBusinessDays(startIso: string, endIso: string): number {
-  if (startIso > endIso) return 0;
-  let count = 0;
-  let cursor = startIso;
-  while (cursor <= endIso) {
-    const [y, m, d] = cursor.split("-").map(Number);
-    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-    if (dow !== 0 && dow !== 6) count++;
-    cursor = addDaysIso(cursor, 1);
-  }
-  return count;
+/**
+ * Business days from an entity's first activity in the window to the end of
+ * the window, clamped to [start, end]. Falls back to whole-window business
+ * days if there was no activity, so a zero-activity row still has a non-zero
+ * denominator (and shows 0/day cleanly).
+ */
+function activeBusinessDays(firstSeen: string | null, start: string, end: string): number {
+  const from = firstSeen && firstSeen > start ? firstSeen : start;
+  return businessDaysBetween(from, end);
 }
 
 /**
  * Open pipeline = quote_sent contacts with no subsequent job_won in the last
- * 180 days. Returns per-company aggregates AND per-contact aging details.
+ * 180 days. Powers the "Pipeline $" hero, per-client pipeline counts, and the
+ * value-bucket histogram. Chase-list / aging lives in Quotie — we don't
+ * compute it here.
  */
 async function loadOpenPipeline(
   supabase: SupabaseClient,
   activeIds: string[],
-  companyById: Map<string, { id: string; name: string; slug: string; timezone?: string }>,
 ): Promise<{
   byCompany: Map<string, { count: number; value: number }>;
-  items: AgingRow[];
+  items: PipelineItem[];
 }> {
   const byCompany = new Map<string, { count: number; value: number }>();
   for (const id of activeIds) byCompany.set(id, { count: 0, value: 0 });
@@ -1138,16 +1170,14 @@ async function loadOpenPipeline(
   const since = addDaysIso(todayInTz("Australia/Sydney"), -180);
   const rows = await pageAll<{
     contact_id: string;
-    contact_name: string | null;
     company_id: string;
-    sales_person_name: string;
     event_type: string;
     quote_job_value: string | null;
     created_at: string;
   }>((from, to) =>
     supabase
       .from("activities")
-      .select("contact_id, contact_name, company_id, sales_person_name, event_type, quote_job_value, created_at")
+      .select("contact_id, company_id, event_type, quote_job_value, created_at")
       .gte("occurred_on", since)
       .not("contact_id", "is", null)
       .in("company_id", activeIds)
@@ -1159,10 +1189,6 @@ async function loadOpenPipeline(
     event_type: string;
     value: number;
     company_id: string;
-    contact_id: string;
-    contact_name: string | null;
-    sales_person_name: string;
-    created_at: string;
   };
   const latest = new Map<string, Last>();
   const hasWin = new Map<string, boolean>();
@@ -1171,19 +1197,14 @@ async function loadOpenPipeline(
     if (!latest.has(key)) {
       latest.set(key, {
         event_type: r.event_type,
-        value: sumQuoteValues(r.quote_job_value),
+        value: quoteGroupValue(r.quote_job_value),
         company_id: r.company_id,
-        contact_id: r.contact_id,
-        contact_name: r.contact_name,
-        sales_person_name: r.sales_person_name,
-        created_at: r.created_at,
       });
     }
     if (r.event_type === "job_won") hasWin.set(key, true);
   }
 
-  const items: AgingRow[] = [];
-  const now = Date.now();
+  const items: PipelineItem[] = [];
   for (const [key, last] of latest.entries()) {
     if (hasWin.get(key)) continue;
     if (last.event_type !== "quote_sent") continue;
@@ -1191,17 +1212,7 @@ async function loadOpenPipeline(
     if (!slot) continue;
     slot.count++;
     slot.value += last.value;
-    const co = companyById.get(last.company_id);
-    items.push({
-      contact_id: last.contact_id,
-      contact_name: last.contact_name,
-      company_id: last.company_id,
-      company_name: co?.name || "?",
-      company_slug: co?.slug || "",
-      sales_person_name: last.sales_person_name,
-      value: last.value,
-      days_open: Math.floor((now - new Date(last.created_at).getTime()) / 86400_000),
-    });
+    items.push({ company_id: last.company_id, value: last.value });
   }
 
   return { byCompany, items };
