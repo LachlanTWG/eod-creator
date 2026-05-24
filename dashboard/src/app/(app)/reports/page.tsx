@@ -16,6 +16,8 @@ const REPORT_TYPES = [
   { key: "eoy", label: "EOY" },
 ] as const;
 
+type ReportType = typeof REPORT_TYPES[number]["key"];
+
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -25,8 +27,7 @@ export default async function ReportsPage({
   const viewer = await getViewer();
   const supabase = await createClient();
 
-  const requestedType = params.type as typeof REPORT_TYPES[number]["key"] | undefined;
-  const reportType = REPORT_TYPES.some(t => t.key === requestedType) ? requestedType : "eod";
+  const reportType: ReportType = REPORT_TYPES.find(t => t.key === params.type)?.key ?? "eod";
   const companyFilter = params.company || "";
   const wantLive = params.live === "1";
 
