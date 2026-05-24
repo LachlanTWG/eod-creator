@@ -5,6 +5,12 @@
 //
 // The breakdown is cached for 5 minutes via Next.js's request cache so the
 // dashboard doesn't hammer the Quotie API on every page load.
+//
+// Attribution model (2026-05-24): each company now exposes
+// `groups_by_lead_owner[]` which attributes wins/pipeline to whoever owns
+// the lead (site-visit booker → GHL assigned → follow-up assignee → quote
+// sender), not just whoever clicked Send. We prefer that over the old
+// `users[].groups` (by quote sender) — see quotieByExec().
 
 import { unstable_cache } from "next/cache";
 
@@ -34,6 +40,23 @@ export type QuotieUser = {
   groups: QuotieGroups;
 };
 
+// Lead-owner attribution per company. Each row is the rollup for one user
+// across every quote where they own the lead (priority: site-visit booker →
+// GHL assigned → follow-up assignee → quote sender). Same group metrics as
+// QuotieGroups, flattened alongside the user identity.
+export type QuotieLeadOwner = {
+  user_id: string;
+  full_name: string;
+  total_sent: number;
+  sent_this_month: number;
+  won: number;
+  lost: number;
+  expired: number;
+  pending: number;
+  pipeline_value: number;
+  won_value: number;
+};
+
 export type QuotieCompany = {
   id: string;
   name: string;
@@ -43,6 +66,7 @@ export type QuotieCompany = {
   quotes: QuotieCounts;
   groups: QuotieGroups;
   users: QuotieUser[];
+  groups_by_lead_owner?: QuotieLeadOwner[];   // present if Quotie has wired it for this company
 };
 
 export type QuotieBreakdown = {
@@ -157,9 +181,13 @@ function addGroups(a: QuotieGroups, b: QuotieGroups) {
 }
 
 /**
- * Per-exec roll-ups across all active Quotie companies. We sum each exec's
- * numbers from every company they appear in, ignoring archived companies and
- * Quotie users that don't match our sales roster.
+ * Per-exec roll-ups across all active Quotie companies. Prefers Quotie's
+ * `groups_by_lead_owner` (lead-owner attribution) over `users[].groups`
+ * (quote-sender attribution) so a quote sent by Jesse on behalf of a lead
+ * Lachlan owns is credited to Lachlan, not Jesse.
+ *
+ * Falls back to `users[].groups` per-company if Quotie hasn't wired lead-
+ * owner attribution for that company yet.
  */
 export function quotieByExec(
   data: QuotieBreakdown,
@@ -181,19 +209,58 @@ export function quotieByExec(
 
   for (const company of data.companies) {
     if (company.status !== "active") continue;
-    for (const user of company.users) {
-      const ourName = OUR_EXEC_BY_QUOTIE_FULLNAME[user.full_name];
-      if (!ourName) continue;
-      const slot = out[ourName];
-      addCounts(slot.quotes, user.quotes);
-      addGroups(slot.groups, user.groups);
-      slot.perCompany.push({
-        quotieCompanyId: company.id,
-        quotieCompanyName: company.name,
-        ourClientName: ourClientByQuotieName[company.name] || null,
-        quotes: user.quotes,
-        groups: user.groups,
-      });
+
+    const ownerRows = company.groups_by_lead_owner;
+    if (ownerRows && ownerRows.length > 0) {
+      // Lead-owner attribution (preferred). The lead-owner shape flattens
+      // counts + groups; map back to our split QuotieCounts / QuotieGroups
+      // shape so the UI layer doesn't need to know which path was used.
+      for (const owner of ownerRows) {
+        const ourName = OUR_EXEC_BY_QUOTIE_FULLNAME[owner.full_name];
+        if (!ourName) continue;
+        const slot = out[ourName];
+        const quotes: QuotieCounts = {
+          sent: owner.total_sent,
+          sent_this_month: owner.sent_this_month,
+          generated: 0,
+          failed: 0,
+        };
+        const groups: QuotieGroups = {
+          total_sent: owner.total_sent,
+          sent_this_month: owner.sent_this_month,
+          won: owner.won,
+          lost: owner.lost,
+          expired: owner.expired,
+          pending: owner.pending,
+          pipeline_value: owner.pipeline_value,
+          won_value: owner.won_value,
+        };
+        addCounts(slot.quotes, quotes);
+        addGroups(slot.groups, groups);
+        slot.perCompany.push({
+          quotieCompanyId: company.id,
+          quotieCompanyName: company.name,
+          ourClientName: ourClientByQuotieName[company.name] || null,
+          quotes,
+          groups,
+        });
+      }
+    } else {
+      // Fallback: quote-sender attribution.
+      for (const user of company.users) {
+        const ourName = OUR_EXEC_BY_QUOTIE_FULLNAME[user.full_name];
+        if (!ourName) continue;
+        const slot = out[ourName];
+        addCounts(slot.quotes, user.quotes);
+        addGroups(slot.groups, user.groups);
+        slot.perCompany.push({
+          quotieCompanyId: company.id,
+          quotieCompanyName: company.name,
+          ourClientName: ourClientByQuotieName[company.name] || null,
+          quotes: user.quotes,
+          groups: user.groups,
+        });
+      }
     }
   }
   return out;
