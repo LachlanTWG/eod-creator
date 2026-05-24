@@ -24,6 +24,7 @@ const {
 } = require('./sheets/summarySheet');
 const { getSummarySheetId } = require('./config/companiesStore');
 const { previewEOD, previewEOW, previewEOM, previewEOQ, previewEOY } = require('./preview');
+const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
 
@@ -257,6 +258,46 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
     return;
+  }
+
+  // DB health — confirms DATABASE_URL is set and the pooler is reachable.
+  if (pathname === '/health/db') {
+    if (!db.isEnabled()) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'disabled', reason: 'DATABASE_URL not set' }));
+      return;
+    }
+    try {
+      const t0 = Date.now();
+      const client = await db.getPool().connect();
+      try {
+        const { rows } = await client.query('select 1 as ok');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', latencyMs: Date.now() - t0, ok: rows[0]?.ok === 1 }));
+      } finally { client.release(); }
+    } catch (e) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'error', error: e.message }));
+    }
+    return;
+  }
+
+  // Audit every /webhook/* request to webhook_events (fire-and-forget). Also
+  // serves as a per-request signal that DB writes work in this environment.
+  if (pathname.startsWith('/webhook') && !pathname.endsWith('-test')) {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || null;
+    const originalEnd = res.end.bind(res);
+    res.end = function (...args) {
+      db.insertWebhookEvent({
+        path: pathname,
+        method: req.method,
+        status: res.statusCode,
+        ip,
+        body: null,
+        error: res.statusCode >= 400 ? (typeof args[0] === 'string' ? args[0].slice(0, 500) : null) : null,
+      }).catch(e => console.error(`[webhook_events] insert failed (${pathname}):`, e.message));
+      return originalEnd(...args);
+    };
   }
 
   // Auth check
