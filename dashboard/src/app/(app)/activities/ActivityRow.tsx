@@ -3,8 +3,12 @@
 // One activity row with an inline "Edit" button that opens the drawer.
 // Server component (page.tsx) passes raw row data; this is a thin client
 // wrapper so the drawer can manage its own open state.
+//
+// Drawer renders a full-viewport <div> overlay; portalled to document.body
+// because <div> isn't a valid child of <tbody> (hydration warning).
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { EVENT_LABELS } from "@/lib/format";
 import { EditDrawer, type ActivityRowForEdit, type SalesPersonOption } from "./EditDrawer";
 
@@ -59,13 +63,14 @@ export function ActivityRow({
           )}
         </td>
       </tr>
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <EditDrawer
           row={row}
           onClose={() => setOpen(false)}
           salesPeople={salesPeople}
           canDelete={canEdit}
-        />
+        />,
+        document.body,
       )}
     </>
   );

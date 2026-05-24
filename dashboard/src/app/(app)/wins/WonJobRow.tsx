@@ -1,8 +1,13 @@
 "use client";
 
 // One won_jobs row in the table with inline edit button + drawer.
+//
+// The drawer renders a full-viewport <div> overlay. HTML forbids <div>
+// children of <tbody>, so we portal it to document.body to keep the DOM
+// tree valid and avoid React hydration warnings.
 
 import { useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
 import { advanceStage, type Stage } from "./actions";
@@ -102,14 +107,15 @@ export function WonJobRow({
           </div>
         </td>
       </tr>
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <EditWonJobDrawer
           row={row}
           onClose={() => setOpen(false)}
           companies={companies}
           salesPeople={salesPeople}
           canDelete={canEdit}
-        />
+        />,
+        document.body,
       )}
     </>
   );
