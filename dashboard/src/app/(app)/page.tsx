@@ -14,7 +14,8 @@ import {
   quotieByExec,
   quotieOurSlice,
 } from "@/lib/quotie";
-import type { Period } from "@/lib/dates";
+import type { Period, PeriodRange } from "@/lib/dates";
+import { shortDate } from "@/lib/dates";
 import { EVENT_LABELS, formatCurrency, relativeTime, sumQuoteValues } from "@/lib/format";
 import { BarChart, HBars } from "@/components/BarChart";
 import { Heatmap } from "@/components/Heatmap";
@@ -316,8 +317,12 @@ export default async function OverviewPage({
 
       {/* Per-client table */}
       <section>
-        <SectionHeader title="By client" hint="Tap a row for the full drill-down" />
+        <SectionHeader
+          title="By client"
+          hint={`${range.label} (${shortDate(range.start)} → ${shortDate(range.end)}) · vs ${range.prevLabel} (${shortDate(range.prevStart)} → ${shortDate(range.prevEnd)}) · tap a row to drill down`}
+        />
         <MetricTable
+          range={range}
           rows={perClient.map(c => ({
             key: c.id,
             href: `/companies/${c.slug}`,
@@ -335,8 +340,12 @@ export default async function OverviewPage({
 
       {/* Per-exec table */}
       <section>
-        <SectionHeader title="By exec" hint="Roster only — owners and one-offs excluded" />
+        <SectionHeader
+          title="By exec"
+          hint={`${range.label} (${shortDate(range.start)} → ${shortDate(range.end)}) · vs ${range.prevLabel} (${shortDate(range.prevStart)} → ${shortDate(range.prevEnd)}) · roster only — owners and one-offs excluded`}
+        />
         <MetricTable
+          range={range}
           rows={perExec.map(e => ({
             key: e.name,
             href: `/execs/${encodeURIComponent(e.name)}`,
@@ -627,30 +636,41 @@ type MetricRow = {
   lastActivityAt?: string | null;
 };
 
-function MetricTable({ rows, execStyle = false }: { rows: MetricRow[]; execStyle?: boolean }) {
+function MetricTable({
+  rows,
+  range,
+  execStyle = false,
+}: {
+  rows: MetricRow[];
+  range: PeriodRange;
+  execStyle?: boolean;
+}) {
   if (rows.length === 0) {
     return (
       <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-10 text-center text-sm text-zinc-500">
-        Nothing in this period.
+        Nothing in {range.label.toLowerCase()}.
       </div>
     );
   }
+  // Compact period strings reused in column headers + sub-labels.
+  const periodLabel = range.label.toLowerCase();        // "this week"
+  const prevLabel   = range.prevLabel.toLowerCase();    // "last week"
   return (
     <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800">
       <table className="w-full text-sm">
         <thead className="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
           <tr>
             <th className="px-4 py-2 text-left font-normal">{execStyle ? "Exec" : "Client"}</th>
-            <th className="px-3 py-2 text-right font-normal">Revenue</th>
-            {!execStyle && <th className="px-3 py-2 text-right font-normal">Pipeline</th>}
-            <th className="px-3 py-2 text-right font-normal">Wins</th>
-            <th className="px-3 py-2 text-right font-normal">Quotes</th>
-            <th className="px-3 py-2 text-right font-normal">People&nbsp;Qd</th>
-            <th className="px-3 py-2 text-right font-normal">Calls</th>
-            <th className="px-3 py-2 text-right font-normal">Visits</th>
-            <th className="px-3 py-2 text-right font-normal">Close%</th>
-            <th className="px-3 py-2 text-right font-normal">Avg deal</th>
-            {!execStyle && <th className="px-4 py-2 text-right font-normal">Last seen</th>}
+            <PeriodHeader label="Revenue" period={periodLabel} />
+            {!execStyle && <PeriodHeader label="Open quotes" period="last 180d" />}
+            <PeriodHeader label="Wins" period={periodLabel} />
+            <PeriodHeader label="Quotes" period={periodLabel} />
+            <PeriodHeader label="People Qd" period={periodLabel} />
+            <PeriodHeader label="Calls" period={periodLabel} />
+            <PeriodHeader label="Visits" period={periodLabel} />
+            <PeriodHeader label="Close%" period={periodLabel} />
+            <PeriodHeader label="Avg deal" period={periodLabel} />
+            {!execStyle && <th className="px-4 py-2 text-right font-normal">Last activity</th>}
           </tr>
         </thead>
         <tbody>
@@ -662,29 +682,32 @@ function MetricTable({ rows, execStyle = false }: { rows: MetricRow[]; execStyle
                 </Link>
                 {r.secondary && <div className="text-[10px] text-zinc-500 truncate">{r.secondary}</div>}
               </td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-emerald-400">
-                {r.current.revenue > 0 ? formatCurrency(r.current.revenue) : "—"}
-                {r.previous.revenue > 0 && (
-                  <div className="text-[10px] text-zinc-600">prev {formatCurrency(r.previous.revenue)}</div>
-                )}
-              </td>
+              <CurrencyCell
+                current={r.current.revenue}
+                previous={r.previous.revenue}
+                prevLabel={prevLabel}
+                accent="emerald"
+              />
               {!execStyle && (
                 <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">
-                  {r.current.pipeline > 0 ? formatCurrency(r.current.pipeline) : "—"}
-                  {r.current.pipelineCount > 0 && (
-                    <div className="text-[10px] text-zinc-600">{r.current.pipelineCount} open</div>
-                  )}
+                  {r.current.pipeline > 0 ? formatCurrency(r.current.pipeline) : "$0"}
+                  <div className="text-[10px] text-zinc-600">
+                    {r.current.pipelineCount} open
+                  </div>
                 </td>
               )}
-              <Cell n={r.current.wins} prev={r.previous.wins} />
-              <Cell n={r.current.quotes} prev={r.previous.quotes} />
-              <Cell n={r.current.peopleQuoted} prev={r.previous.peopleQuoted} />
-              <Cell n={r.current.calls} prev={r.previous.calls} />
-              <Cell n={r.current.visits} prev={r.previous.visits} />
-              <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">{pct(r.current.closeRate)}</td>
+              <NumCell current={r.current.wins} previous={r.previous.wins} prevLabel={prevLabel} />
+              <NumCell current={r.current.quotes} previous={r.previous.quotes} prevLabel={prevLabel} />
+              <NumCell current={r.current.peopleQuoted} previous={r.previous.peopleQuoted} prevLabel={prevLabel} />
+              <NumCell current={r.current.calls} previous={r.previous.calls} prevLabel={prevLabel} />
+              <NumCell current={r.current.visits} previous={r.previous.visits} prevLabel={prevLabel} />
               <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">
-                {r.current.avgDeal > 0 ? formatCurrency(r.current.avgDeal) : "—"}
+                {pct(r.current.closeRate)}
+                {r.previous.closeRate > 0 && (
+                  <div className="text-[10px] text-zinc-600">{prevLabel} {pct(r.previous.closeRate)}</div>
+                )}
               </td>
+              <CurrencyCell current={r.current.avgDeal} previous={r.previous.avgDeal} prevLabel={prevLabel} />
               {!execStyle && (
                 <td className="px-4 py-2.5 text-right text-xs">
                   <div className={r.stale ? "text-amber-400" : "text-zinc-500"}>
@@ -700,11 +723,48 @@ function MetricTable({ rows, execStyle = false }: { rows: MetricRow[]; execStyle
   );
 }
 
-function Cell({ n, prev }: { n: number; prev: number }) {
+/**
+ * A two-line column header: bold metric name + small period qualifier so
+ * every column makes its time-window explicit at a glance.
+ */
+function PeriodHeader({ label, period }: { label: string; period: string }) {
+  return (
+    <th className="px-3 py-2 text-right font-normal align-bottom">
+      <div>{label}</div>
+      <div className="mt-0.5 text-[9px] font-normal lowercase tracking-normal text-zinc-600">{period}</div>
+    </th>
+  );
+}
+
+function NumCell({ current, previous, prevLabel }: { current: number; previous: number; prevLabel: string }) {
+  // Show explicit "0" rather than "—" when prev had data, so you can see
+  // the comparison is "0 now vs N then" not "value unknown".
+  const showZero = current === 0 && previous > 0;
   return (
     <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">
-      {n || "—"}
-      {prev > 0 && <div className="text-[10px] text-zinc-600">prev {prev}</div>}
+      {current > 0 ? current : (showZero ? <span className="text-zinc-500">0</span> : "—")}
+      {previous > 0 && <div className="text-[10px] text-zinc-600">{prevLabel} {previous}</div>}
+    </td>
+  );
+}
+
+function CurrencyCell({
+  current,
+  previous,
+  prevLabel,
+  accent,
+}: {
+  current: number;
+  previous: number;
+  prevLabel: string;
+  accent?: "emerald";
+}) {
+  const showZero = current === 0 && previous > 0;
+  const colour = accent === "emerald" ? "text-emerald-400" : "text-zinc-300";
+  return (
+    <td className={`px-3 py-2.5 text-right tabular-nums ${colour}`}>
+      {current > 0 ? formatCurrency(current) : (showZero ? <span className="text-zinc-500">$0</span> : "—")}
+      {previous > 0 && <div className="text-[10px] text-zinc-600">{prevLabel} {formatCurrency(previous)}</div>}
     </td>
   );
 }
