@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getViewer, requireAdmin } from "@/lib/viewer";
+import { getViewer, requireRosterOrAdmin } from "@/lib/viewer";
 import { loadExecSummaries } from "@/lib/analytics";
 import { formatCurrency, relativeTime } from "@/lib/format";
 
@@ -12,7 +12,7 @@ export default async function ExecsPage({
   searchParams: Promise<{ days?: string }>;
 }) {
   const viewer = await getViewer();
-  requireAdmin(viewer);
+  requireRosterOrAdmin(viewer);
 
   const params = await searchParams;
   const days = Math.min(365, Math.max(1, parseInt(params.days || "30", 10)));

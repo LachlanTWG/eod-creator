@@ -8,10 +8,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ? `/execs/${encodeURIComponent(viewer.salesPersonName)}`
     : "/";
 
+  // Roster execs (Zac, Buzz, etc.) can see the /execs leaderboard now,
+  // so the link gates on isAdmin OR salesPersonName rather than admin only.
+  const showExecsNav = viewer.isAdmin || !!viewer.salesPersonName;
+
   const navItems: NavItem[] = [];
   if (viewer.salesPersonName) navItems.push({ href: myHref,        label: "My dashboard",                                  icon: "me" });
   if (showAdminNav)           navItems.push({ href: "/",           label: "Overview",                                      icon: "overview" });
-  if (showAdminNav)           navItems.push({ href: "/execs",      label: "Execs",                                         icon: "execs" });
+  if (showExecsNav)           navItems.push({ href: "/execs",      label: "Execs",                                         icon: "execs" });
                               navItems.push({ href: "/reports",    label: "Reports",                                       icon: "reports" });
                               navItems.push({ href: "/activities", label: "Activities",                                    icon: "activities" });
                               navItems.push({ href: "/wins",       label: "Wins pipeline",                                 icon: "wins" });

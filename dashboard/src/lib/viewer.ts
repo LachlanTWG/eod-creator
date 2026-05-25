@@ -56,12 +56,24 @@ export function requireAdmin(viewer: Viewer): void {
 }
 
 /**
- * For pages parameterised by a sales-person name. Admin can view any;
- * execs can only view their own.
+ * Allow admins and roster execs through (used for peer-visible surfaces
+ * like the /execs leaderboard). Pure-admin users with no exec link still
+ * pass via isAdmin.
  */
-export function gateExecName(viewer: Viewer, requestedName: string): void {
+export function requireRosterOrAdmin(viewer: Viewer): void {
   if (viewer.isAdmin) return;
-  if (viewer.salesPersonName && viewer.salesPersonName.toLowerCase() === requestedName.toLowerCase()) return;
+  if (viewer.salesPersonName) return;
+  redirect("/me");
+}
+
+/**
+ * For pages parameterised by a sales-person name. Admin can view any;
+ * roster execs can view each other (peer visibility). Non-execs land
+ * on /me.
+ */
+export function gateExecName(viewer: Viewer, _requestedName: string): void {
+  if (viewer.isAdmin) return;
+  if (viewer.salesPersonName) return;
   redirect("/me");
 }
 
