@@ -28,6 +28,23 @@ const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
 
+// ─── Sales-person name canonicalisation ──────────────────────────────
+// Different sources name our execs differently:
+//   - GHL/Make: usually short ("Lachlan", "Buzz", "Zac")
+//   - Quotie:   full name ("Lachlan Boys", "Buzz Brady", "Zac Russell")
+// Our sales_people roster uses short names, so without this map the DB
+// lookup misses and the row lands with sales_person_id = NULL.
+const PERSON_NAME_CANONICAL = {
+  'lachlan boys': 'Lachlan',
+  'buzz brady':   'Buzz',
+  'zac russell':  'Zac',
+};
+function canonicalisePersonName(name) {
+  if (!name) return name;
+  const key = String(name).trim().toLowerCase();
+  return PERSON_NAME_CANONICAL[key] || name;
+}
+
 // ─── Per-Company Timezone Scheduling ─────────────────────────────────
 //
 // Each company has its own timezone. We schedule cron jobs per-company
@@ -609,6 +626,10 @@ const server = http.createServer(async (req, res) => {
 
   // Quote Sent — from Make.com / Quotie
   if (pathname === '/webhook/quote') {
+    // Quotie sends full names ("Lachlan Boys") but our sales_people roster
+    // uses short names ("Lachlan"). Without canonicalising, sales_person_id
+    // resolves to NULL — the row never attributes to a roster exec.
+    body.salesPerson = canonicalisePersonName(body.salesPerson);
     // Expected JSON from Make.com HTTP module:
     // { companyName, salesPerson, contactName, quoteValue, contactAddress, contactId, source }
     const { companies } = loadCompanies();
@@ -652,6 +673,7 @@ const server = http.createServer(async (req, res) => {
   // Email Sent — from Make.com (Gmail / Outlook watch)
   if (pathname === '/webhook/email') {
     console.log(`[EMAIL] Raw body:`, JSON.stringify(body));
+    body.salesPerson = canonicalisePersonName(body.salesPerson);
     const { companies } = loadCompanies();
     const company = companies.find(c =>
       c.name.toLowerCase() === (body.companyName || '').toLowerCase()
