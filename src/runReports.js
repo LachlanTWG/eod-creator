@@ -11,7 +11,7 @@ const { generateEOQ } = require('./reporting/generateEOQ');
 const { archiveQuarterly } = require('./reporting/archiveQuarterly');
 const { generateEOY } = require('./reporting/generateEOY');
 const { archiveYearly } = require('./reporting/archiveYearly');
-const { generateMeetingDoc } = require('./reporting/generateMeetingDoc');
+const { generateMeetingDoc, generateMonthlyDoc } = require('./reporting/generateMeetingDoc');
 const { sendReportToSlack } = require('./integrations/slack');
 const { sendReportToClickUp, createMeetingDocPage } = require('./integrations/clickup');
 
@@ -694,6 +694,35 @@ async function runMeetingDoc(startDate, endDate) {
   return { title, content };
 }
 
+async function runMonthlyDoc(year, month) {
+  const today = todayInTz('Australia/Sydney');
+  const y = year || parseInt(today.split('-')[0]);
+  const todayDay = parseInt(today.split('-')[2]);
+  // No month specified + early in the month → report the month that just ended.
+  const m = month || (todayDay <= 3 ? (parseInt(today.split('-')[1]) - 1 || 12) : parseInt(today.split('-')[1]));
+  const actualYear = (!month && todayDay <= 3 && m === 12) ? y - 1 : y;
+
+  console.log(`\n=== Generating Monthly Review — ${actualYear}-${String(m).padStart(2, '0')} ===\n`);
+
+  const { title, content } = await generateMonthlyDoc(actualYear, m);
+  console.log(content);
+
+  // Create as a page in the ClickUp meeting doc (under the right quarter).
+  const mm = String(m).padStart(2, '0');
+  const lastDay = new Date(Date.UTC(actualYear, m, 0)).getUTCDate();
+  const monthEndStr = `${actualYear}-${mm}-${String(lastDay).padStart(2, '0')}`;
+  try {
+    const page = await createMeetingDocPage(title, content, monthEndStr);
+    if (page) {
+      console.log(`\nCreated monthly review page in ClickUp: ${page.id || 'done'}`);
+    }
+  } catch (err) {
+    console.error(`ClickUp doc creation error: ${err.message}`);
+  }
+
+  return { title, content };
+}
+
 // CLI support
 if (require.main === module) {
   const args = process.argv.slice(2);
@@ -708,6 +737,7 @@ if (require.main === module) {
     eoy: () => runAllEOY(getArg('--year') ? parseInt(getArg('--year')) : null),
     'site-visits': () => runAllSiteVisitNotifications(),
     meeting: () => runMeetingDoc(getArg('--start'), getArg('--end')),
+    monthly: () => runMonthlyDoc(getArg('--year') ? parseInt(getArg('--year')) : null, getArg('--month') ? parseInt(getArg('--month')) : null),
   };
 
   if (!command || !commands[command]) {
@@ -722,6 +752,7 @@ Commands:
   eoy          Run EOY for all companies    [--year YYYY]
   site-visits  Send daily site visit notifications
   meeting      Generate weekly meeting doc  [--start YYYY-MM-DD --end YYYY-MM-DD]
+  monthly      Generate monthly review doc  [--year YYYY --month M]
 `);
     process.exit(0);
   }
@@ -737,6 +768,6 @@ module.exports = {
   sendCompanyEOW, archiveCompanyEOW,
   runCompanyEOM, runCompanyEOQ, runCompanyEOY,
   sendSiteVisitNotification,
-  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runAllSiteVisitNotifications, runMeetingDoc,
+  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runAllSiteVisitNotifications, runMeetingDoc, runMonthlyDoc,
   loadCompanies,
 };

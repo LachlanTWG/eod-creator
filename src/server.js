@@ -7,7 +7,7 @@ const {
   sendCompanyEOW, archiveCompanyEOW,
   runCompanyEOM, runCompanyEOQ, runCompanyEOY,
   sendSiteVisitNotification,
-  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runAllSiteVisitNotifications, runMeetingDoc,
+  runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runAllSiteVisitNotifications, runMeetingDoc, runMonthlyDoc,
   loadCompanies,
 } = require('./runReports');
 const { logActivity } = require('./sheets/logActivity');
@@ -201,6 +201,15 @@ function scheduleMeetingDoc() {
     runMeetingDoc().catch(e => console.error('Meeting doc error:', e.message));
   }, { timezone: 'Australia/Sydney' }));
   console.log(`  Meeting Doc: Friday 6pm AEST`);
+}
+
+// Monthly Review Doc — 1st of month, 12pm AEST (after per-company EOM at ~11am AEST)
+function scheduleMonthlyDoc() {
+  scheduledJobs.push(cron.schedule('0 12 1 * *', () => {
+    console.log(`[${new Date().toISOString()}] MONTHLY REVIEW DOC`);
+    runMonthlyDoc().catch(e => console.error('Monthly doc error:', e.message));
+  }, { timezone: 'Australia/Sydney' }));
+  console.log(`  Monthly Review Doc: 12pm 1st of month AEST`);
 }
 
 // ─── Webhook Server ──────────────────────────────────────────────────
@@ -793,6 +802,7 @@ const server = http.createServer(async (req, res) => {
     '/webhook/eoq': () => runAllEOQ(body.year, body.quarter),
     '/webhook/eoy': () => runAllEOY(body.year),
     '/webhook/meeting': () => runMeetingDoc(body.startDate, body.endDate),
+    '/webhook/monthly': () => runMonthlyDoc(body.year, body.month),
   };
 
   if (endpoints[pathname]) {
@@ -857,6 +867,7 @@ const server = http.createServer(async (req, res) => {
         'EOQ': '1st of Jan/Apr/Jul/Oct, 9am local',
         'EOY': 'Jan 2, 9am local',
         'Meeting Doc': 'Friday 6pm AEST',
+        'Monthly Review Doc': '12pm 1st of month AEST',
       },
     }));
     return;
@@ -873,6 +884,7 @@ function start() {
 
   scheduleCompanyJobs();
   scheduleMeetingDoc();
+  scheduleMonthlyDoc();
   scheduleSummaryArchive();
 
   console.log(`\nTotal cron jobs: ${scheduledJobs.length}`);
@@ -886,6 +898,7 @@ function start() {
     console.log(`  POST /webhook/eoq                          — All companies`);
     console.log(`  POST /webhook/eoy                          — All companies`);
     console.log(`  POST /webhook/meeting                      — Meeting doc`);
+    console.log(`  POST /webhook/monthly                      — Monthly review doc`);
     console.log(`  POST /webhook/ghl/eod                      — GHL EOD Update`);
     console.log(`  POST /webhook/ghl/job-won                  — GHL Job Won`);
     console.log(`  POST /webhook/ghl/site-visit               — GHL Site Visit Booked`);

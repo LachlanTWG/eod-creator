@@ -779,4 +779,276 @@ async function generateMeetingDoc(startDate, endDate) {
   return { title, content };
 }
 
-module.exports = { generateMeetingDoc };
+// ─── Monthly Review Doc ─────────────────────────────────────────────
+// A once-a-month consolidated review for the whole calendar month, in the
+// same look as the weekly meeting doc but with month-appropriate sections
+// (weekly breakdown instead of a daily table; calendar-month totals).
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+
+function getMonthRange(year, month) {
+  const mm = String(month).padStart(2, '0');
+  const start = `${year}-${mm}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const end = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
+  return { start, end };
+}
+
+function getAllDates(startDate, endDate) {
+  const dates = [];
+  const d = new Date(startDate + 'T12:00:00Z');
+  const end = new Date(endDate + 'T12:00:00Z');
+  while (d <= end) {
+    dates.push(d.toISOString().split('T')[0]);
+    d.setDate(d.getDate() + 1);
+  }
+  return dates;
+}
+
+/**
+ * Read Team Weekly storage and return the weeks that begin within the month,
+ * chronological. Used for the in-month weekly breakdown table.
+ */
+async function getMonthlyWeeks(company, monthStart, monthEnd) {
+  let rows;
+  try {
+    rows = await readTab(company.sheetId, 'Team Weekly');
+  } catch {
+    return null;
+  }
+  if (rows.length < 2) return null;
+
+  const headers = rows[0];
+  const weeks = [];
+  for (const row of rows.slice(1)) {
+    const weekStart = (row[0] || '').trim();
+    if (!weekStart || weekStart < monthStart || weekStart > monthEnd) continue;
+    const obj = {};
+    headers.forEach((h, i) => {
+      const val = row[i] || '';
+      const num = parseFloat(val);
+      if (!isNaN(num)) obj[h] = num;
+      else if (obj[h] === undefined) obj[h] = val;
+    });
+    obj._weekStart = weekStart;
+    weeks.push(obj);
+  }
+  weeks.sort((a, b) => a._weekStart.localeCompare(b._weekStart));
+  return weeks;
+}
+
+function buildMonthlyWeekTable(weeks, companyType, totalFieldLabel) {
+  if (!weeks || weeks.length === 0) return '_No weekly storage data for this month._';
+
+  const weekHeaders = weeks.map(w => formatShortDate(w._weekStart));
+  const lines = [];
+  lines.push(`| Metric | ${weekHeaders.join(' | ')} |`);
+  lines.push(`|---|${weekHeaders.map(() => '---').join('|')}|`);
+
+  const totalKey = totalFieldLabel === 'Calls' ? 'Total Calls' : 'Total Contact Attempts';
+  const tradeMetrics = [
+    { label: '📞 ' + totalFieldLabel, key: totalKey },
+    { label: '📱 Answered', key: 'Answered' },
+    { label: '🌱 New Leads', key: 'New Leads' },
+    { label: '📤 Contacts Quoted', key: 'Quote Sent' },
+    { label: '🚙 Site Visits', key: 'Site Visit Booked' },
+    { label: '🏆 Jobs Won', key: 'Job Won' },
+    { label: '💰 Revenue', key: 'Total Revenue', dollar: true },
+  ];
+  const agencyMetrics = [
+    { label: '📞 ' + totalFieldLabel, key: totalKey },
+    { label: '📱 Answered', key: 'Answered' },
+    { label: '🌱 New Leads', key: 'New Leads' },
+    { label: '🗺️ Roadmaps Booked', key: 'Roadmap Booked' },
+    { label: '🏆 Deals Closed', key: 'Deal Closed' },
+  ];
+  const metrics = companyType === 'trade' ? tradeMetrics : agencyMetrics;
+
+  for (const m of metrics) {
+    const vals = weeks.map(w => {
+      const v = w[m.key] || 0;
+      return m.dollar ? formatDollar(v) : Math.round(v);
+    });
+    lines.push(`| ${m.label} | ${vals.join(' | ')} |`);
+  }
+  return lines.join('\n');
+}
+
+async function generateMonthlyDoc(year, month) {
+  const { companies } = loadCompanies();
+  const activeCompanies = companies.filter(c => c.sheetId);
+  const { start, end } = getMonthRange(year, month);
+  const monthDates = getAllDates(start, end);
+  const allPeople = getAllActivePeople(activeCompanies);
+  const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`;
+
+  const companyData = [];
+  for (const company of activeCompanies) {
+    try {
+      const data = await getCompanyData(company, monthDates);
+      const weeks = await getMonthlyWeeks(company, start, end);
+      const conversions = data ? calc90DayConversions(data.activities, company.name) : null;
+      companyData.push({ company, data, weeks, conversions });
+    } catch (err) {
+      companyData.push({ company, data: null, weeks: null, conversions: null, error: err.message });
+    }
+  }
+
+  const lines = [];
+
+  // ═══ HEADER ═══
+  lines.push(`# 📅 Monthly Sales Review — ${monthLabel}`);
+  lines.push('');
+  lines.push(`**Participants:** ${allPeople.map(name => mention(name)).join(' ')}`);
+  lines.push('');
+  lines.push('* * *');
+  lines.push('');
+
+  // ═══ PORTFOLIO SNAPSHOT ═══
+  let grandCalls = 0, grandAnswered = 0, grandQuotes = 0;
+  let grandPipeline = 0, grandSiteVisits = 0, grandJobs = 0, grandRevenue = 0;
+  let grandRoadmaps = 0, grandDeals = 0;
+  for (const { data } of companyData) {
+    if (!data) continue;
+    const totalField = data.totalField;
+    grandCalls += (data.teamWeekly[totalField] || 0);
+    grandAnswered += (data.teamWeekly['Answered'] || 0);
+    grandQuotes += (data.teamWeekly['Quote Sent'] || 0);
+    grandPipeline += (data.teamWeekly['Pipeline Value'] || 0);
+    grandSiteVisits += (data.teamWeekly['Site Visit Booked'] || 0);
+    grandJobs += (data.teamWeekly['Job Won'] || 0);
+    grandRevenue += (data.teamWeekly._jobValue || 0);
+    grandRoadmaps += (data.teamWeekly['Roadmap Booked'] || 0);
+    grandDeals += (data.teamWeekly['Deal Closed'] || 0);
+  }
+  const grandPickUp = grandCalls > 0 ? ((grandAnswered / grandCalls) * 100).toFixed(1) : '0';
+  const activeClientCount = companyData.filter(d => d.data && (d.data.teamWeekly[d.data.totalField] || 0) > 0).length;
+
+  lines.push(`## 🏆 Portfolio Snapshot — ${monthLabel}`);
+  lines.push(`_${formatLongDate(start)} — ${formatLongDate(end)}_`);
+  lines.push('');
+  lines.push('| Metric | Value |');
+  lines.push('| ---| --- |');
+  lines.push(`| 🏢 Active Clients | ${activeClientCount} |`);
+  lines.push(`| 📞 Total Contacts | ${grandCalls} |`);
+  lines.push(`| 📱 Total Answered | ${grandAnswered} (${grandPickUp}%) |`);
+  if (grandQuotes > 0) lines.push(`| 📤 Total Quotes | ${grandQuotes} |`);
+  if (grandPipeline > 0) lines.push(`| 📈 Total Pipeline | ${formatDollar(grandPipeline)} |`);
+  if (grandSiteVisits > 0) lines.push(`| 🚙 Total Site Visits | ${grandSiteVisits} |`);
+  if (grandJobs > 0) lines.push(`| 🏆 Total Jobs Won | ${grandJobs} |`);
+  if (grandRevenue > 0) lines.push(`| 💰 Total Revenue | ${formatDollar(grandRevenue)} |`);
+  if (grandRoadmaps > 0) lines.push(`| 🗺️ Total Roadmaps | ${grandRoadmaps} |`);
+  if (grandDeals > 0) lines.push(`| 🤝 Total Deals Closed | ${grandDeals} |`);
+  lines.push('');
+  lines.push('* * *');
+  lines.push('');
+
+  // ═══ PER-COMPANY DEEP DIVE ═══
+  lines.push('## 📈 Client Performance Deep Dive');
+  lines.push('');
+
+  for (const { company, data, weeks, conversions, error } of companyData) {
+    const meta = COMPANY_META[company.name] || { industry: '', location: '' };
+    const totalField = data ? data.totalField : 'Total Calls';
+    const totalActivity = data ? (data.teamWeekly[totalField] || 0) : 0;
+
+    if (error || !data || totalActivity === 0) {
+      lines.push(`### 🏢 ${company.name} — ${meta.industry} | ${meta.location}`);
+      lines.push('_No activity this month._');
+      lines.push('');
+      lines.push('* * *');
+      lines.push('');
+      continue;
+    }
+
+    const companyType = data.companyType;
+    const totalLabel = totalField === 'Total Calls' ? 'Calls' : 'Contacts';
+
+    lines.push(`### 🏢 ${company.name} — ${meta.industry} | ${meta.location}`);
+    lines.push('');
+
+    // ── Weekly Breakdown ──
+    lines.push(`**📊 Weekly Breakdown — ${monthLabel}**`);
+    lines.push('');
+    lines.push(buildMonthlyWeekTable(weeks, companyType, totalLabel));
+    lines.push('');
+
+    // ── 90-Day Conversion Funnel ──
+    lines.push('**🔄 90-Day Conversion Funnel**');
+    lines.push('');
+    lines.push(build90DayConversions(conversions));
+    lines.push('');
+
+    // ── Per-Person Monthly Metrics ──
+    for (const person of data.people) {
+      const w = data.weeklyStats[person];
+      lines.push(`**${person}**`);
+      lines.push('');
+      lines.push(buildPersonMetrics(person, w, companyType));
+      lines.push('');
+
+      const attrition = buildAttritionLine(w, company.name);
+      if (attrition) {
+        lines.push(attrition);
+        lines.push('');
+      }
+
+      lines.push(`**Sources:** ${formatSources(w._sources)}`);
+      lines.push('');
+    }
+
+    // ── Jobs Won Details (month) ──
+    if (data.jobDetailsByPerson) {
+      const allJobs = [];
+      for (const person of data.people) {
+        for (const job of (data.jobDetailsByPerson[person] || [])) {
+          allJobs.push({ ...job, salesPerson: person });
+        }
+      }
+      if (allJobs.length > 0) {
+        const totalRevenue = allJobs.reduce((sum, j) => sum + (j.value || 0), 0);
+        lines.push(`**🏆 Jobs Won — ${allJobs.length} | ${formatDollar(totalRevenue)}**`);
+        lines.push('');
+        lines.push('| Contact | Address | Value | Source | Sales Exec |');
+        lines.push('|---|---|---|---|---|');
+        for (const j of allJobs) {
+          const addr = (j.address || '-').replace(/[\n\r]+/g, ', ');
+          lines.push(`| ${j.contactName || '-'} | ${addr} | ${formatDollar(j.value || 0)} | ${j.source || '-'} | ${j.salesPerson} |`);
+        }
+        lines.push('');
+      }
+    }
+
+    // ── Combined Monthly Totals ──
+    const t = data.teamWeekly;
+    lines.push(`**🏁 ${data.company} — ${monthLabel} Total**`);
+    lines.push('');
+    lines.push(`| Metric | Value |`);
+    lines.push(`| ---| --- |`);
+    lines.push(`| 📞 ${totalLabel} | ${totalActivity} |`);
+    lines.push(`| 📱 Answered / No Answer | ${t['Answered'] || 0} / ${t["Didn't Answer"] || 0} |`);
+    lines.push(`| ⚡ Pick Up Rate | ${data.rates.pickUp}% |`);
+    if (companyType === 'trade') {
+      lines.push(`| 📤 Contacts Quoted | ${t['Quote Sent'] || 0} |`);
+      lines.push(`| 📄 Individual Quotes | ${t['Total Individual Quotes'] || 0} |`);
+      lines.push(`| 📈 Pipeline Value | ${formatDollar(t['Pipeline Value'] || 0)} |`);
+      lines.push(`| 🚙 Site Visits | ${t['Site Visit Booked'] || 0} |`);
+      lines.push(`| 🏆 Jobs Won | ${t['Job Won'] || 0} |`);
+      lines.push(`| 💰 Revenue | ${formatDollar(t._jobValue || 0)} |`);
+    } else {
+      lines.push(`| 🗺️ Roadmaps Booked | ${t['Roadmap Booked'] || 0} |`);
+      lines.push(`| 📋 Roadmaps Proposed | ${t['Roadmap Proposed'] || 0} |`);
+      lines.push(`| 🏆 Deals Closed | ${t['Deal Closed'] || 0} |`);
+    }
+    lines.push('');
+    lines.push('* * *');
+    lines.push('');
+  }
+
+  const title = `Month of ${monthLabel}`;
+  const content = lines.join('\n');
+  return { title, content };
+}
+
+module.exports = { generateMeetingDoc, generateMonthlyDoc };
