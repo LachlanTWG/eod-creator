@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "@/lib/viewer";
 import { listCompanies } from "@/lib/queries";
 import { ActivityRow } from "./ActivityRow";
+import { AddActivityButton } from "./AddActivityButton";
 import { Filters } from "./Filters";
 import { addDaysIso } from "@/lib/dates";
 import { todayInTz, SYDNEY_TZ } from "@/lib/format";
@@ -88,6 +89,12 @@ export default async function ActivitiesPage({
   const companyById = new Map(companies.map(c => [c.id, c.name]));
   const totalPages = Math.max(1, Math.ceil((count || 0) / PAGE_SIZE));
 
+  // Clients the viewer may add activities to: admins → all; execs → own roster.
+  const addableCompanies = (viewer.isAdmin
+    ? companies
+    : companies.filter(c => viewer.companyIds.includes(c.id))
+  ).map(c => ({ id: c.id, name: c.name }));
+
   return (
     <div className="px-6 py-6 lg:px-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -97,8 +104,17 @@ export default async function ActivitiesPage({
             {viewer.isAdmin ? "All activity rows across every active client." : "Your activity rows."} Edit or delete to correct mistakes; changes are saved directly to the database.
           </p>
         </div>
-        <div className="text-xs text-zinc-500">
-          {count?.toLocaleString() ?? 0} match{count === 1 ? "" : "es"}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-zinc-500">
+            {count?.toLocaleString() ?? 0} match{count === 1 ? "" : "es"}
+          </span>
+          <AddActivityButton
+            companies={addableCompanies}
+            salesPeople={salesPeople}
+            isAdmin={viewer.isAdmin}
+            mySalesPersonIds={[...mySalesPersonIds]}
+            defaultDate={today}
+          />
         </div>
       </header>
 

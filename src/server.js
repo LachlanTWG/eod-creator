@@ -10,7 +10,7 @@ const {
   runAllEOD, runAllEOW, runAllEOM, runAllEOQ, runAllEOY, runAllSiteVisitNotifications, runMeetingDoc, runMonthlyDoc,
   loadCompanies,
 } = require('./runReports');
-const { logActivity } = require('./sheets/logActivity');
+const { logActivity, logActivities } = require('./sheets/logActivity');
 const { appendRows } = require('./sheets/writeSheet');
 const { populateAllFormulas } = require('./sheets/populateFormulas');
 const {
@@ -38,6 +38,7 @@ const PERSON_NAME_CANONICAL = {
   'lachlan boys': 'Lachlan',
   'buzz brady':   'Buzz',
   'zac russell':  'Zac',
+  'benji boys':   'Benji',
 };
 function canonicalisePersonName(name) {
   if (!name) return name;
@@ -390,6 +391,69 @@ const server = http.createServer(async (req, res) => {
     console.log(JSON.stringify(body, null, 2));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'received', endpoint: pathname, keys: Object.keys(body) }));
+    return;
+  }
+
+  // ─── Manual activity entry (from the dashboard) ────────────────────
+  // POST /api/activities/manual
+  // Body: { companyName, activities: [ { date, salesPerson, eventType,
+  //         contactName, outcome, adSource, quoteJobValue, contactAddress,
+  //         contactId, appointmentDateTime, appointmentDate } ] }
+  //
+  // Routes hand-entered activities through the SAME dual-write funnel as the
+  // webhooks (logActivities → Activity Log sheet + Postgres), tagged
+  // source:'manual'. The dashboard server action authorises the exec against
+  // their roster before calling; this endpoint is protected by WEBHOOK_SECRET
+  // (the global auth gate above) and trusts that caller.
+  if (pathname === '/api/activities/manual' && req.method === 'POST') {
+    const { companies } = loadCompanies();
+    const company = companies.find(c =>
+      c.name.toLowerCase() === String(body.companyName || '').toLowerCase()
+    );
+    if (!company) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Company "${body.companyName}" not found` }));
+      return;
+    }
+    const activities = Array.isArray(body.activities) ? body.activities : [];
+    if (activities.length === 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No activities provided' }));
+      return;
+    }
+    const VALID_TYPES = new Set(['EOD Update', 'Quote Sent', 'Job Won', 'Site Visit Booked', 'Email Sent']);
+    for (const a of activities) {
+      if (!a || !/^\d{4}-\d{2}-\d{2}$/.test(String(a.date || ''))) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Each activity needs a valid date (YYYY-MM-DD)' }));
+        return;
+      }
+      if (!VALID_TYPES.has(a.eventType)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Invalid eventType: ${a.eventType}` }));
+        return;
+      }
+    }
+
+    try {
+      await logActivities(company.sheetId, activities, {
+        companyName: company.name, source: 'manual', rawPayload: { via: 'dashboard' },
+      });
+      // Mirror the webhook behaviour: site visits also land on the Site Visits tab.
+      const visits = activities.filter(a => a.eventType === 'Site Visit Booked');
+      if (visits.length > 0) {
+        await appendRows(company.sheetId, 'Site Visits', visits.map(v => [
+          v.contactName || '', v.contactAddress || '', v.appointmentDateTime || '', v.salesPerson || '', '',
+        ]));
+      }
+      console.log(`[MANUAL] ${company.name} — ${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'logged', company: company.name, count: activities.length }));
+    } catch (e) {
+      console.error(`[MANUAL] Error ${company.name}:`, e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
