@@ -58,6 +58,7 @@ export function EditWonJobDrawer({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const [form, setForm] = useState({
     company_id: row.company_id,
@@ -118,7 +119,6 @@ export function EditWonJobDrawer({
   }
 
   function handleDelete() {
-    if (!confirm("Delete this won job? This cannot be undone.")) return;
     setError(null);
     startTransition(async () => {
       const res = await deleteWonJob(row.id);
@@ -221,10 +221,23 @@ export function EditWonJobDrawer({
           <div className="flex items-center justify-between gap-2 border-t border-zinc-800 pt-4">
             <div className="flex gap-2">
               {canDelete && (
-                <button type="button" onClick={handleDelete} disabled={pending}
-                  className="rounded border border-red-900/50 bg-red-950/20 px-3 py-1.5 text-xs text-red-300 hover:border-red-800 hover:bg-red-900/30 disabled:opacity-50">
-                  Delete
-                </button>
+                confirmingDelete ? (
+                  <>
+                    <button type="button" onClick={handleDelete} disabled={pending}
+                      className="rounded border border-red-900/50 bg-red-950/20 px-3 py-1.5 text-xs text-red-300 hover:border-red-800 hover:bg-red-900/30 disabled:opacity-50">
+                      {pending ? "Deleting…" : "Confirm delete"}
+                    </button>
+                    <button type="button" onClick={() => setConfirmingDelete(false)} disabled={pending}
+                      className="rounded border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 disabled:opacity-50">
+                      No
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setConfirmingDelete(true)} disabled={pending}
+                    className="rounded border border-red-900/50 bg-red-950/20 px-3 py-1.5 text-xs text-red-300 hover:border-red-800 hover:bg-red-900/30 disabled:opacity-50">
+                    Delete
+                  </button>
+                )
               )}
               {nextStage && (
                 <button type="button" onClick={handleAdvance} disabled={pending}
