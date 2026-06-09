@@ -424,7 +424,7 @@ function buildMessage(opts: {
     }
   }
 
-  // Notes 📝 — EOD only: custom outcomes (EOD 4) surfaced verbatim at the very
+  // 📝 Notes — EOD only: custom outcomes (EOD 4) surfaced verbatim at the very
   // bottom, one per line as "Contact Name - Custom Outcome". Deduped on name+note.
   if (period === "day" && data.customNotes.length > 0) {
     const seen = new Set<string>();
@@ -437,7 +437,7 @@ function buildMessage(opts: {
       noteLines.push(contactName ? `${contactName} - ${note}` : note);
     }
     if (noteLines.length > 0) {
-      lines.push("Notes 📝");
+      lines.push("📝 Notes");
       lines.push(...noteLines);
       lines.push(separator);
     }

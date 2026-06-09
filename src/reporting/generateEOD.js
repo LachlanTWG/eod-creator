@@ -432,7 +432,7 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
     }
   }
 
-  // Notes 📝 — custom outcomes (EOD 4) surfaced verbatim at the very bottom,
+  // 📝 Notes — custom outcomes (EOD 4) surfaced verbatim at the very bottom,
   // one per line as "Contact Name - Custom Outcome". Deduped on name+note.
   const customNotes = data.customNotes || [];
   if (customNotes.length > 0) {
@@ -446,7 +446,7 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
       noteLines.push(contactName ? `${contactName} - ${note}` : note);
     }
     if (noteLines.length > 0) {
-      lines.push('Notes 📝');
+      lines.push('📝 Notes');
       lines.push(...noteLines);
       lines.push('----------------------------');
     }
