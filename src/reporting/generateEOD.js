@@ -120,6 +120,7 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
   const quoteDetails = []; // { contactName, values: [number] }
   const siteVisits = [];   // { contactName, address, datetime }
   const jobDetails = [];   // { contactName, address, value, source }
+  const customNotes = [];  // { contactName, note } — EOD 4 custom outcomes, surfaced verbatim
 
   for (const activity of filtered) {
     const eventType = activity['Event Type'];
@@ -224,6 +225,11 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
         counts[source]++;
         names[source].push(contactName);
       }
+
+      // Custom Outcome (EOD 4) — captured verbatim, surfaced in the Notes section.
+      if (parsed.notes) {
+        customNotes.push({ contactName, note: parsed.notes });
+      }
     }
   }
 
@@ -256,7 +262,7 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
     counts['Pipeline Value'] = Math.round(pipelineValue);
   }
 
-  return { counts, names, quoteDetails, siteVisits, jobDetails };
+  return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes };
 }
 
 /**
@@ -422,6 +428,26 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
     if (blockLines.length > 0) {
       lines.push(blockName);
       lines.push(...blockLines);
+      lines.push('----------------------------');
+    }
+  }
+
+  // Notes 📝 — custom outcomes (EOD 4) surfaced verbatim at the very bottom,
+  // one per line as "Contact Name - Custom Outcome". Deduped on name+note.
+  const customNotes = data.customNotes || [];
+  if (customNotes.length > 0) {
+    const seen = new Set();
+    const noteLines = [];
+    for (const { contactName, note } of customNotes) {
+      if (!note) continue;
+      const key = `${contactName}||${note}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      noteLines.push(contactName ? `${contactName} - ${note}` : note);
+    }
+    if (noteLines.length > 0) {
+      lines.push('Notes 📝');
+      lines.push(...noteLines);
       lines.push('----------------------------');
     }
   }
