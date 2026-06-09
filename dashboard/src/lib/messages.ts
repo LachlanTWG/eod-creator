@@ -48,6 +48,7 @@ type CountedData = {
   quoteDetails: { contactName: string; values: number[] }[];
   siteVisits: { contactName: string; address: string; datetime: string }[];
   jobDetails: { contactName: string; address: string; value: number; source: string }[];
+  customNotes: { contactName: string; note: string }[]; // EOD 4 custom outcomes, surfaced verbatim
 };
 
 type MessageScope = "personal" | "team";
@@ -123,6 +124,7 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
   const quoteDetails: CountedData["quoteDetails"] = [];
   const siteVisits: CountedData["siteVisits"] = [];
   const jobDetails: CountedData["jobDetails"] = [];
+  const customNotes: CountedData["customNotes"] = [];
 
   for (const a of filtered) {
     const ev = a.event_type;
@@ -210,6 +212,11 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
         counts[source]++;
         names[source].push(contactName);
       }
+
+      // Custom Outcome (EOD 4) — captured verbatim, surfaced in the Notes section.
+      if (p.notes) {
+        customNotes.push({ contactName, note: p.notes });
+      }
     }
   }
 
@@ -229,7 +236,7 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
   }
   if ("Pipeline Value" in counts) counts["Pipeline Value"] = Math.round(pipelineValue);
 
-  return { counts, names, quoteDetails, siteVisits, jobDetails };
+  return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes };
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────
@@ -413,6 +420,25 @@ function buildMessage(opts: {
     if (blockLines.length > 0) {
       lines.push(blockName);
       lines.push(...blockLines);
+      lines.push(separator);
+    }
+  }
+
+  // Notes 📝 — EOD only: custom outcomes (EOD 4) surfaced verbatim at the very
+  // bottom, one per line as "Contact Name - Custom Outcome". Deduped on name+note.
+  if (period === "day" && data.customNotes.length > 0) {
+    const seen = new Set<string>();
+    const noteLines: string[] = [];
+    for (const { contactName, note } of data.customNotes) {
+      if (!note) continue;
+      const key = `${contactName}||${note}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      noteLines.push(contactName ? `${contactName} - ${note}` : note);
+    }
+    if (noteLines.length > 0) {
+      lines.push("Notes 📝");
+      lines.push(...noteLines);
       lines.push(separator);
     }
   }
