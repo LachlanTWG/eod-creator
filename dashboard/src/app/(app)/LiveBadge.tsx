@@ -14,12 +14,19 @@ export function LiveBadge() {
 
   useEffect(() => {
     const supabase = createClient();
+    // Debounce: a burst of inserts (multiple execs logging at once) re-runs
+    // the full server-side overview aggregation on every row otherwise. Coalesce
+    // into a single trailing refresh.
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel("activities-overview")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "activities" },
-        () => router.refresh(),
+        () => {
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => router.refresh(), 2500);
+        },
       )
       .subscribe(status => {
         if (status === "SUBSCRIBED") setStatus("live");
@@ -27,6 +34,7 @@ export function LiveBadge() {
       });
 
     return () => {
+      if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
   }, [router]);

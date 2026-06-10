@@ -107,14 +107,24 @@ async function fetchBreakdown(): Promise<QuotieBreakdown> {
   const key = process.env.QUOTIE_API_KEY;
   if (!url || !key) throw new Error("QUOTIE_API_URL / QUOTIE_API_KEY not set");
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Quotie ${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+  // Bound the cold-path request (cache misses every 5 min) so a slow-but-not-
+  // failing Quotie API can't stall the page indefinitely. The caller already
+  // treats a throw as "no Quotie data" and renders without it.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Quotie ${res.status} ${res.statusText}: ${body.slice(0, 200)}`);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json();
 }
 
 export const loadQuotieBreakdown = unstable_cache(

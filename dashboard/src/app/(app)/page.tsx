@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer, requireAdmin } from "@/lib/viewer";
@@ -46,20 +47,49 @@ export default async function OverviewPage({
   const period: Period = PERIODS.some(p => p.key === requested) ? requested : "week";
 
   const supabase = await createClient();
-  const [data, recent, quotie, execHeatmaps] = await Promise.all([
-    loadOverviewByPeriod(supabase, period),
-    loadRecentActivityFeed(supabase, 15),
-    loadQuotieBreakdown().catch(e => {
-      console.warn("[quotie] fetch failed:", e?.message || e);
-      return null;
-    }),
-    loadAllExecHeatmaps(supabase),
-  ]);
 
-  const quotieSlice = quotie ? quotieOurExecSlice(quotie) : null;
-  const quotieByClientMap = quotie ? quotieByClientExecOnly(quotie) : {};
-  const quotieByExecMap = quotie ? quotieByExec(quotie) : {};
+  // Kick every loader off up-front (they run concurrently), then stream each
+  // region in via <Suspense> as it resolves. The shell + period tabs paint
+  // immediately instead of blocking on the slowest of the four queries (incl.
+  // the external Quotie call). The core waits only on the heavy overview
+  // aggregation; Quotie, exec heatmaps and the recent feed stream in after.
+  const dataP = loadOverviewByPeriod(supabase, period);
+  const quotieP = loadQuotieBreakdown().catch(e => {
+    console.warn("[quotie] fetch failed:", e?.message || e);
+    return null;
+  });
+  const heatmapsP = loadAllExecHeatmaps(supabase);
+  const recentP = loadRecentActivityFeed(supabase, 15);
 
+  return (
+    <Suspense fallback={<OverviewSkeleton period={period} />}>
+      <OverviewCore
+        period={period}
+        dataP={dataP}
+        quotieP={quotieP}
+        heatmapsP={heatmapsP}
+        recentP={recentP}
+      />
+    </Suspense>
+  );
+}
+
+type OverviewData = Awaited<ReturnType<typeof loadOverviewByPeriod>>;
+
+async function OverviewCore({
+  period,
+  dataP,
+  quotieP,
+  heatmapsP,
+  recentP,
+}: {
+  period: Period;
+  dataP: Promise<OverviewData>;
+  quotieP: Promise<Awaited<ReturnType<typeof loadQuotieBreakdown>> | null>;
+  heatmapsP: ReturnType<typeof loadAllExecHeatmaps>;
+  recentP: ReturnType<typeof loadRecentActivityFeed>;
+}) {
+  const data = await dataP;
   const { range, totals, perClient, perExec, trend, wins, sources, outcomes, matrix, heatmap, productivity, valueBuckets } = data;
 
   // Pre-compute matrix cell index for fast lookup in the component
@@ -111,115 +141,12 @@ export default async function OverviewPage({
         <HeroStat label="Emails"      value={totals.current.emails}      current={totals.current.emails}      previous={totals.previous.emails}      currentDays={currentBizDays} previousDays={prevBizDays} />
       </section>
 
-      {/* Quotie band — lifetime totals, filtered to sales-exec-attributed
-          jobs only (via Quotie's lead-owner attribution). Client-added job-
-          management entries with no sales-exec touch are excluded. */}
-      {quotieSlice && (
-        <section>
-          <SectionHeader title="Quotie (lifetime, sales-exec-attributed only)" hint="Direct from quotie.com.au — only jobs where a roster exec owns the lead. Client-added jobs excluded. Updates every 5 min." />
-          <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
-            <HeroStat label="Pipeline $"   value={formatCurrency(quotieSlice.groups.pipeline_value)} sub={`${quotieSlice.groups.pending} open`}                                  accent />
-            <HeroStat label="Quotie Won $" value={formatCurrency(quotieSlice.groups.won_value)}      sub={`${quotieSlice.groups.won} wins`}                                       accent />
-            <HeroStat label="Groups sent"  value={quotieSlice.groups.total_sent}                     sub={`${quotieSlice.groups.sent_this_month} this month`} />
-            <HeroStat label="Quotes sent"  value={quotieSlice.quotes.sent}                           sub={`${quotieSlice.quotes.sent_this_month} this month`} />
-            <HeroStat label="Pending"      value={quotieSlice.groups.pending} />
-            <HeroStat label="Lost"         value={quotieSlice.groups.lost} />
-            <HeroStat label="Expired"      value={quotieSlice.groups.expired} />
-          </div>
-        </section>
-      )}
-
-      {quotie && (
-        <section className="grid gap-6 lg:grid-cols-2">
-          <Panel title="Quotie · by client" hint="Lifetime totals · sales-exec-attributed only">
-            <div className="overflow-hidden rounded border border-zinc-800">
-              <table className="w-full text-xs">
-                <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    <th className="px-3 py-1.5 text-left font-normal">Client</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Pipeline</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Quoties Won</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Pending</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Lost / Exp</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Quotes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {perClient.map(c => {
-                    const q = quotieByClientMap[c.name];
-                    if (!q) {
-                      return (
-                        <tr key={c.id} className="border-t border-zinc-800">
-                          <td className="px-3 py-1.5 font-medium text-zinc-100">{c.name}</td>
-                          <td colSpan={5} className="px-3 py-1.5 text-zinc-600">no Quotie mapping</td>
-                        </tr>
-                      );
-                    }
-                    return (
-                      <tr key={c.id} className="border-t border-zinc-800">
-                        <td className="px-3 py-1.5 font-medium text-zinc-100">{c.name}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">{formatCurrency(q.groups.pipeline_value)}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">
-                          {formatCurrency(q.groups.won_value)}
-                          <div className="text-[9px] text-zinc-500">{q.groups.won} wins</div>
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">{q.groups.pending}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">{q.groups.lost} / {q.groups.expired}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">
-                          {q.quotes.sent}
-                          <div className="text-[9px] text-zinc-500">{q.quotes.sent_this_month} mo</div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-
-          <Panel title="Quotie · by exec" hint="Roster only, summed across all their active clients">
-            <div className="overflow-hidden rounded border border-zinc-800">
-              <table className="w-full text-xs">
-                <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
-                  <tr>
-                    <th className="px-3 py-1.5 text-left font-normal">Exec</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Pipeline</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Quoties Won</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Pending</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Lost / Exp</th>
-                    <th className="px-3 py-1.5 text-right font-normal">Quotes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.values(quotieByExecMap)
-                    .sort((a, b) => b.groups.won_value - a.groups.won_value)
-                    .map(e => (
-                    <tr key={e.ourName} className="border-t border-zinc-800">
-                      <td className="px-3 py-1.5 font-medium">
-                        <Link href={`/execs/${encodeURIComponent(e.ourName)}`} className="text-zinc-100 hover:text-white">
-                          {e.ourName}
-                        </Link>
-                        <div className="text-[9px] text-zinc-500">{e.perCompany.length} clients in Quotie</div>
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">{formatCurrency(e.groups.pipeline_value)}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">
-                        {formatCurrency(e.groups.won_value)}
-                        <div className="text-[9px] text-zinc-500">{e.groups.won} wins</div>
-                      </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">{e.groups.pending}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">{e.groups.lost} / {e.groups.expired}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">
-                        {e.quotes.sent}
-                        <div className="text-[9px] text-zinc-500">{e.quotes.sent_this_month} mo</div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        </section>
-      )}
+      {/* Quotie band + tables — streamed independently (external API, cached
+          5 min). perClient comes from the already-resolved overview data, so
+          this only awaits the Quotie fetch. */}
+      <Suspense fallback={<QuotieSkeleton />}>
+        <QuotieSection quotieP={quotieP} perClient={perClient} />
+      </Suspense>
 
       {/* Trend chart */}
       <section className="grid gap-6 lg:grid-cols-2">
@@ -276,38 +203,10 @@ export default async function OverviewPage({
         </Panel>
       </section>
 
-      {/* Per-exec heatmaps */}
-      <section>
-        <SectionHeader title="Per-exec activity · last 90 days" hint={`${execHeatmaps.length} exec${execHeatmaps.length === 1 ? "" : "s"} active`} />
-        {execHeatmaps.length === 0 ? (
-          <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-8 text-center text-sm text-zinc-500">
-            No exec activity in the last 90 days.
-          </div>
-        ) : (
-          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-            {execHeatmaps.map(h => {
-              const peak = Math.max(0, ...h.days.map(d => d.count));
-              return (
-                <Link
-                  key={h.execName}
-                  href={`/execs/${encodeURIComponent(h.execName)}`}
-                  className="block rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 transition-colors hover:border-zinc-700"
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <div className="font-semibold text-zinc-100">{h.execName}</div>
-                    <div className="text-[11px] text-zinc-500">
-                      {h.totalActivities.toLocaleString()} acts · peak {peak}/day
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <Heatmap days={h.days} />
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      {/* Per-exec heatmaps — streamed independently (extra 90-day query). */}
+      <Suspense fallback={<ExecHeatmapsSkeleton />}>
+        <ExecHeatmaps heatmapsP={heatmapsP} />
+      </Suspense>
 
       {/* Per-exec × per-client matrix */}
       <section>
@@ -459,44 +358,274 @@ export default async function OverviewPage({
         </div>
       </section>
 
-      {/* Recent activity */}
-      <section>
-        <Panel title="Recent activity" hint="Last 15 across all clients" right={<Link href="/backlog" className="text-xs text-zinc-500 hover:text-zinc-300">Backlog →</Link>}>
-          {recent.length === 0 ? (
-            <div className="py-6 text-center text-sm text-zinc-500">Nothing yet.</div>
-          ) : (
-            <div className="divide-y divide-zinc-800 -my-2">
-              {recent.map(r => (
-                <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-xs">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-300">
-                        {EVENT_LABELS[r.event_type] || r.event_type}
-                      </span>
-                      <span className="text-zinc-300 truncate">{r.sales_person_name}</span>
-                      {r.contact_name && <span className="text-zinc-500 truncate">→ {r.contact_name}</span>}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-2 text-zinc-500">
-                      <Link href={`/companies/${r.company_slug}`} className="hover:text-zinc-300">
-                        {r.company_name}
-                      </Link>
-                      {r.outcome && <span className="truncate">· {r.outcome.split("|")[0].trim()}</span>}
-                    </div>
-                  </div>
-                  <div className="shrink-0 text-right text-zinc-500">
-                    {r.event_type === "job_won" && r.quote_job_value && (
-                      <div className="text-emerald-400">{formatCurrency(quoteGroupValue(r.quote_job_value))}</div>
-                    )}
-                    <div>{relativeTime(r.created_at)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-      </section>
+      {/* Recent activity — streamed independently (separate feed query). */}
+      <Suspense fallback={<RecentActivitySkeleton />}>
+        <RecentActivity recentP={recentP} />
+      </Suspense>
     </div>
   );
+}
+
+/* ─── streamed sub-sections ───────────────────────────────────────── */
+
+async function QuotieSection({
+  quotieP,
+  perClient,
+}: {
+  quotieP: Promise<Awaited<ReturnType<typeof loadQuotieBreakdown>> | null>;
+  perClient: OverviewClient[];
+}) {
+  const quotie = await quotieP;
+  if (!quotie) return null;
+
+  const quotieSlice = quotieOurExecSlice(quotie);
+  const quotieByClientMap = quotieByClientExecOnly(quotie);
+  const quotieByExecMap = quotieByExec(quotie);
+
+  return (
+    <>
+      {/* Quotie band — lifetime totals, filtered to sales-exec-attributed
+          jobs only (via Quotie's lead-owner attribution). Client-added job-
+          management entries with no sales-exec touch are excluded. */}
+      <section>
+        <SectionHeader title="Quotie (lifetime, sales-exec-attributed only)" hint="Direct from quotie.com.au — only jobs where a roster exec owns the lead. Client-added jobs excluded. Updates every 5 min." />
+        <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+          <HeroStat label="Pipeline $"   value={formatCurrency(quotieSlice.groups.pipeline_value)} sub={`${quotieSlice.groups.pending} open`}                                  accent />
+          <HeroStat label="Quotie Won $" value={formatCurrency(quotieSlice.groups.won_value)}      sub={`${quotieSlice.groups.won} wins`}                                       accent />
+          <HeroStat label="Groups sent"  value={quotieSlice.groups.total_sent}                     sub={`${quotieSlice.groups.sent_this_month} this month`} />
+          <HeroStat label="Quotes sent"  value={quotieSlice.quotes.sent}                           sub={`${quotieSlice.quotes.sent_this_month} this month`} />
+          <HeroStat label="Pending"      value={quotieSlice.groups.pending} />
+          <HeroStat label="Lost"         value={quotieSlice.groups.lost} />
+          <HeroStat label="Expired"      value={quotieSlice.groups.expired} />
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-2">
+        <Panel title="Quotie · by client" hint="Lifetime totals · sales-exec-attributed only">
+          <div className="overflow-hidden rounded border border-zinc-800">
+            <table className="w-full text-xs">
+              <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-1.5 text-left font-normal">Client</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Pipeline</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Quoties Won</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Pending</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Lost / Exp</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Quotes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perClient.map(c => {
+                  const q = quotieByClientMap[c.name];
+                  if (!q) {
+                    return (
+                      <tr key={c.id} className="border-t border-zinc-800">
+                        <td className="px-3 py-1.5 font-medium text-zinc-100">{c.name}</td>
+                        <td colSpan={5} className="px-3 py-1.5 text-zinc-600">no Quotie mapping</td>
+                      </tr>
+                    );
+                  }
+                  return (
+                    <tr key={c.id} className="border-t border-zinc-800">
+                      <td className="px-3 py-1.5 font-medium text-zinc-100">{c.name}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">{formatCurrency(q.groups.pipeline_value)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">
+                        {formatCurrency(q.groups.won_value)}
+                        <div className="text-[9px] text-zinc-500">{q.groups.won} wins</div>
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">{q.groups.pending}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">{q.groups.lost} / {q.groups.expired}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">
+                        {q.quotes.sent}
+                        <div className="text-[9px] text-zinc-500">{q.quotes.sent_this_month} mo</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+
+        <Panel title="Quotie · by exec" hint="Roster only, summed across all their active clients">
+          <div className="overflow-hidden rounded border border-zinc-800">
+            <table className="w-full text-xs">
+              <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th className="px-3 py-1.5 text-left font-normal">Exec</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Pipeline</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Quoties Won</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Pending</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Lost / Exp</th>
+                  <th className="px-3 py-1.5 text-right font-normal">Quotes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.values(quotieByExecMap)
+                  .sort((a, b) => b.groups.won_value - a.groups.won_value)
+                  .map(e => (
+                  <tr key={e.ourName} className="border-t border-zinc-800">
+                    <td className="px-3 py-1.5 font-medium">
+                      <Link href={`/execs/${encodeURIComponent(e.ourName)}`} className="text-zinc-100 hover:text-white">
+                        {e.ourName}
+                      </Link>
+                      <div className="text-[9px] text-zinc-500">{e.perCompany.length} clients in Quotie</div>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">{formatCurrency(e.groups.pipeline_value)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">
+                      {formatCurrency(e.groups.won_value)}
+                      <div className="text-[9px] text-zinc-500">{e.groups.won} wins</div>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">{e.groups.pending}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">{e.groups.lost} / {e.groups.expired}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">
+                      {e.quotes.sent}
+                      <div className="text-[9px] text-zinc-500">{e.quotes.sent_this_month} mo</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      </section>
+    </>
+  );
+}
+
+async function ExecHeatmaps({ heatmapsP }: { heatmapsP: ReturnType<typeof loadAllExecHeatmaps> }) {
+  const execHeatmaps = await heatmapsP;
+  return (
+    <section>
+      <SectionHeader title="Per-exec activity · last 90 days" hint={`${execHeatmaps.length} exec${execHeatmaps.length === 1 ? "" : "s"} active`} />
+      {execHeatmaps.length === 0 ? (
+        <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-8 text-center text-sm text-zinc-500">
+          No exec activity in the last 90 days.
+        </div>
+      ) : (
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+          {execHeatmaps.map(h => {
+            const peak = Math.max(0, ...h.days.map(d => d.count));
+            return (
+              <Link
+                key={h.execName}
+                href={`/execs/${encodeURIComponent(h.execName)}`}
+                className="block rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 transition-colors hover:border-zinc-700"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="font-semibold text-zinc-100">{h.execName}</div>
+                  <div className="text-[11px] text-zinc-500">
+                    {h.totalActivities.toLocaleString()} acts · peak {peak}/day
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <Heatmap days={h.days} />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+async function RecentActivity({ recentP }: { recentP: ReturnType<typeof loadRecentActivityFeed> }) {
+  const recent = await recentP;
+  return (
+    <section>
+      <Panel title="Recent activity" hint="Last 15 across all clients" right={<Link href="/backlog" className="text-xs text-zinc-500 hover:text-zinc-300">Backlog →</Link>}>
+        {recent.length === 0 ? (
+          <div className="py-6 text-center text-sm text-zinc-500">Nothing yet.</div>
+        ) : (
+          <div className="divide-y divide-zinc-800 -my-2">
+            {recent.map(r => (
+              <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-xs">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-zinc-300">
+                      {EVENT_LABELS[r.event_type] || r.event_type}
+                    </span>
+                    <span className="text-zinc-300 truncate">{r.sales_person_name}</span>
+                    {r.contact_name && <span className="text-zinc-500 truncate">→ {r.contact_name}</span>}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 text-zinc-500">
+                    <Link href={`/companies/${r.company_slug}`} className="hover:text-zinc-300">
+                      {r.company_name}
+                    </Link>
+                    {r.outcome && <span className="truncate">· {r.outcome.split("|")[0].trim()}</span>}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right text-zinc-500">
+                  {r.event_type === "job_won" && r.quote_job_value && (
+                    <div className="text-emerald-400">{formatCurrency(quoteGroupValue(r.quote_job_value))}</div>
+                  )}
+                  <div>{relativeTime(r.created_at)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+/* ─── skeleton fallbacks (paint instantly while data streams) ─────── */
+
+function SkeletonBlock({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-zinc-900/60 ${className}`} />;
+}
+
+function OverviewSkeleton({ period }: { period: Period }) {
+  return (
+    <div className="px-8 py-6 space-y-8">
+      <header className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold">Overview</h1>
+          <p className="mt-0.5 text-sm text-zinc-500">Loading…</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <PeriodTabs current={period} />
+          <LiveBadge />
+        </div>
+      </header>
+      <section className="grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-8">
+        {Array.from({ length: 8 }).map((_, i) => <SkeletonBlock key={i} className="h-20" />)}
+      </section>
+      <section className="grid gap-3 grid-cols-2 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => <SkeletonBlock key={i} className="h-20" />)}
+      </section>
+      <SkeletonBlock className="h-48" />
+    </div>
+  );
+}
+
+function QuotieSkeleton() {
+  return (
+    <section className="space-y-3">
+      <SkeletonBlock className="h-24" />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SkeletonBlock className="h-48" />
+        <SkeletonBlock className="h-48" />
+      </div>
+    </section>
+  );
+}
+
+function ExecHeatmapsSkeleton() {
+  return (
+    <section>
+      <SectionHeader title="Per-exec activity · last 90 days" hint="Loading…" />
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => <SkeletonBlock key={i} className="h-32" />)}
+      </div>
+    </section>
+  );
+}
+
+function RecentActivitySkeleton() {
+  return <SkeletonBlock className="h-64" />;
 }
 
 /* ─── components ──────────────────────────────────────────────────── */

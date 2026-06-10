@@ -9,6 +9,7 @@
 //   - companyIds — companies this user belongs to as an exec (empty for
 //     admin-only users)
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/server";
@@ -20,7 +21,11 @@ export type Viewer = {
   companyIds: string[];
 };
 
-export async function getViewer(): Promise<Viewer> {
+// Wrapped in React.cache so the 3 auth round-trips (getUser + profiles +
+// sales_people) run at most ONCE per request, even though getViewer() is
+// called in both the (app) layout and each page. Request-scoped: never
+// shared across requests/users, so no auth leakage.
+export const getViewer = cache(async function getViewer(): Promise<Viewer> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -45,7 +50,7 @@ export async function getViewer(): Promise<Viewer> {
     salesPersonName,
     companyIds,
   };
-}
+});
 
 /**
  * Convenience: if the viewer is an exec (not admin), send them to /me.

@@ -15,6 +15,9 @@ export function LiveRefresh({ fetchedAtIso }: { fetchedAtIso: string }) {
 
   useEffect(() => {
     const supabase = createClient();
+    // Fire the "just updated" ping immediately, but debounce the actual
+    // server refetch so a burst of inserts triggers one re-render, not N.
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const channel = supabase
       .channel("activities-live")
       .on(
@@ -22,11 +25,15 @@ export function LiveRefresh({ fetchedAtIso }: { fetchedAtIso: string }) {
         { event: "*", schema: "public", table: "activities" },
         () => {
           setLastEventAt(Date.now());
-          router.refresh();
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(() => router.refresh(), 2500);
         },
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      if (timer) clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
   }, [router]);
 
   // Tick every 5s so the "updated Ns ago" indicator stays live without

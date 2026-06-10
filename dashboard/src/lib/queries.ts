@@ -1,6 +1,7 @@
 // Server-side data access. All functions take a Supabase client that already
 // has the user's session, so RLS naturally scopes results to what they can see.
 
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { quoteGroupValue, todayInTz } from "./format";
 import {
@@ -88,7 +89,12 @@ function bumpCounts(bucket: EventCounts, eventType: string, quoteJobValue: strin
 
 // Calendar-date helpers live in ./dates — imported at the top.
 
-export async function listCompanies(supabase: SupabaseClient): Promise<CompanyRow[]> {
+// Memoized per request: the overview alone calls this from several loaders
+// (overview, recent feed, …) that share one supabase client, so React.cache
+// collapses those identical company lookups into a single round-trip.
+export const listCompanies = cache(async function listCompanies(
+  supabase: SupabaseClient,
+): Promise<CompanyRow[]> {
   const { data, error } = await supabase
     .from("companies")
     .select("id, name, slug, timezone, active")
@@ -96,7 +102,7 @@ export async function listCompanies(supabase: SupabaseClient): Promise<CompanyRo
     .order("name");
   if (error) throw error;
   return data || [];
-}
+});
 
 /**
  * For each company the user can see, return this-week-to-date KPIs (per

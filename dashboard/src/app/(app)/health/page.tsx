@@ -16,17 +16,22 @@ export default async function HealthPage() {
     .eq("active", true)
     .order("name");
 
+  // One query per company, but fired in parallel rather than a serial
+  // for…await chain (which paid each round-trip's latency end-to-end).
   const lastByCompany: Record<string, { at: string | null; source: string | null }> = {};
-  for (const c of companies || []) {
-    const { data } = await supabase
-      .from("activities")
-      .select("created_at, source")
-      .eq("company_id", c.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    lastByCompany[c.id] = { at: data?.created_at || null, source: data?.source || null };
-  }
+  const lastEntries = await Promise.all(
+    (companies || []).map(async c => {
+      const { data } = await supabase
+        .from("activities")
+        .select("created_at, source")
+        .eq("company_id", c.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return [c.id, { at: data?.created_at || null, source: data?.source || null }] as const;
+    }),
+  );
+  for (const [id, v] of lastEntries) lastByCompany[id] = v;
 
   // Recent webhook events (last 100, admin-only via RLS)
   const { data: events } = await supabase
