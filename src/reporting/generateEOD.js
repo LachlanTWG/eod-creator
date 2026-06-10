@@ -262,6 +262,12 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
     counts['Pipeline Value'] = Math.round(pipelineValue);
   }
 
+  // Synthetic display count for the Pipeline Progress block. Set directly (not
+  // via outcomes.json) so it never becomes a positional Google Sheet storage
+  // column. "Site Visit Booked" (singular, formula 8) still renders the detailed
+  // list in the 🏠 Site Visits block. Mirrors dashboard messages.ts.
+  counts['Site Visits Booked'] = siteVisits.length;
+
   return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes };
 }
 

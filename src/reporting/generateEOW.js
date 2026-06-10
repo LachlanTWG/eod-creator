@@ -193,6 +193,12 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
     console.error('  Could not read Activity Log for EOW details:', e.message);
   }
 
+  // Synthetic display count for the Pipeline Progress block. EOW counts come
+  // from the sheet storage columns, which have NO column for this — so derive
+  // it from the activity-sourced details instead. Mirrors the EOD/dashboard
+  // renderers; "Site Visit Booked" (formula 8) still lists the visit details.
+  weeklyCounts['Site Visits Booked'] = weeklyData.siteVisits.length;
+
   const startFormatted = formatFullDate(startDate);
   const endFormatted = formatFullDate(endDate);
   const lines = [
