@@ -32,6 +32,7 @@
     { "name": "Direct Lead passed on from Client", "category": "source" },
     { "name": "Recommended Another Company", "category": "source" },
     { "name": "Site Visit Booked", "category": "siteVisit" },
+    { "name": "Site Visits Booked", "category": "computed" },
     { "name": "Job Won", "category": "jobWon" },
     { "name": "Quote Sent", "category": "quoteSent" },
     { "name": "Pipeline Value", "category": "pipelineValue" },

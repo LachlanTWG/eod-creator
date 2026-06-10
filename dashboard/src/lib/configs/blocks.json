@@ -9,6 +9,13 @@
       "outcomes": ["Answered", "Didn't Answer", "Total Calls"]
     },
     {
+      "name": "🛠️ Pipeline Progress",
+      "outcomes": [
+        "Requires Quoting", "Passed Onto {owner}", "Verbal Confirmation",
+        "Site Visits Booked", "Not Ready Yet - Pre-Quote", "Not Ready Yet - Post Quote"
+      ]
+    },
+    {
       "name": "📍 Lead Sources",
       "outcomes": [
         "Facebook Ad Form", "Website Form", "Instagram Message", "Facebook Message",
@@ -34,10 +41,7 @@
     },
     {
       "name": "📝 Action Lists",
-      "outcomes": [
-        "Not a Good Time to Talk", "Requires Quoting", "Passed Onto {owner}",
-        "Verbal Confirmation", "Book Site Visit"
-      ]
+      "outcomes": ["Not a Good Time to Talk", "Book Site Visit"]
     },
     {
       "name": "💔 Lost",
@@ -53,10 +57,6 @@
         "DQ - Out of Service Area", "DQ - Price", "DQ - Extent of Works",
         "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
       ]
-    },
-    {
-      "name": "⏳ Not Ready",
-      "outcomes": ["Not Ready Yet - Pre-Quote", "Not Ready Yet - Post Quote"]
     }
   ],
   "eowBlocks": [
@@ -66,7 +66,10 @@
     },
     {
       "name": "🛠️ Pipeline Progress",
-      "outcomes": ["Requires Quoting", "Passed Onto {owner}", "Verbal Confirmation"]
+      "outcomes": [
+        "Requires Quoting", "Passed Onto {owner}", "Verbal Confirmation",
+        "Site Visits Booked", "Not Ready Yet - Pre-Quote", "Not Ready Yet - Post Quote"
+      ]
     },
     {
       "name": "📄 Quotes Sent",
@@ -83,10 +86,6 @@
     {
       "name": "📧 Emails Sent",
       "outcomes": ["Emails Sent"]
-    },
-    {
-      "name": "⏳ Not Ready",
-      "outcomes": ["Not Ready Yet - Pre-Quote", "Not Ready Yet - Post Quote"]
     },
     {
       "name": "🔴 Losses & Abandoned",

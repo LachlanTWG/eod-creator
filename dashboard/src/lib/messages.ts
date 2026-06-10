@@ -236,6 +236,11 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
   }
   if ("Pipeline Value" in counts) counts["Pipeline Value"] = Math.round(pipelineValue);
 
+  // Synthetic count outcome: "Site Visits Booked" (plural) shows the number of
+  // visits in the Pipeline Progress block, while "Site Visit Booked" (singular,
+  // formula 8) keeps rendering the detailed list in the 🏠 Site Visits block.
+  if ("Site Visits Booked" in counts) counts["Site Visits Booked"] = siteVisits.length;
+
   return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes };
 }
 
