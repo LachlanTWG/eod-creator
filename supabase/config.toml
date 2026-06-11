@@ -1,0 +1,14 @@
+# Supabase project config (Edge Functions).
+# Deploy: npx supabase functions deploy ingest --project-ref <ref>
+# (<ref> is the subdomain of SUPABASE_URL.)
+
+# External webhook senders (GHL, Make.com, Quotie) can't mint Supabase JWTs —
+# auth is the shared WEBHOOK_SECRET checked inside the function (fail-closed:
+# 503 if unset), same gate the Node server used.
+[functions.ingest]
+verify_jwt = false
+
+# Local serve parity with the hosted runtime's worker lifecycle, so
+# EdgeRuntime.waitUntil behaviour is exercised in local testing.
+[edge_runtime]
+policy = "per_worker"

@@ -201,13 +201,22 @@ export async function createManualActivities(
     appointmentDate: it.appointment_at ? it.appointment_at.slice(0, 10) : "",
   }));
 
+  // INGEST_URL (the Supabase Edge Function base, e.g.
+  // https://<ref>.supabase.co/functions/v1/ingest) takes precedence once set.
+  // String-concat, not new URL(path, base): an absolute path would REPLACE
+  // the /functions/v1/ingest prefix and 404 at the gateway. NODE_SERVICE_URL
+  // stays as the Railway fallback until the cutover.
+  const ingestBase = process.env.INGEST_URL;
   const base = process.env.NODE_SERVICE_URL;
   const secret = process.env.WEBHOOK_SECRET;
-  if (!base) return { ok: false, error: "NODE_SERVICE_URL not configured" };
+  if (!ingestBase && !base) return { ok: false, error: "INGEST_URL / NODE_SERVICE_URL not configured" };
+  const endpoint = ingestBase
+    ? `${ingestBase.replace(/\/+$/, "")}/api/activities/manual`
+    : new URL("/api/activities/manual", base).toString();
 
   let res: Response;
   try {
-    res = await fetch(new URL("/api/activities/manual", base), {
+    res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
