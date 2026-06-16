@@ -9,7 +9,7 @@ import { getViewer, requireRosterOrAdmin } from "@/lib/viewer";
 import { listCompanies } from "@/lib/queries";
 import { todayInTz, SYDNEY_TZ } from "@/lib/format";
 import { mondayOf, addDaysIso, monthLabel, shortDate } from "@/lib/dates";
-import { loadSiteVisits } from "@/lib/siteVisits";
+import { loadSiteVisits, formatTimeInTz, tzCityLabel } from "@/lib/siteVisits";
 import { SiteVisitsCalendar } from "./SiteVisitsCalendar";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +93,8 @@ export default async function VisitsPage({ searchParams }: { searchParams: Promi
   ]);
   const salesPeople = (peopleRes.data || []) as { id: string; name: string; company_id: string }[];
   const companyById = new Map(companies.map(c => [c.id, c.name] as const));
+  const companyTzById = new Map(companies.map(c => [c.id, c.timezone] as const));
+  const personById = new Map(salesPeople.map(p => [p.id, p.name] as const));
 
   const periodVisits = visits.filter(v => v.dayKey >= periodStart && v.dayKey <= periodEnd);
   const totalCount = periodVisits.length;
@@ -186,10 +188,21 @@ export default async function VisitsPage({ searchParams }: { searchParams: Promi
           periodStart={periodStart}
           periodEnd={periodEnd}
           today={today}
-          visits={visits.map(v => ({
-            ...v,
-            companyName: companyById.get(v.companyId) ?? "—",
-          }))}
+          salesPeople={salesPeople}
+          visits={visits.map(v => {
+            const companyTz = companyTzById.get(v.companyId) || SYDNEY_TZ;
+            const tzDiffers = v.scheduled && !!v.appointmentAt && companyTz !== SYDNEY_TZ;
+            return {
+              ...v,
+              companyName: companyById.get(v.companyId) ?? "—",
+              // Prefer the live id→name join so a freshly reassigned exec shows
+              // correctly even before the denormalized column catches up.
+              execName: (v.salesPersonId && personById.get(v.salesPersonId)) || v.salesPersonName,
+              canEdit: viewer.isAdmin || (!!v.salesPersonId && mySalesPersonIds.includes(v.salesPersonId)),
+              localTimeLabel: tzDiffers ? formatTimeInTz(v.appointmentAt!, companyTz) : null,
+              localCity: tzDiffers ? tzCityLabel(companyTz) : null,
+            };
+          })}
         />
       </div>
     </div>

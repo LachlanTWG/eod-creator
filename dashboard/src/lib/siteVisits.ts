@@ -37,6 +37,8 @@ export type SiteVisit = {
   contactAddress: string;
   contactId: string | null;
   adSource: string;
+  outcome: string;                // round-tripped so the edit drawer is faithful
+  quoteJobValue: string;          // (usually empty for site visits)
   appointmentAt: string | null;   // raw ISO timestamptz, or null
   occurredOn: string;             // YYYY-MM-DD the booking was logged
   dayKey: string;                 // YYYY-MM-DD in Sydney (appointment, else booking date)
@@ -45,19 +47,29 @@ export type SiteVisit = {
   sortMs: number;                 // ordering within a day (timed first, TBC last)
 };
 
-// Sydney-tz formatters. en-CA renders the date as YYYY-MM-DD.
+// Sydney-tz day formatter. en-CA renders the date as YYYY-MM-DD.
 const dayFmt = new Intl.DateTimeFormat("en-CA", {
   timeZone: SYDNEY_TZ, year: "numeric", month: "2-digit", day: "2-digit",
-});
-const timeFmt = new Intl.DateTimeFormat("en-AU", {
-  timeZone: SYDNEY_TZ, hour: "numeric", minute: "2-digit", hour12: true,
 });
 
 function sydneyDayKey(iso: string): string {
   return dayFmt.format(new Date(iso));               // "2026-06-18"
 }
+
+/** Format an instant as a short time ("9:00am") in any IANA timezone. */
+export function formatTimeInTz(iso: string, tz: string): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true,
+  }).format(new Date(iso)).replace(/\s/g, "").toLowerCase();
+}
+
+/** Human city label from an IANA tz, e.g. "Australia/Perth" → "Perth". */
+export function tzCityLabel(tz: string): string {
+  return (tz.split("/").pop() || tz).replace(/_/g, " ");
+}
+
 function sydneyTimeLabel(iso: string): string {
-  return timeFmt.format(new Date(iso)).replace(/\s/g, "").toLowerCase();  // "9:00am"
+  return formatTimeInTz(iso, SYDNEY_TZ);             // "9:00am"
 }
 
 type ActivityRow = {
@@ -69,12 +81,14 @@ type ActivityRow = {
   contact_address: string | null;
   contact_id: string | null;
   ad_source: string | null;
+  outcome: string | null;
+  quote_job_value: string | null;
   appointment_at: string | null;
   occurred_on: string;
 };
 
 const SELECT =
-  "id, company_id, sales_person_id, sales_person_name, contact_name, contact_address, contact_id, ad_source, appointment_at, occurred_on";
+  "id, company_id, sales_person_id, sales_person_name, contact_name, contact_address, contact_id, ad_source, outcome, quote_job_value, appointment_at, occurred_on";
 
 function toVisit(r: ActivityRow): SiteVisit {
   const scheduled = !!r.appointment_at;
@@ -88,6 +102,8 @@ function toVisit(r: ActivityRow): SiteVisit {
     contactAddress: (r.contact_address || "").replace(/,\s*$/, "").trim(),
     contactId: r.contact_id,
     adSource: r.ad_source || "",
+    outcome: r.outcome || "",
+    quoteJobValue: r.quote_job_value || "",
     appointmentAt: r.appointment_at,
     occurredOn: r.occurred_on,
     dayKey,

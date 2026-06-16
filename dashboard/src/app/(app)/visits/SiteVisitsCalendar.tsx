@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { addDaysIso } from "@/lib/dates";
+import { EditDrawer, type ActivityRowForEdit, type SalesPersonOption } from "../activities/EditDrawer";
 
 export type CalendarVisit = {
   id: string;
@@ -15,14 +16,20 @@ export type CalendarVisit = {
   companyName: string;
   salesPersonId: string | null;
   salesPersonName: string;
+  execName: string;               // resolved display name (id→name join, else denormalized)
+  canEdit: boolean;               // viewer may edit this row (admin or owns it)
   contactName: string;
   contactAddress: string;
   contactId: string | null;
   adSource: string;
+  outcome: string;
+  quoteJobValue: string;
   appointmentAt: string | null;
   occurredOn: string;
   dayKey: string;
-  timeLabel: string;
+  timeLabel: string;              // Sydney time (the unified view)
+  localTimeLabel: string | null;  // time in the company's own tz, when it differs
+  localCity: string | null;       // e.g. "Perth"
   scheduled: boolean;
   sortMs: number;
 };
@@ -56,6 +63,7 @@ export function SiteVisitsCalendar({
   periodEnd,
   today,
   visits,
+  salesPeople,
 }: {
   view: "month" | "week";
   gridStart: string;
@@ -64,8 +72,10 @@ export function SiteVisitsCalendar({
   periodEnd: string;
   today: string;
   visits: CalendarVisit[];
+  salesPeople: SalesPersonOption[];
 }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const [editing, setEditing] = useState<CalendarVisit | null>(null);
 
   // Bucket visits by day.
   const byDay = new Map<string, CalendarVisit[]>();
@@ -142,7 +152,7 @@ export function SiteVisitsCalendar({
                               ? "bg-sky-950/50 text-sky-200/90"
                               : "bg-amber-950/40 text-amber-200/90"
                           }`}
-                          title={`${v.timeLabel} · ${v.contactName}`}
+                          title={`${v.timeLabel} Sydney${v.localTimeLabel ? ` · ${v.localTimeLabel} ${v.localCity}` : ""} · ${v.contactName}${v.execName ? ` · ${v.execName}` : ""}`}
                         >
                           <span className="tabular-nums opacity-70">{v.timeLabel}</span> {v.contactName}
                         </span>
@@ -169,13 +179,40 @@ export function SiteVisitsCalendar({
           day={selected}
           visits={selectedVisits}
           onClose={() => setSelected(null)}
+          onEdit={setEditing}
+        />
+      )}
+
+      {/* Edit drawer (reuses the Activities editor) — stacks above the day panel */}
+      {editing && (
+        <EditDrawer
+          row={toEditRow(editing)}
+          salesPeople={salesPeople}
+          canDelete={editing.canEdit}
+          onClose={() => setEditing(null)}
         />
       )}
     </>
   );
 }
 
-function DayDrawer({ day, visits, onClose }: { day: string; visits: CalendarVisit[]; onClose: () => void }) {
+function toEditRow(v: CalendarVisit): ActivityRowForEdit {
+  return {
+    id: v.id,
+    occurred_on: v.occurredOn,
+    sales_person_id: v.salesPersonId,
+    sales_person_name: v.salesPersonName,
+    event_type: "site_visit_booked",
+    contact_name: v.contactName,
+    contact_address: v.contactAddress,
+    outcome: v.outcome,
+    quote_job_value: v.quoteJobValue,
+    appointment_at: v.appointmentAt,
+    company_id: v.companyId,
+  };
+}
+
+function DayDrawer({ day, visits, onClose, onEdit }: { day: string; visits: CalendarVisit[]; onClose: () => void; onEdit: (v: CalendarVisit) => void }) {
   const scheduled = visits.filter(v => v.scheduled).length;
   const tbc = visits.length - scheduled;
   return (
@@ -207,7 +244,7 @@ function DayDrawer({ day, visits, onClose }: { day: string; visits: CalendarVisi
             <div className="py-16 text-center text-sm text-zinc-500">No site visits booked this day.</div>
           ) : (
             <ul className="flex flex-col gap-3">
-              {visits.map(v => <VisitCard key={v.id} v={v} />)}
+              {visits.map(v => <VisitCard key={v.id} v={v} onEdit={onEdit} />)}
             </ul>
           )}
         </div>
@@ -216,20 +253,29 @@ function DayDrawer({ day, visits, onClose }: { day: string; visits: CalendarVisi
   );
 }
 
-function VisitCard({ v }: { v: CalendarVisit }) {
+function VisitCard({ v, onEdit }: { v: CalendarVisit; onEdit: (v: CalendarVisit) => void }) {
   const mapsHref = v.contactAddress
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.contactAddress)}`
     : null;
   return (
     <li className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
       <div className="flex items-center justify-between gap-2">
-        <span
-          className={`rounded px-1.5 py-0.5 text-xs font-medium tabular-nums ${
-            v.scheduled ? "bg-sky-950/60 text-sky-200" : "bg-amber-950/50 text-amber-200"
-          }`}
-        >
-          {v.timeLabel}
-        </span>
+        {/* Time(s): unified Sydney time, plus the visit's own local time when it differs */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span
+            className={`rounded px-1.5 py-0.5 text-xs font-medium tabular-nums ${
+              v.scheduled ? "bg-sky-950/60 text-sky-200" : "bg-amber-950/50 text-amber-200"
+            }`}
+          >
+            {v.timeLabel}
+            {v.localTimeLabel && <span className="ml-1 font-normal text-sky-300/60">Sydney</span>}
+          </span>
+          {v.localTimeLabel && (
+            <span className="rounded bg-emerald-950/50 px-1.5 py-0.5 text-xs font-medium tabular-nums text-emerald-200">
+              {v.localTimeLabel} <span className="font-normal text-emerald-300/60">{v.localCity}</span>
+            </span>
+          )}
+        </div>
         <span className="truncate text-xs text-zinc-500">{v.companyName}</span>
       </div>
 
@@ -248,18 +294,29 @@ function VisitCard({ v }: { v: CalendarVisit }) {
         <div className="mt-0.5 text-sm text-zinc-600">No address on file</div>
       )}
 
-      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
-        <div className="flex gap-1">
-          <dt className="text-zinc-600">Exec:</dt>
-          <dd className="text-zinc-400">{v.salesPersonName}</dd>
-        </div>
-        {v.adSource && (
+      <div className="mt-2 flex items-end justify-between gap-2">
+        <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
           <div className="flex gap-1">
-            <dt className="text-zinc-600">Source:</dt>
-            <dd className="text-zinc-400">{v.adSource}</dd>
+            <dt className="text-zinc-600">Exec:</dt>
+            <dd className="text-zinc-400">{v.execName}</dd>
           </div>
+          {v.adSource && (
+            <div className="flex gap-1">
+              <dt className="text-zinc-600">Source:</dt>
+              <dd className="text-zinc-400">{v.adSource}</dd>
+            </div>
+          )}
+        </dl>
+        {v.canEdit && (
+          <button
+            type="button"
+            onClick={() => onEdit(v)}
+            className="shrink-0 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"
+          >
+            Edit
+          </button>
         )}
-      </dl>
+      </div>
     </li>
   );
 }
