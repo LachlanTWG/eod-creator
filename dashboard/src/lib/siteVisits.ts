@@ -42,7 +42,9 @@ export type SiteVisit = {
   appointmentAt: string | null;   // raw ISO timestamptz, or null
   occurredOn: string;             // YYYY-MM-DD the booking was logged
   dayKey: string;                 // YYYY-MM-DD in Sydney (appointment, else booking date)
-  timeLabel: string;              // "9:00am", or "Time TBC" when unscheduled
+  timeLabel: string;              // Sydney time "9:00am", or "Time TBC" when unscheduled
+  localTimeLabel: string | null;  // time in the client's own tz, when it differs from Sydney
+  localCity: string | null;       // e.g. "Perth"
   scheduled: boolean;             // has a real appointment time
   sortMs: number;                 // ordering within a day (timed first, TBC last)
 };
@@ -68,8 +70,49 @@ export function tzCityLabel(tz: string): string {
   return (tz.split("/").pop() || tz).replace(/_/g, " ");
 }
 
-function sydneyTimeLabel(iso: string): string {
-  return formatTimeInTz(iso, SYDNEY_TZ);             // "9:00am"
+// ─── Appointment timezone correction ─────────────────────────────────
+//
+// The webhook stores an appointment's *client-local wall clock* but tags it
+// as UTC. So "3:15pm in Perth" lands in the DB as `2026-06-17T15:15:00Z`,
+// which naively renders as 1:15am Sydney / 11:15pm Perth — both wrong, and
+// it also buckets the visit onto the wrong calendar day.
+//
+// Fix: read the stored wall-clock digits, reinterpret them in the client's
+// timezone to get the true instant, then render that instant in Sydney (the
+// execs' reference) and in the client's tz (its real local time).
+
+/** Offset (ms) where  localWallClock = utc + offset, for `tz` at `utcMs`. */
+function tzOffsetMsAt(tz: string, utcMs: number): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(utcMs));
+  const m: Record<string, number> = {};
+  for (const p of parts) if (p.type !== "literal") m[p.type] = Number(p.value);
+  return Date.UTC(m.year, m.month - 1, m.day, m.hour, m.minute, m.second) - utcMs;
+}
+
+/** The UTC instant (ms) of a wall-clock that is local to `tz`. */
+function wallClockToInstant(y: number, mo: number, d: number, h: number, mi: number, tz: string): number {
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  let instant = guess - tzOffsetMsAt(tz, guess);
+  instant = guess - tzOffsetMsAt(tz, instant);   // refine once across a DST edge
+  return instant;
+}
+
+/** Pull the literal wall-clock digits out of a stored timestamp string. */
+function parseWallClock(ts: string): { y: number; mo: number; d: number; h: number; mi: number } | null {
+  const m = ts.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!m) return null;
+  return { y: +m[1], mo: +m[2], d: +m[3], h: +m[4], mi: +m[5] };
+}
+
+/** Corrected instant (ISO) for a stored appointment, given the client's tz. */
+function correctedInstantIso(storedTs: string, clientTz: string): string {
+  const wc = parseWallClock(storedTs);
+  if (!wc) return storedTs;                         // unparseable — leave as-is
+  return new Date(wallClockToInstant(wc.y, wc.mo, wc.d, wc.h, wc.mi, clientTz)).toISOString();
 }
 
 type ActivityRow = {
@@ -90,9 +133,14 @@ type ActivityRow = {
 const SELECT =
   "id, company_id, sales_person_id, sales_person_name, contact_name, contact_address, contact_id, ad_source, outcome, quote_job_value, appointment_at, occurred_on";
 
-function toVisit(r: ActivityRow): SiteVisit {
+function toVisit(r: ActivityRow, clientTz: string): SiteVisit {
   const scheduled = !!r.appointment_at;
-  const dayKey = scheduled ? sydneyDayKey(r.appointment_at!) : r.occurred_on;
+  const tzDiffers = clientTz !== SYDNEY_TZ;
+
+  // Corrected instant: the stored wall-clock reinterpreted in the client's tz.
+  const instantIso = scheduled ? correctedInstantIso(r.appointment_at!, clientTz) : null;
+
+  const dayKey = instantIso ? sydneyDayKey(instantIso) : r.occurred_on;
   return {
     id: r.id,
     companyId: r.company_id,
@@ -107,10 +155,12 @@ function toVisit(r: ActivityRow): SiteVisit {
     appointmentAt: r.appointment_at,
     occurredOn: r.occurred_on,
     dayKey,
-    timeLabel: scheduled ? sydneyTimeLabel(r.appointment_at!) : "Time TBC",
+    timeLabel: instantIso ? formatTimeInTz(instantIso, SYDNEY_TZ) : "Time TBC",
+    localTimeLabel: instantIso && tzDiffers ? formatTimeInTz(instantIso, clientTz) : null,
+    localCity: instantIso && tzDiffers ? tzCityLabel(clientTz) : null,
     scheduled,
-    sortMs: scheduled
-      ? new Date(r.appointment_at!).getTime()
+    sortMs: instantIso
+      ? new Date(instantIso).getTime()
       : new Date(`${r.occurred_on}T23:59:59Z`).getTime(),   // TBC sorts last in its day
   };
 }
@@ -120,6 +170,7 @@ export type LoadSiteVisitsOpts = {
   gridEnd: string;                   // YYYY-MM-DD, last visible day (Sydney)
   salesPersonIds: string[] | null;   // null = no person filter (all the viewer may see)
   companyId?: string;                // optional company filter
+  companyTzById: Map<string, string>; // company_id → IANA tz, for appointment correction
 };
 
 /**
@@ -131,16 +182,18 @@ export async function loadSiteVisits(
   supabase: SupabaseClient,
   opts: LoadSiteVisitsOpts,
 ): Promise<SiteVisit[]> {
-  const { gridStart, gridEnd, salesPersonIds, companyId } = opts;
+  const { gridStart, gridEnd, salesPersonIds, companyId, companyTzById } = opts;
 
   // An explicit empty person filter means "show nothing" (caller scoped to a
   // roster they aren't on); skip the round-trip.
   if (salesPersonIds && salesPersonIds.length === 0) return [];
 
-  // appointment_at is a UTC instant; pad the query window a day each side so
-  // tz offset never clips an edge visit. We refine to the exact grid by dayKey.
-  const queryStartUtc = `${addDaysIso(gridStart, -1)}T00:00:00.000Z`;
-  const queryEndUtc = `${addDaysIso(gridEnd, 1)}T23:59:59.999Z`;
+  // We filter on the stored appointment_at (client wall-clock tagged as UTC),
+  // then re-bucket by the *corrected* Sydney day. The two can differ by up to
+  // a client's UTC offset, so pad the fetch window ±2 days and clip exactly by
+  // dayKey afterwards.
+  const queryStartUtc = `${addDaysIso(gridStart, -2)}T00:00:00.000Z`;
+  const queryEndUtc = `${addDaysIso(gridEnd, 2)}T23:59:59.999Z`;
 
   // Fresh scoped query per call — PostgREST builders are single-use, and
   // returning one lets TS infer the builder type without fragile generics.
@@ -169,7 +222,7 @@ export async function loadSiteVisits(
   ]);
 
   const visits = [...scheduledRows, ...unscheduledRows]
-    .map(toVisit)
+    .map(r => toVisit(r, companyTzById.get(r.company_id) || SYDNEY_TZ))
     .filter(v => v.dayKey >= gridStart && v.dayKey <= gridEnd);   // exact Sydney-day clip
 
   visits.sort((a, b) => (a.dayKey < b.dayKey ? -1 : a.dayKey > b.dayKey ? 1 : a.sortMs - b.sortMs));
