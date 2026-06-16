@@ -31,7 +31,7 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 11: {
       const count = weeklyCounts[outcomeName] || 0;
       if (count === 0) return null;
-      return `• ${outcomeName}: ${count}`;
+      return `${outcomeName}: ${count}`;
     }
 
     case 12: {
@@ -40,13 +40,13 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
       if (totalCalls === 0) return null;
       const answered = weeklyCounts['Answered'] || 0;
       const rate = Math.round((answered / totalCalls) * 100);
-      return `• Total Calls: ${totalCalls} (${rate}% Answered)`;
+      return `Total Calls: ${totalCalls} (${rate}% Answered)`;
     }
 
     case 6: {
       const quoteCount = weeklyCounts[outcomeName] || 0;
       if (quoteCount === 0) return null;
-      return `• Total Contacts Quoted: ${quoteCount}`;
+      return `Total Contacts Quoted: ${quoteCount}`;
     }
 
     case 7: {
@@ -58,19 +58,19 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 8: {
       if (weeklyData.siteVisits && weeklyData.siteVisits.length > 0) {
         const lines = weeklyData.siteVisits.map(sv => {
-          return `• ${sv.contactName} - ${sv.address || 'TBC'} - ${sv.datetime || 'TBC'}`;
+          return `${sv.contactName} - ${sv.address || 'TBC'} - ${sv.datetime || 'TBC'}`;
         });
         return lines.join('\n');
       }
       const svCount = weeklyCounts[outcomeName] || 0;
       if (svCount === 0) return null;
-      return `• ${outcomeName}: ${svCount}`;
+      return `${outcomeName}: ${svCount}`;
     }
 
     case 9: {
       if (weeklyData.jobDetails && weeklyData.jobDetails.length > 0) {
         const lines = weeklyData.jobDetails.map(j => {
-          return `• ${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
+          return `${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
         });
         const totalRevenue = weeklyData.jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
         if (totalRevenue > 0) {
@@ -80,7 +80,7 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
       }
       const jobCount = weeklyCounts[outcomeName] || 0;
       if (jobCount === 0) return null;
-      return `• ${outcomeName}: ${jobCount}`;
+      return `${outcomeName}: ${jobCount}`;
     }
 
     case 10: {
@@ -93,13 +93,13 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 3: {
       const count = weeklyCounts[outcomeName] || 0;
       if (count === 0) return null;
-      return `• ${outcomeName}: ${count}`;
+      return `${outcomeName}: ${count}`;
     }
 
     case 4: {
       const count = weeklyCounts[outcomeName] || 0;
       if (count === 0) return null;
-      return `• ${outcomeName}: ${count}`;
+      return `${outcomeName}: ${count}`;
     }
 
     default:

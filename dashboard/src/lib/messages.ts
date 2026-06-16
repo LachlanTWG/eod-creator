@@ -292,10 +292,10 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
     case 4: {                                                     // Count + Names
       const c = counts[outcomeName] || 0;
       if (c === 0) return null;
-      if (isTeam) return `- ${outcomeName} - ${c}`;
+      if (isTeam) return `${outcomeName} - ${c}`;
       const unique = [...new Set((names[outcomeName] || []).filter(Boolean))];
-      if (unique.length === 0) return `- ${outcomeName} - ${c}`;
-      return `- ${outcomeName} - ${c} - ${unique.join(", ")}`;
+      if (unique.length === 0) return `${outcomeName} - ${c}`;
+      return `${outcomeName} - ${c} - ${unique.join(", ")}`;
     }
     case 5: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName}: ${c}`; }
     case 6: {                                                     // Quote Details
@@ -305,7 +305,7 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
       const lines = [`Total Contacts Quoted: ${valid.length}`];
       for (const q of valid) {
         const valStr = q.values.map(v => formatDollar(v)).join(", ");
-        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
+        lines.push(`${q.contactName} - ${q.values.length} - (${valStr})`);
       }
       return lines.join("\n");
     }
@@ -317,13 +317,13 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
       if (siteVisits.length === 0) return null;
       if (isTeam) return `Site Visits Booked: ${siteVisits.length}`;
       return siteVisits.map(sv =>
-        `- ${sv.contactName} - ${sv.address || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
+        `${sv.contactName} - ${sv.address || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
     }
     case 9: {                                                     // Job Details
       if (jobDetails.length === 0) return null;
       const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
       if (isTeam) return `Jobs Won: ${jobDetails.length}${total > 0 ? ` - Total Revenue: ${formatDollar(total)}` : ""}`;
-      const lines = jobDetails.map(j => `- ${j.contactName} - ${j.address || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+      const lines = jobDetails.map(j => `${j.contactName} - ${j.address || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
       if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
       return lines.join("\n");
     }
@@ -336,17 +336,17 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
   const { counts, siteVisits, jobDetails, quoteDetails } = data;
   switch (formulaId) {
     case 1: return null;
-    case 11: { const c = counts[outcomeName] || 0; return c === 0 ? null : `• ${outcomeName}: ${c}`; }
+    case 11: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName}: ${c}`; }
     case 12: {
       const total = counts["Total Calls"] || counts["Total Contact Attempts"] || 0;
       if (total === 0) return null;
       const answered = counts["Answered"] || 0;
       const rate = Math.round((answered / total) * 100);
-      return `• Total Calls: ${total} (${rate}% Answered)`;
+      return `Total Calls: ${total} (${rate}% Answered)`;
     }
     case 6: {
       const qc = quoteDetails.length;
-      return qc === 0 ? null : `• Total Contacts Quoted: ${qc}`;
+      return qc === 0 ? null : `Total Contacts Quoted: ${qc}`;
     }
     case 7: {
       const value = counts["Pipeline Value"] || 0;
@@ -355,23 +355,23 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
     case 8: {
       if (siteVisits.length > 0) {
         return siteVisits.map(sv =>
-          `• ${sv.contactName} - ${sv.address || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
+          `${sv.contactName} - ${sv.address || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
       }
       const c = counts[outcomeName] || 0;
-      return c === 0 ? null : `• ${outcomeName}: ${c}`;
+      return c === 0 ? null : `${outcomeName}: ${c}`;
     }
     case 9: {
       if (jobDetails.length > 0) {
-        const lines = jobDetails.map(j => `• ${j.contactName} - ${j.address || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+        const lines = jobDetails.map(j => `${j.contactName} - ${j.address || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
         const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
         if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
         return lines.join("\n");
       }
       const c = counts[outcomeName] || 0;
-      return c === 0 ? null : `• ${outcomeName}: ${c}`;
+      return c === 0 ? null : `${outcomeName}: ${c}`;
     }
     case 10: { const c = counts["Total Individual Quotes"] || 0; return c === 0 ? null : `Total Individual Quotes: ${c}`; }
-    case 2: case 3: case 4: { const c = counts[outcomeName] || 0; return c === 0 ? null : `• ${outcomeName}: ${c}`; }
+    case 2: case 3: case 4: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName}: ${c}`; }
     default: return null;
   }
 }

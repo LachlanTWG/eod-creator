@@ -339,11 +339,11 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
     case 4: { // Count + Names
       const count = counts[outcomeName] || 0;
       if (count === 0) return null;
-      if (isTeam) return `- ${outcomeName} - ${count}`;
+      if (isTeam) return `${outcomeName} - ${count}`;
       const contactNames = names[outcomeName] || [];
       const uniqueNames = [...new Set(contactNames)].filter(n => n);
-      if (uniqueNames.length === 0) return `- ${outcomeName} - ${count}`;
-      return `- ${outcomeName} - ${count} - ${uniqueNames.join(', ')}`;
+      if (uniqueNames.length === 0) return `${outcomeName} - ${count}`;
+      return `${outcomeName} - ${count} - ${uniqueNames.join(', ')}`;
     }
 
     case 5: { // Section Header
@@ -361,7 +361,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
       const lines = [`Total Contacts Quoted: ${validQuotes.length}`];
       for (const q of validQuotes) {
         const valStr = q.values.map(v => formatDollar(v)).join(', ');
-        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
+        lines.push(`${q.contactName} - ${q.values.length} - (${valStr})`);
       }
       return lines.join('\n');
     }
@@ -377,7 +377,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
       if (isTeam) return `Site Visits Booked: ${siteVisits.length}`;
       const lines = siteVisits.map(sv => {
         const dt = formatVisitDateTime(sv.datetime);
-        return `- ${sv.contactName} - ${sv.address || 'TBC'} - ${dt || 'TBC'}`;
+        return `${sv.contactName} - ${sv.address || 'TBC'} - ${dt || 'TBC'}`;
       });
       return lines.join('\n');
     }
@@ -389,7 +389,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
         return `Jobs Won: ${jobDetails.length}${totalRevenue > 0 ? ` - Total Revenue: ${formatDollar(totalRevenue)}` : ''}`;
       }
       const lines = jobDetails.map(j => {
-        return `- ${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
+        return `${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
       });
       if (totalRevenue > 0) {
         lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
