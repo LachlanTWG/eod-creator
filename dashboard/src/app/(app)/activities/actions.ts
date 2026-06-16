@@ -61,7 +61,20 @@ export async function editActivity(input: EditActivityInput): Promise<ActionResu
     if (d === null && input.occurred_on !== "") return { ok: false, error: "occurred_on must be YYYY-MM-DD" };
     update.occurred_on = d ?? null;
   }
-  if (input.sales_person_id !== undefined) update.sales_person_id = input.sales_person_id || null;
+  if (input.sales_person_id !== undefined) {
+    update.sales_person_id = input.sales_person_id || null;
+    // Keep the denormalized sales_person_name in sync when reassigning to a
+    // concrete exec — every surface (calendar, reports, tables) reads that
+    // column, so a stale name would otherwise still show the wrong person.
+    if (input.sales_person_id) {
+      const { data: person } = await supabase
+        .from("sales_people")
+        .select("name")
+        .eq("id", input.sales_person_id)
+        .single();
+      if (person?.name) update.sales_person_name = person.name;
+    }
+  }
   if (input.event_type !== undefined) {
     if (input.event_type && !ALLOWED_EVENT_TYPES.includes(input.event_type)) {
       return { ok: false, error: `event_type must be one of ${ALLOWED_EVENT_TYPES.join(", ")}` };
