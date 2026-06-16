@@ -1,0 +1,200 @@
+// /visits — Site Visits calendar. Month or week view of booked site visits;
+// click a day to drill into every visit that day. Reads site_visit_booked
+// activities live (RLS-scoped); no dedicated table. Defaults to the viewer's
+// own visits, with filters for a specific exec / company.
+
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
+import { getViewer, requireRosterOrAdmin } from "@/lib/viewer";
+import { listCompanies } from "@/lib/queries";
+import { todayInTz, SYDNEY_TZ } from "@/lib/format";
+import { mondayOf, addDaysIso, monthLabel, shortDate } from "@/lib/dates";
+import { loadSiteVisits } from "@/lib/siteVisits";
+import { SiteVisitsCalendar } from "./SiteVisitsCalendar";
+
+export const dynamic = "force-dynamic";
+
+type View = "month" | "week";
+type SearchParams = {
+  view?: string;
+  date?: string;
+  person?: string;
+  company?: string;
+};
+
+function pad2(n: number) { return String(n).padStart(2, "0"); }
+
+/** Last calendar day of the month containing `dateStr`. */
+function monthEndOf(dateStr: string): string {
+  const [y, m] = dateStr.split("-").map(Number);
+  const nextMonthStart = m === 12 ? `${y + 1}-01-01` : `${y}-${pad2(m + 1)}-01`;
+  return addDaysIso(nextMonthStart, -1);
+}
+/** First day of the previous / next month relative to `dateStr`. */
+function shiftMonth(dateStr: string, dir: -1 | 1): string {
+  const [y, m] = dateStr.split("-").map(Number);
+  const total = y * 12 + (m - 1) + dir;
+  return `${Math.floor(total / 12)}-${pad2((total % 12) + 1)}-01`;
+}
+
+export default async function VisitsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const sp = await searchParams;
+  const view: View = sp.view === "week" ? "week" : "month";
+
+  const viewer = await getViewer();
+  requireRosterOrAdmin(viewer);
+  const supabase = await createClient();
+
+  // Who am I (for the "My visits" default scope)
+  const { data: mineRows } = await supabase
+    .from("sales_people")
+    .select("id")
+    .eq("user_id", viewer.user.id);
+  const mySalesPersonIds = (mineRows || []).map(r => r.id as string);
+  const isRoster = mySalesPersonIds.length > 0;
+
+  const today = todayInTz(SYDNEY_TZ);
+  const anchor = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : today;
+
+  // Resolve the visible grid + the period it represents.
+  let gridStart: string, gridEnd: string, periodStart: string, periodEnd: string, title: string;
+  let prevDate: string, nextDate: string;
+  if (view === "week") {
+    periodStart = mondayOf(anchor);
+    periodEnd = addDaysIso(periodStart, 6);
+    gridStart = periodStart;
+    gridEnd = periodEnd;
+    title = `${shortDate(periodStart)} – ${shortDate(periodEnd)}`;
+    prevDate = addDaysIso(periodStart, -7);
+    nextDate = addDaysIso(periodStart, 7);
+  } else {
+    const monthStart = `${anchor.slice(0, 7)}-01`;
+    periodStart = monthStart;
+    periodEnd = monthEndOf(monthStart);
+    gridStart = mondayOf(monthStart);
+    gridEnd = addDaysIso(mondayOf(periodEnd), 6);
+    title = monthLabel(monthStart);
+    prevDate = shiftMonth(monthStart, -1);
+    nextDate = shiftMonth(monthStart, 1);
+  }
+
+  // Scope: person filter → ids; default = mine (roster) or everyone (pure admin).
+  const personParam = sp.person || "";
+  const companyParam = sp.company || "";
+  let scopeIds: string[] | null;
+  if (personParam === "all") scopeIds = null;
+  else if (personParam) scopeIds = [personParam];
+  else scopeIds = isRoster ? mySalesPersonIds : null;
+
+  const [visits, companies, peopleRes] = await Promise.all([
+    loadSiteVisits(supabase, { gridStart, gridEnd, salesPersonIds: scopeIds, companyId: companyParam || undefined }),
+    listCompanies(supabase),
+    supabase.from("sales_people").select("id, name, company_id").order("name"),
+  ]);
+  const salesPeople = (peopleRes.data || []) as { id: string; name: string; company_id: string }[];
+  const companyById = new Map(companies.map(c => [c.id, c.name] as const));
+
+  const periodVisits = visits.filter(v => v.dayKey >= periodStart && v.dayKey <= periodEnd);
+  const totalCount = periodVisits.length;
+  const tbcCount = periodVisits.filter(v => !v.scheduled).length;
+
+  // Preserve filters across nav/view links.
+  function href(overrides: Partial<SearchParams>) {
+    const u = new URLSearchParams();
+    const merged: SearchParams = { view, date: anchor, person: personParam, company: companyParam, ...overrides };
+    if (merged.view && merged.view !== "month") u.set("view", merged.view);
+    if (merged.date && merged.date !== today) u.set("date", merged.date);
+    if (merged.person) u.set("person", merged.person);
+    if (merged.company) u.set("company", merged.company);
+    const qs = u.toString();
+    return qs ? `/visits?${qs}` : "/visits";
+  }
+
+  const segBtn = (active: boolean) =>
+    `px-3 py-1.5 text-xs font-medium transition-colors ${
+      active ? "bg-zinc-800 text-zinc-50" : "text-zinc-400 hover:text-zinc-200"
+    }`;
+  const navBtn = "rounded border border-zinc-800 px-2.5 py-1.5 text-xs text-zinc-300 hover:border-zinc-700 hover:text-zinc-100";
+
+  return (
+    <div className="px-6 py-6 lg:px-8">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Site visits</h1>
+          <p className="mt-0.5 text-sm text-zinc-500">
+            {personParam === "all"
+              ? "All booked site visits."
+              : personParam
+                ? `${salesPeople.find(p => p.id === personParam)?.name || "Exec"}'s booked site visits.`
+                : isRoster ? "Your booked site visits." : "All booked site visits."}
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-semibold tabular-nums text-zinc-100">{totalCount}</div>
+          <div className="text-xs text-zinc-500">
+            visit{totalCount === 1 ? "" : "s"} · {title}
+            {tbcCount > 0 && <span className="text-amber-400/80"> · {tbcCount} time TBC</span>}
+          </div>
+        </div>
+      </header>
+
+      {/* Controls */}
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        {/* View toggle */}
+        <div className="inline-flex overflow-hidden rounded-lg border border-zinc-800">
+          <Link href={href({ view: "month" })} className={segBtn(view === "month")}>Month</Link>
+          <Link href={href({ view: "week" })} className={segBtn(view === "week")}>Week</Link>
+        </div>
+
+        {/* Date nav */}
+        <div className="flex items-center gap-1.5">
+          <Link href={href({ date: prevDate })} className={navBtn} aria-label="Previous">←</Link>
+          <Link href={href({ date: today })} className={navBtn}>Today</Link>
+          <Link href={href({ date: nextDate })} className={navBtn} aria-label="Next">→</Link>
+          <span className="ml-1 text-sm font-medium text-zinc-200">{title}</span>
+        </div>
+
+        {/* Filters */}
+        <form action="/visits" method="get" className="ml-auto flex items-center gap-2">
+          <input type="hidden" name="view" value={view} />
+          <input type="hidden" name="date" value={anchor} />
+          <select name="person" defaultValue={personParam} className={selectClass}>
+            {isRoster && <option value="">My visits</option>}
+            <option value="all">Everyone</option>
+            {salesPeople.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({companyById.get(p.company_id) ?? "?"})
+              </option>
+            ))}
+          </select>
+          <select name="company" defaultValue={companyParam} className={selectClass}>
+            <option value="">All companies</option>
+            {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button type="submit" className="rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-700">
+            Apply
+          </button>
+        </form>
+      </div>
+
+      {/* Calendar */}
+      <div className="mt-5">
+        <SiteVisitsCalendar
+          view={view}
+          gridStart={gridStart}
+          gridEnd={gridEnd}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          today={today}
+          visits={visits.map(v => ({
+            ...v,
+            companyName: companyById.get(v.companyId) ?? "—",
+          }))}
+        />
+      </div>
+    </div>
+  );
+}
+
+const selectClass =
+  "rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200 focus:border-zinc-600 focus:outline-none";
