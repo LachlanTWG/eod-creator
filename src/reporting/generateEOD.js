@@ -361,7 +361,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
       const lines = [`Total Contacts Quoted: ${validQuotes.length}`];
       for (const q of validQuotes) {
         const valStr = q.values.map(v => formatDollar(v)).join(', ');
-        lines.push(`${q.contactName} - ${q.values.length} - (${valStr})`);
+        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
       }
       return lines.join('\n');
     }
