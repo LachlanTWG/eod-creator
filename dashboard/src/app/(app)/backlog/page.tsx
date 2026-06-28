@@ -13,12 +13,12 @@ export default async function BacklogPage() {
   const { openQuotes, pendingVisits } = await loadBacklog(supabase);
 
   const totalOpenValue = openQuotes.reduce((s, q) => s + q.last_event_value, 0);
-  const scope = viewer.isAdmin ? "all clients · all execs" : "your contacts only";
+  const scope = viewer.isAdmin || viewer.isViewer ? "all clients · all execs" : "your contacts only";
 
   return (
     <div className="px-8 py-6">
       <header>
-        <h1 className="text-xl font-semibold">{viewer.isAdmin ? "Backlog" : "My backlog"}</h1>
+        <h1 className="text-xl font-semibold">{viewer.isAdmin || viewer.isViewer ? "Backlog" : "My backlog"}</h1>
         <p className="mt-0.5 text-sm text-zinc-500">
           Contacts with open work — last 180 days, not yet won. {scope}.
         </p>
