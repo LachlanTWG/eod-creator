@@ -17,6 +17,9 @@ import { createClient } from "./supabase/server";
 export type Viewer = {
   user: User;
   isAdmin: boolean;
+  // Read-only "viewer" role: sees ALL data across every client but can edit
+  // nothing and is not an exec. Mutually exclusive with isAdmin in practice.
+  isViewer: boolean;
   salesPersonName: string | null;
   companyIds: string[];
 };
@@ -32,7 +35,7 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("is_admin")
+    .select("is_admin, is_viewer")
     .eq("id", user.id)
     .single();
 
@@ -47,44 +50,57 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
   return {
     user,
     isAdmin: !!profile?.is_admin,
+    isViewer: !!profile?.is_viewer,
     salesPersonName,
     companyIds,
   };
 });
 
 /**
- * Convenience: if the viewer is an exec (not admin), send them to /me.
- * Use at the top of admin-only pages.
+ * Strictly admin-only. Use for pages that mutate data (duplicates) or expose
+ * ops internals (health). Read-only viewers are NOT admitted here. Everyone
+ * else lands on /me.
  */
 export function requireAdmin(viewer: Viewer): void {
   if (!viewer.isAdmin) redirect("/me");
 }
 
 /**
- * Allow admins and roster execs through (used for peer-visible surfaces
- * like the /execs leaderboard). Pure-admin users with no exec link still
- * pass via isAdmin.
+ * Allow admins and read-only viewers through. Use for all-clients read-only
+ * admin surfaces (the overview) that a viewer should also be able to see.
+ */
+export function requireAdminOrViewer(viewer: Viewer): void {
+  if (viewer.isAdmin || viewer.isViewer) return;
+  redirect("/me");
+}
+
+/**
+ * Allow admins, read-only viewers, and roster execs through (used for
+ * peer-visible surfaces like the /execs leaderboard and site visits).
+ * Pure-admin users with no exec link still pass via isAdmin.
  */
 export function requireRosterOrAdmin(viewer: Viewer): void {
   if (viewer.isAdmin) return;
+  if (viewer.isViewer) return;
   if (viewer.salesPersonName) return;
   redirect("/me");
 }
 
 /**
- * For pages parameterised by a sales-person name. Admin can view any;
- * roster execs can view each other (peer visibility). Non-execs land
+ * For pages parameterised by a sales-person name. Admins and viewers can view
+ * any; roster execs can view each other (peer visibility). Non-execs land
  * on /me.
  */
 export function gateExecName(viewer: Viewer, _requestedName: string): void {
   if (viewer.isAdmin) return;
+  if (viewer.isViewer) return;
   if (viewer.salesPersonName) return;
   redirect("/me");
 }
 
 /**
- * For company drill-down pages. Admin can view any; execs can only view
- * companies they're on the roster of.
+ * For company drill-down pages. Admins and viewers can view any; execs can
+ * only view companies they're on the roster of.
  */
 export async function gateCompanySlug(
   viewer: Viewer,
@@ -98,6 +114,7 @@ export async function gateCompanySlug(
     .single();
   if (!company) return null;
   if (viewer.isAdmin) return company;
+  if (viewer.isViewer) return company;
   if (viewer.companyIds.includes(company.id)) return company;
   redirect("/me");
 }

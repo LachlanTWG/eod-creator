@@ -101,7 +101,8 @@ export default async function ActivitiesPage({
         <div>
           <h1 className="text-xl font-semibold">Activities</h1>
           <p className="mt-0.5 text-sm text-zinc-500">
-            {viewer.isAdmin ? "All activity rows across every active client." : "Your activity rows."} Edit or delete to correct mistakes; changes are saved directly to the database.
+            {viewer.isAdmin || viewer.isViewer ? "All activity rows across every active client." : "Your activity rows."}{" "}
+            {viewer.isViewer ? "Read-only." : "Edit or delete to correct mistakes; changes are saved directly to the database."}
           </p>
         </div>
         <div className="flex items-center gap-3">

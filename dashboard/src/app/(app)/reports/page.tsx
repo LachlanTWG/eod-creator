@@ -68,7 +68,7 @@ export default async function ReportsPage({
       <header>
         <h1 className="text-xl font-semibold">Reports</h1>
         <p className="mt-0.5 text-sm text-zinc-500">
-          Archived EOD / EOW / EOM / EOQ / EOY messages. {viewer.isAdmin ? "All clients." : "Your reports only."}
+          Archived EOD / EOW / EOM / EOQ / EOY messages. {viewer.isAdmin || viewer.isViewer ? "All clients." : "Your reports only."}
         </p>
       </header>
 
