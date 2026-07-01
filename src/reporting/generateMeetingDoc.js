@@ -1,4 +1,4 @@
-const { readTab } = require('../sheets/readSheet');
+const db = require('../db');
 const { countOutcomes } = require('./generateEOD');
 const { loadConfig } = require('../config/configLoader');
 const { loadCompanies } = require('../config/companiesStore');
@@ -115,67 +115,60 @@ function collectSources(counts, companyName) {
 
 // ─── Weekly Trend & 90-Day Conversion Data ──────────────────────────
 
+function addDaysStr(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().split('T')[0];
+}
+
 /**
- * Read Team Weekly storage tab and return last 4 weeks + 3-month averages.
+ * Compute one Team week straight from Activity Log rows.
+ * Returns countOutcomes counts + Total Revenue, tagged with _weekStart.
  */
-async function getWeeklyTrend(company, currentWeekStart) {
-  let rows;
-  try {
-    rows = await readTab(company.sheetId, 'Team Weekly');
-  } catch {
-    return null;
-  }
-  if (rows.length < 2) return null;
+function computeTeamWeek(activities, company, weekStart) {
+  const weekEnd = addDaysStr(weekStart, 6);
+  const rows = activities.filter(a => a['Date'] >= weekStart && a['Date'] <= weekEnd);
+  const data = countOutcomes(rows, company.ownerName, company.name, activities);
+  const obj = { ...data.counts };
+  obj['Total Revenue'] = (data.jobDetails || []).reduce((s, j) => s + (j.value || 0), 0);
+  obj._weekStart = weekStart;
+  return obj;
+}
 
-  const headers = rows[0];
-  const data = rows.slice(1);
+/**
+ * Last 4 weeks + up-to-12-active-week averages for the Team, computed from
+ * Activity Log rows (scans back up to 26 weeks before currentWeekStart).
+ */
+function getWeeklyTrend(company, currentWeekStart, activityData) {
+  if (!activityData || activityData.length < 2) return null;
+  const activities = parseActivityRows(activityData.slice(1), activityData[0]);
+  const totalField = getTotalField(company.name);
 
-  // Parse rows into objects, filter out empty weeks and current/future weeks
-  const weeks = [];
-  for (const row of data) {
-    const weekStart = (row[0] || '').trim();
-    if (!weekStart || weekStart >= currentWeekStart) continue;
-
-    const obj = {};
-    headers.forEach((h, i) => {
-      const val = row[i] || '';
-      const num = parseFloat(val);
-      // Duplicate headers can exist if a storage tab was migrated mid-schema.
-      // Prefer a numeric value over an empty one so a trailing blank column
-      // doesn't clobber an earlier column's real value.
-      if (!isNaN(num)) {
-        obj[h] = num;
-      } else if (obj[h] === undefined) {
-        obj[h] = val;
-      }
-    });
+  const weeks = []; // most recent first
+  for (let i = 1; i <= 26 && weeks.length < 12; i++) {
+    const weekStart = addDaysStr(currentWeekStart, -7 * i);
+    const obj = computeTeamWeek(activities, company, weekStart);
     // Only include weeks with some activity
-    const totalField = headers.find(h => h === 'Total Calls' || h === 'Total Contact Attempts');
-    if (totalField && (obj[totalField] || 0) === 0) continue;
-    obj._weekStart = weekStart;
+    if ((obj[totalField] || 0) === 0) continue;
     weeks.push(obj);
   }
 
-  // Sort by week start descending
-  weeks.sort((a, b) => b._weekStart.localeCompare(a._weekStart));
+  if (weeks.length === 0) return null;
 
   const last4 = weeks.slice(0, 4).reverse(); // chronological order
-  const last12 = weeks.slice(0, 12);
 
-  if (last12.length === 0) return null;
-
-  // Calculate 3-month averages
-  const avgKeys = headers.filter(h =>
-    h !== 'Week Start' && h !== 'Week End' && h !== 'Message' && h !== 'EOW Message'
-    && !h.endsWith(' %')
-  );
   const averages = {};
-  for (const key of avgKeys) {
-    const values = last12.map(w => w[key] || 0).filter(v => typeof v === 'number');
-    averages[key] = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+  const keys = new Set();
+  for (const w of weeks) {
+    for (const [k, v] of Object.entries(w)) {
+      if (k !== '_weekStart' && typeof v === 'number') keys.add(k);
+    }
+  }
+  for (const key of keys) {
+    averages[key] = weeks.reduce((s, w) => s + (typeof w[key] === 'number' ? w[key] : 0), 0) / weeks.length;
   }
 
-  return { last4, averages, weeksUsed: last12.length };
+  return { last4, averages, weeksUsed: weeks.length };
 }
 
 /**
@@ -237,10 +230,8 @@ function calc90DayConversions(activities, companyName) {
 
 // ─── This Week's Data (existing logic) ──────────────────────────────
 
-async function getCompanyData(company, weekdays) {
-  if (!company.sheetId) return null;
-
-  const allRows = await readTab(company.sheetId, 'Activity Log');
+async function getCompanyData(company, weekdays, activityData) {
+  const allRows = activityData || await db.fetchActivityGrid(company.name);
   if (allRows.length < 2) return null;
 
   const headers = allRows[0];
@@ -524,8 +515,9 @@ async function generateMeetingDoc(startDate, endDate) {
   const companyData = [];
   for (const company of activeCompanies) {
     try {
-      const data = await getCompanyData(company, weekdays);
-      const trend = await getWeeklyTrend(company, startDate);
+      const activityData = await db.fetchActivityGrid(company.name);
+      const data = await getCompanyData(company, weekdays, activityData);
+      const trend = getWeeklyTrend(company, startDate, activityData);
       const conversions = data ? calc90DayConversions(data.activities, company.name) : null;
       companyData.push({ company, data, trend, conversions });
     } catch (err) {
@@ -807,39 +799,29 @@ function getAllDates(startDate, endDate) {
 }
 
 /**
- * Read Team Weekly storage and return the weeks that begin within the month,
- * chronological. Used for the in-month weekly breakdown table.
+ * Compute Team stats for each week beginning within the month, chronological,
+ * straight from Activity Log rows. Used for the in-month weekly breakdown table.
  */
-async function getMonthlyWeeks(company, monthStart, monthEnd) {
-  let rows;
-  try {
-    rows = await readTab(company.sheetId, 'Team Weekly');
-  } catch {
-    return null;
-  }
-  if (rows.length < 2) return null;
+function getMonthlyWeeks(company, monthStart, monthEnd, activityData) {
+  if (!activityData || activityData.length < 2) return null;
+  const activities = parseActivityRows(activityData.slice(1), activityData[0]);
 
-  const headers = rows[0];
+  // First Monday on/after monthStart
+  const d = new Date(monthStart + 'T12:00:00Z');
+  const day = d.getUTCDay();
+  const offset = day === 1 ? 0 : day === 0 ? 1 : 8 - day;
+  let weekStart = addDaysStr(monthStart, offset);
+
   const weeks = [];
-  for (const row of rows.slice(1)) {
-    const weekStart = (row[0] || '').trim();
-    if (!weekStart || weekStart < monthStart || weekStart > monthEnd) continue;
-    const obj = {};
-    headers.forEach((h, i) => {
-      const val = row[i] || '';
-      const num = parseFloat(val);
-      if (!isNaN(num)) obj[h] = num;
-      else if (obj[h] === undefined) obj[h] = val;
-    });
-    obj._weekStart = weekStart;
-    weeks.push(obj);
+  while (weekStart <= monthEnd) {
+    weeks.push(computeTeamWeek(activities, company, weekStart));
+    weekStart = addDaysStr(weekStart, 7);
   }
-  weeks.sort((a, b) => a._weekStart.localeCompare(b._weekStart));
-  return weeks;
+  return weeks.length > 0 ? weeks : null;
 }
 
 function buildMonthlyWeekTable(weeks, companyType, totalFieldLabel) {
-  if (!weeks || weeks.length === 0) return '_No weekly storage data for this month._';
+  if (!weeks || weeks.length === 0) return '_No weekly data for this month._';
 
   const weekHeaders = weeks.map(w => formatShortDate(w._weekStart));
   const lines = [];
@@ -886,8 +868,9 @@ async function generateMonthlyDoc(year, month) {
   const companyData = [];
   for (const company of activeCompanies) {
     try {
-      const data = await getCompanyData(company, monthDates);
-      const weeks = await getMonthlyWeeks(company, start, end);
+      const activityData = await db.fetchActivityGrid(company.name);
+      const data = await getCompanyData(company, monthDates, activityData);
+      const weeks = getMonthlyWeeks(company, start, end, activityData);
       const conversions = data ? calc90DayConversions(data.activities, company.name) : null;
       companyData.push({ company, data, weeks, conversions });
     } catch (err) {

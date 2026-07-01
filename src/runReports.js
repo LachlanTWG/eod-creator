@@ -15,7 +15,7 @@ const { generateMeetingDoc, generateMonthlyDoc } = require('./reporting/generate
 const { sendReportToSlack } = require('./integrations/slack');
 const { sendReportToClickUp, createMeetingDocPage } = require('./integrations/clickup');
 
-const { readTab } = require('./sheets/readSheet');
+const db = require('./db');
 const { loadCompanies, getSummarySheetId } = require('./config/companiesStore');
 const { archiveSummaryDaily, archiveSummaryWeekly, archiveSummaryMonthly, archiveSummaryTotalDaily, archiveSummaryTotalWeekly, archiveSummaryTotalMonthly, buildExecMap } = require('./sheets/summarySheet');
 
@@ -98,7 +98,7 @@ async function sendCompanyEOD(company, targetDate) {
   console.log(`[SEND EOD] ${company.name} — ${date}`);
 
   // Read Activity Log ONCE for all people
-  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const activityData = await db.fetchActivityGrid(company.name);
 
   const activePeople = company.salesPeople.filter(p => p.active);
   let peopleWithActivity = 0;
@@ -179,7 +179,7 @@ async function archiveCompanyEOD(company, targetDate) {
   console.log(`[ARCHIVE EOD] ${company.name} — ${date}`);
 
   // Read Activity Log ONCE for all people
-  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const activityData = await db.fetchActivityGrid(company.name);
 
   const activePeople = company.salesPeople.filter(p => p.active);
 
@@ -217,7 +217,7 @@ async function sendCompanyEOW(company, startDate, endDate) {
   console.log(`[SEND EOW] ${company.name} — ${start} to ${end}`);
 
   // Read Activity Log ONCE for job/site visit details across all people
-  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const activityData = await db.fetchActivityGrid(company.name);
 
   const activePeople = company.salesPeople.filter(p => p.active);
   const peopleData = buildPeopleData(activityData, activePeople,
@@ -264,7 +264,7 @@ async function archiveCompanyEOW(company, startDate, endDate) {
   console.log(`[ARCHIVE EOW] ${company.name} — ${start} to ${end}`);
 
   // Read Activity Log ONCE for all people
-  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const activityData = await db.fetchActivityGrid(company.name);
 
   const activePeople = company.salesPeople.filter(p => p.active);
 
@@ -305,7 +305,7 @@ async function runCompanyEOM(company, year, month) {
   console.log(`[EOM] ${company.name} — ${actualYear}-${String(m).padStart(2, '0')}`);
 
   // Read Activity Log ONCE for all people
-  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const activityData = await db.fetchActivityGrid(company.name);
 
   const activePeople = company.salesPeople.filter(p => p.active);
   const monthLabel = `${actualYear}-${String(m).padStart(2, '0')}`;
@@ -364,7 +364,7 @@ async function runCompanyEOQ(company, year, quarter) {
   console.log(`[EOQ] ${company.name} — ${actualYear}-Q${q}`);
 
   // Read Activity Log ONCE for all people
-  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const activityData = await db.fetchActivityGrid(company.name);
 
   const activePeople = company.salesPeople.filter(p => p.active);
   const quarterLabel = `${actualYear}-Q${q}`;
@@ -422,15 +422,14 @@ async function runCompanyEOY(company, year) {
 
   const activePeople = company.salesPeople.filter(p => p.active);
 
-  // generateEOY reads storage tabs; read the Activity Log here for the ClickUp table
-  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const activityData = await db.fetchActivityGrid(company.name);
   const peopleData = buildPeopleData(activityData, activePeople,
     d => (d || '').startsWith(`${y}-`), company.ownerName, company.name);
 
   for (const person of activePeople) {
     try {
       const { message, counts } = await generateEOY(
-        company.sheetId, person.name, y, company.name, company.ownerName
+        company.sheetId, person.name, y, company.name, company.ownerName, activityData
       );
       if (!counts || Object.keys(counts).length === 0) continue;
 
@@ -449,7 +448,7 @@ async function runCompanyEOY(company, year) {
   const activeEOY = company.salesPeople.filter(p => p.active);
   try {
     const { message, counts } = await generateEOY(
-      company.sheetId, 'Team', y, company.name, company.ownerName
+      company.sheetId, 'Team', y, company.name, company.ownerName, activityData
     );
     if (counts && Object.keys(counts).length > 0) {
       await archiveYearly(company.sheetId, 'Team', y, message, counts, {}, company.ownerName, company.name);
@@ -472,48 +471,40 @@ async function sendSiteVisitNotification(company) {
   const today = todayInTz(tz);
   console.log(`[SITE VISITS] ${company.name} — ${today}`);
 
-  const siteVisitData = await readTab(company.sheetId, 'Site Visits');
-  if (siteVisitData.length < 2) {
+  const activityData = await db.fetchActivityGrid(company.name);
+  const bookings = parseActivities(activityData).filter(a =>
+    a['Event Type'] === 'Site Visit Booked' && a['Appointment Date Time']
+  );
+  if (bookings.length === 0) {
     console.log(`  No site visit data found.`);
     return;
   }
 
-  const headers = siteVisitData[0];
-  const nameIdx = headers.indexOf('Contact Name');
-  const addressIdx = headers.indexOf('Address');
-  const dtIdx = headers.indexOf('Date/Time');
-  const spIdx = headers.indexOf('Sales Person');
-
-  // Parse today and +7 day boundary
-  const todayDate = new Date(today + 'T00:00:00');
-  const next7 = new Date(todayDate);
-  next7.setDate(next7.getDate() + 7);
+  // Appointment Date Time is a naive client-wall-clock string
+  // (YYYY-MM-DDTHH:MM:SS), so date boundaries compare as plain strings.
+  const next7 = new Date(today + 'T12:00:00Z');
+  next7.setUTCDate(next7.getUTCDate() + 7);
+  const next7Str = next7.toISOString().split('T')[0];
 
   const todayVisits = [];
   const upcomingVisits = [];  // next 7 days (excl today)
   const beyondVisits = [];    // after 7 days
 
-  for (let i = 1; i < siteVisitData.length; i++) {
-    const row = siteVisitData[i];
-    const dtStr = (row[dtIdx] || '').trim();
-    if (!dtStr) continue;
-
-    const visitDate = new Date(dtStr);
-    if (isNaN(visitDate.getTime())) continue;
-
-    const visitDateOnly = visitDate.toLocaleDateString('en-CA', { timeZone: tz });
+  for (const b of bookings) {
+    const dtStr = b['Appointment Date Time'];
+    const visitDateOnly = dtStr.slice(0, 10);
     const entry = {
-      contactName: (row[nameIdx] || '').trim(),
-      address: (row[addressIdx] || '').trim(),
+      contactName: (b['Contact Name'] || '').trim(),
+      address: (b['Contact Address'] || '').replace(/,\s*$/, '').trim(),
       datetime: dtStr,
-      salesPerson: (row[spIdx] || '').trim(),
+      salesPerson: (b['Sales Person'] || '').trim(),
     };
 
     if (visitDateOnly === today) {
       todayVisits.push(entry);
-    } else if (visitDate > todayDate && visitDate <= next7) {
+    } else if (visitDateOnly > today && visitDateOnly <= next7Str) {
       upcomingVisits.push(entry);
-    } else if (visitDate > next7) {
+    } else if (visitDateOnly > next7Str) {
       beyondVisits.push(entry);
     }
   }

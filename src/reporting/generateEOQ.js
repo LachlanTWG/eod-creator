@@ -1,6 +1,6 @@
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
-const { resolveLeadSource } = require('./generateEOD');
+const { countOutcomes } = require('./generateEOD');
 
 const QUARTER_MONTHS = {
   1: [1, 2, 3],
@@ -34,7 +34,9 @@ function formatDollar(value) {
 }
 
 /**
- * Generate EOQ report by reading directly from Activity Log with exact quarter boundaries.
+ * Generate EOQ report by counting raw Activity Log rows with exact quarter
+ * boundaries — same engine as EOD (countOutcomes), so counts always match
+ * the ClickUp side-by-side tables and drop deleted activities.
  */
 async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyName, ownerName, activityData) {
   const [m1] = QUARTER_MONTHS[quarter];
@@ -56,10 +58,10 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
   });
 
   // Filter Activity Log rows for this quarter and person
-  const quarterRows = activityRows.slice(1).filter(row => {
-    const rowDate = row[0] || '';
+  const quarterRows = allParsed.filter(a => {
+    const rowDate = a['Date'] || '';
     if (rowDate < quarterStart || rowDate >= nextQ) return false;
-    if (salesPerson !== 'Team' && !row[1].startsWith(salesPerson)) return false;
+    if (salesPerson !== 'Team' && !(a['Sales Person'] || '').startsWith(salesPerson)) return false;
     return true;
   });
 
@@ -67,76 +69,18 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
     return { message: `No data found for ${formatQuarter(year, quarter)}.`, counts: {} };
   }
 
-  // Count outcomes from Activity Log
-  const { outcomes, formulas } = loadConfig(companyName);
+  const { outcomes } = loadConfig(companyName);
   const outcomeNames = getOutcomeNames(ownerName, companyName);
+
+  const data = countOutcomes(quarterRows, ownerName, companyName, allParsed);
   const quarterlyCounts = {};
   for (const name of outcomeNames) {
-    quarterlyCounts[name] = 0;
+    quarterlyCounts[name] = data.counts[name] || 0;
   }
-
-  // Collect Job Won details, quote details
-  const jobDetails = [];
-  let totalQuoteValues = 0;
-  let totalIndividualQuotes = 0;
-
-  for (const row of quarterRows) {
-    const eventType = row[3] || '';
-    const outcome = row[4] || '';
-
-    if (eventType === 'EOD Update') {
-      for (const o of outcomes.outcomes) {
-        const name = o.name.replace('{owner}', ownerName);
-        if (!(name in quarterlyCounts)) continue;
-
-        switch (o.category) {
-          case 'leadType':
-            if (outcome.startsWith(`${name} |`)) quarterlyCounts[name]++;
-            break;
-          case 'answerStatus':
-            if (outcome.includes(`| ${name} |`)) quarterlyCounts[name]++;
-            break;
-          case 'source':
-            if (outcome.includes(`| ${name}`)) quarterlyCounts[name]++;
-            break;
-          default:
-            if (outcome.includes(`| ${name} |`) || outcome.includes(`| ${name}`)) quarterlyCounts[name]++;
-            break;
-        }
-      }
-    } else if (eventType === 'Job Won') {
-      quarterlyCounts['Job Won'] = (quarterlyCounts['Job Won'] || 0) + 1;
-      const valStr = (row[6] || '').replace(/[$,\s]/g, '');
-      let source = row[5] || '';
-      if (!source) source = resolveLeadSource(row[2], row[8], allParsed);
-      jobDetails.push({
-        contactName: row[2] || '',
-        address: (row[7] || '').replace(/,\s*$/, '').trim(),
-        value: parseFloat(valStr) || 0,
-        source,
-      });
-    } else if (eventType === 'Email Sent') {
-      quarterlyCounts['Emails Sent'] = (quarterlyCounts['Emails Sent'] || 0) + 1;
-    } else if (eventType === 'Quote Sent') {
-      quarterlyCounts['Quote Sent'] = (quarterlyCounts['Quote Sent'] || 0) + 1;
-      const valField = (row[6] || '').replace(/[$\s]/g, '');
-      if (valField) {
-        const parts = valField.split('|').map(v => parseFloat(v.replace(/,/g, '')) || 0);
-        totalIndividualQuotes += parts.length;
-        const avg = parts.reduce((s, v) => s + v, 0) / parts.length;
-        totalQuoteValues += avg;
-      }
-    } else if (eventType === 'Site Visit Booked') {
-      quarterlyCounts['Site Visit Booked'] = (quarterlyCounts['Site Visit Booked'] || 0) + 1;
-    }
-  }
-
-  // Set computed counts
-  const totalAnswered = (quarterlyCounts['Answered'] || 0) + (quarterlyCounts["Didn't Answer"] || 0);
-  if ('Total Calls' in quarterlyCounts) quarterlyCounts['Total Calls'] = totalAnswered;
-  if ('Total Contact Attempts' in quarterlyCounts) quarterlyCounts['Total Contact Attempts'] = totalAnswered;
-  if ('Pipeline Value' in quarterlyCounts) quarterlyCounts['Pipeline Value'] = totalQuoteValues;
-  if ('Total Individual Quotes' in quarterlyCounts) quarterlyCounts['Total Individual Quotes'] = totalIndividualQuotes;
+  const jobDetails = data.jobDetails.map(j => ({
+    ...j,
+    address: (j.address || '').replace(/,\s*$/, '').trim(),
+  }));
 
   const topSources = getTopSources(quarterlyCounts, companyName);
   const has = (name) => outcomeNames.includes(name) || (quarterlyCounts[name] !== undefined);

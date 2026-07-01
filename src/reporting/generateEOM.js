@@ -1,6 +1,6 @@
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
-const { resolveLeadSource } = require('./generateEOD');
+const { countOutcomes } = require('./generateEOD');
 
 function formatMonth(year, month) {
   const months = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -26,7 +26,9 @@ function formatDollar(value) {
 }
 
 /**
- * Generate EOM report by reading directly from Activity Log with exact month boundaries.
+ * Generate EOM report by counting raw Activity Log rows with exact month
+ * boundaries — same engine as EOD (countOutcomes), so counts always match
+ * the ClickUp side-by-side tables and drop deleted activities.
  */
 async function generateEOM(spreadsheetId, salesPerson, year, month, companyName, ownerName, activityData) {
   const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -45,10 +47,10 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   });
 
   // Filter Activity Log rows for this month and person
-  const monthRows = activityRows.slice(1).filter(row => {
-    const rowDate = row[0] || '';
+  const monthRows = allParsed.filter(a => {
+    const rowDate = a['Date'] || '';
     if (rowDate < monthStart || rowDate >= nextMonth) return false;
-    if (salesPerson !== 'Team' && !row[1].startsWith(salesPerson)) return false;
+    if (salesPerson !== 'Team' && !(a['Sales Person'] || '').startsWith(salesPerson)) return false;
     return true;
   });
 
@@ -56,79 +58,18 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     return { message: `No data found for ${formatMonth(year, month)}.`, counts: {} };
   }
 
-  // Count outcomes from Activity Log
-  const { outcomes, formulas } = loadConfig(companyName);
+  const { outcomes } = loadConfig(companyName);
   const outcomeNames = getOutcomeNames(ownerName, companyName);
+
+  const data = countOutcomes(monthRows, ownerName, companyName, allParsed);
   const monthlyCounts = {};
   for (const name of outcomeNames) {
-    monthlyCounts[name] = 0;
+    monthlyCounts[name] = data.counts[name] || 0;
   }
-
-  // Collect Job Won details, site visits, quote details
-  const jobDetails = [];
-  let totalQuoteValues = 0;
-  let totalIndividualQuotes = 0;
-
-  for (const row of monthRows) {
-    const eventType = row[3] || '';
-    const outcome = row[4] || '';
-
-    if (eventType === 'EOD Update') {
-      // Parse outcome: "LeadType | AnswerStatus | Action | Notes | Source"
-      for (const o of outcomes.outcomes) {
-        const name = o.name.replace('{owner}', ownerName);
-        if (!(name in monthlyCounts)) continue;
-
-        switch (o.category) {
-          case 'leadType':
-            if (outcome.startsWith(`${name} |`)) monthlyCounts[name]++;
-            break;
-          case 'answerStatus':
-            if (outcome.includes(`| ${name} |`)) monthlyCounts[name]++;
-            break;
-          case 'source':
-            if (outcome.includes(`| ${name}`)) monthlyCounts[name]++;
-            break;
-          default:
-            // action, lost, abandoned, dq, etc.
-            if (outcome.includes(`| ${name} |`) || outcome.includes(`| ${name}`)) monthlyCounts[name]++;
-            break;
-        }
-      }
-    } else if (eventType === 'Job Won') {
-      monthlyCounts['Job Won'] = (monthlyCounts['Job Won'] || 0) + 1;
-      const valStr = (row[6] || '').replace(/[$,\s]/g, '');
-      let source = row[5] || '';
-      if (!source) source = resolveLeadSource(row[2], row[8], allParsed);
-      jobDetails.push({
-        contactName: row[2] || '',
-        address: (row[7] || '').replace(/,\s*$/, '').trim(),
-        value: parseFloat(valStr) || 0,
-        source,
-      });
-    } else if (eventType === 'Email Sent') {
-      monthlyCounts['Emails Sent'] = (monthlyCounts['Emails Sent'] || 0) + 1;
-    } else if (eventType === 'Quote Sent') {
-      monthlyCounts['Quote Sent'] = (monthlyCounts['Quote Sent'] || 0) + 1;
-      // Count individual quotes and pipeline value from column G (pipe-separated values)
-      const valField = (row[6] || '').replace(/[$\s]/g, '');
-      if (valField) {
-        const parts = valField.split('|').map(v => parseFloat(v.replace(/,/g, '')) || 0);
-        totalIndividualQuotes += parts.length;
-        const avg = parts.reduce((s, v) => s + v, 0) / parts.length;
-        totalQuoteValues += avg;
-      }
-    } else if (eventType === 'Site Visit Booked') {
-      monthlyCounts['Site Visit Booked'] = (monthlyCounts['Site Visit Booked'] || 0) + 1;
-    }
-  }
-
-  // Set computed counts
-  const totalAnswered = (monthlyCounts['Answered'] || 0) + (monthlyCounts["Didn't Answer"] || 0);
-  if ('Total Calls' in monthlyCounts) monthlyCounts['Total Calls'] = totalAnswered;
-  if ('Total Contact Attempts' in monthlyCounts) monthlyCounts['Total Contact Attempts'] = totalAnswered;
-  if ('Pipeline Value' in monthlyCounts) monthlyCounts['Pipeline Value'] = totalQuoteValues;
-  if ('Total Individual Quotes' in monthlyCounts) monthlyCounts['Total Individual Quotes'] = totalIndividualQuotes;
+  const jobDetails = data.jobDetails.map(j => ({
+    ...j,
+    address: (j.address || '').replace(/,\s*$/, '').trim(),
+  }));
 
   const topSources = getTopSources(monthlyCounts, companyName);
 

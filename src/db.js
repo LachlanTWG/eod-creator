@@ -1,8 +1,8 @@
-// Postgres client + insert helpers.
+// Postgres client + read/insert helpers.
 //
-// Permanent dual-write: every webhook also writes here, every archive also
-// writes here. DB is the dashboard's source of truth; sheets are the manual
-// ops surface.
+// Every webhook dual-writes (sheet + here), every archive writes here.
+// Postgres is the source of truth: report generation reads activities from
+// here (fetchActivityGrid); sheets remain a legacy ops surface until retired.
 //
 // Connection: DATABASE_URL env var (Supabase pooler connection string).
 // Service role bypasses RLS — we use it for all writes.
@@ -66,6 +66,81 @@ async function resolveSalesPersonId(client, companyId, personName) {
 function clearCaches() {
   companyIdCache.clear();
   salesPersonIdCache.clear();
+}
+
+// ─── Reads ──────────────────────────────────────────────────────────
+
+// DB enum values → sheet eventType strings (inverse of logActivity's map).
+const DB_TO_EVENT_TYPE = {
+  eod_update: 'EOD Update',
+  job_won: 'Job Won',
+  site_visit_booked: 'Site Visit Booked',
+  quote_sent: 'Quote Sent',
+  email_sent: 'Email Sent',
+};
+
+// Matches ACTIVITY_LOG_HEADERS in createCompanySheet.js — generators consume
+// rows both positionally and by header name, so order is load-bearing.
+const ACTIVITY_GRID_HEADERS = [
+  'Date', 'Sales Person', 'Contact Name', 'Event Type', 'Outcome',
+  'Ad Source', 'Quote/Job Value', 'Contact Address', 'Contact ID',
+  'Appointment Date Time', 'Appointment Date',
+];
+
+/**
+ * Read every activity for a company from Postgres, shaped exactly like the
+ * Activity Log sheet grid (header row + string rows). This is the single
+ * source the report generators consume — deleting a row in the DB removes it
+ * from every subsequently generated report.
+ *
+ * appointment_at stores the client's wall-clock tagged as UTC, so it is
+ * emitted as a naive ISO string of its UTC components (no zone suffix).
+ */
+async function fetchActivityGrid(companyName) {
+  const client = await getPool().connect();
+  try {
+    const companyId = await resolveCompanyId(client, companyName);
+    if (!companyId) throw new Error(`Unknown company: ${companyName}`);
+
+    const { rows } = await client.query(
+      `select
+         to_char(occurred_on, 'YYYY-MM-DD') as date,
+         sales_person_name,
+         coalesce(contact_name, '') as contact_name,
+         event_type,
+         coalesce(outcome, '') as outcome,
+         coalesce(ad_source, '') as ad_source,
+         coalesce(quote_job_value, '') as quote_job_value,
+         coalesce(contact_address, '') as contact_address,
+         coalesce(contact_id, '') as contact_id,
+         coalesce(to_char(appointment_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS'), '') as appointment_date_time,
+         coalesce(to_char(appointment_at at time zone 'UTC', 'YYYY-MM-DD'), '') as appointment_date
+       from activities
+       where company_id = $1
+       order by occurred_on, created_at`,
+      [companyId]
+    );
+
+    const grid = [ACTIVITY_GRID_HEADERS];
+    for (const r of rows) {
+      grid.push([
+        r.date,
+        r.sales_person_name,
+        r.contact_name,
+        DB_TO_EVENT_TYPE[r.event_type] || r.event_type,
+        r.outcome,
+        r.ad_source,
+        r.quote_job_value,
+        r.contact_address,
+        r.contact_id,
+        r.appointment_date_time,
+        r.appointment_date,
+      ]);
+    }
+    return grid;
+  } finally {
+    client.release();
+  }
 }
 
 // ─── Inserts ────────────────────────────────────────────────────────
@@ -225,6 +300,9 @@ async function close() {
 module.exports = {
   getPool,
   isEnabled,
+  fetchActivityGrid,
+  ACTIVITY_GRID_HEADERS,
+  DB_TO_EVENT_TYPE,
   insertActivity,
   insertReport,
   insertWebhookEvent,

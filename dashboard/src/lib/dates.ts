@@ -160,6 +160,30 @@ export function periodRange(period: Period, today: string): PeriodRange {
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 
 /**
+ * Shift an anchor date by whole periods (delta may be negative). Returns a
+ * date inside the target period — day 1 for month/quarter/year, same weekday
+ * for week — suitable for feeding back into fullPeriodRange().
+ */
+export function shiftPeriodAnchor(period: Period, anchor: string, delta: number): string {
+  const [y, m] = anchor.split("-").map(Number);
+  switch (period) {
+    case "day":  return addDaysIso(anchor, delta);
+    case "week": return addDaysIso(anchor, 7 * delta);
+    case "month": {
+      const t = y * 12 + (m - 1) + delta;
+      return `${Math.floor(t / 12)}-${pad2(((t % 12) + 12) % 12 + 1)}-01`;
+    }
+    case "quarter": {
+      const q = Math.ceil(m / 3);
+      const t = y * 4 + (q - 1) + delta;
+      const qq = ((t % 4) + 4) % 4;
+      return `${Math.floor(t / 4)}-${pad2(qq * 3 + 1)}-01`;
+    }
+    case "year": return `${y + delta}-01-01`;
+  }
+}
+
+/**
  * Bucket key for a given date and bucket type. Use these as Map keys when
  * aggregating activity into trend buckets.
  */

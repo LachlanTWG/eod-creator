@@ -7,6 +7,7 @@ const { addSalesPerson } = require('./sheets/addSalesPerson');
 const { removeSalesPerson } = require('./sheets/removeSalesPerson');
 const { logActivity } = require('./sheets/logActivity');
 const { readTab, getSpreadsheetMeta } = require('./sheets/readSheet');
+const db = require('./db');
 const { generateEOD } = require('./reporting/generateEOD');
 const { archiveDaily } = require('./reporting/archiveDaily');
 const { generateEOW } = require('./reporting/generateEOW');
@@ -103,7 +104,7 @@ async function main() {
       const dateIdx = args.indexOf('--date');
       const targetDate = dateIdx !== -1 ? args[dateIdx + 1] : todayAEST();
 
-      const activityData = await readTab(company.sheetId, 'Activity Log');
+      const activityData = await db.fetchActivityGrid(company.name);
       const { message, counts, names } = await generateEOD(
         company.sheetId, salesPerson, targetDate, company.name, company.ownerName, activityData
       );
@@ -141,7 +142,7 @@ async function main() {
       const startDate = args[startIdx + 1];
       const endDate = args[endIdx + 1];
 
-      const activityData = await readTab(company.sheetId, 'Activity Log');
+      const activityData = await db.fetchActivityGrid(company.name);
       const { message, counts, efficiencyRates } = await generateEOW(
         company.sheetId, salesPerson, startDate, endDate, company.name, company.ownerName, activityData
       );
@@ -265,7 +266,7 @@ async function main() {
       const year = yearIdx !== -1 ? parseInt(args[yearIdx + 1]) : parseInt(today.split('-')[0]);
       const month = monthIdx !== -1 ? parseInt(args[monthIdx + 1]) : parseInt(today.split('-')[1]);
 
-      const activityData = await readTab(company.sheetId, 'Activity Log');
+      const activityData = await db.fetchActivityGrid(company.name);
       const { message, counts, efficiencyRates } = await generateEOM(
         company.sheetId, salesPerson, year, month, company.name, company.ownerName, activityData
       );
@@ -300,8 +301,9 @@ async function main() {
       const today = todayAEST();
       const year = yearIdx !== -1 ? parseInt(args[yearIdx + 1]) : parseInt(today.split('-')[0]);
 
+      const activityData = await db.fetchActivityGrid(company.name);
       const { message, counts, efficiencyRates } = await generateEOY(
-        company.sheetId, salesPerson, year, company.name, company.ownerName
+        company.sheetId, salesPerson, year, company.name, company.ownerName, activityData
       );
 
       console.log('\n' + message + '\n');

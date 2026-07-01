@@ -1,9 +1,6 @@
-const { readTab } = require('../sheets/readSheet');
-const { appendRows } = require('../sheets/writeSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
-const { buildWeeklyStorageRow } = require('../sheets/populateFormulas');
-const { resolveLeadSource, normalizeName } = require('./generateEOD');
+const { countOutcomes, formatVisitDateTime } = require('./generateEOD');
 
 function formatFullDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00+10:00');
@@ -17,11 +14,8 @@ function formatDollar(value) {
   return '$' + Math.round(value).toLocaleString('en-AU');
 }
 
-function parseSerialDate(val) {
-  if (/^\d{4,5}$/.test(val)) {
-    return new Date((parseInt(val) - 25569) * 86400000).toISOString().split('T')[0];
-  }
-  return val;
+function cleanAddress(address) {
+  return (address || '').replace(/,\s*$/, '').trim();
 }
 
 function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
@@ -58,7 +52,8 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 8: {
       if (weeklyData.siteVisits && weeklyData.siteVisits.length > 0) {
         const lines = weeklyData.siteVisits.map(sv => {
-          return `${sv.contactName} - ${sv.address || 'TBC'} - ${sv.datetime || 'TBC'}`;
+          const dt = formatVisitDateTime(sv.datetime);
+          return `${sv.contactName} - ${cleanAddress(sv.address) || 'TBC'} - ${dt || 'TBC'}`;
         });
         return lines.join('\n');
       }
@@ -70,7 +65,7 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 9: {
       if (weeklyData.jobDetails && weeklyData.jobDetails.length > 0) {
         const lines = weeklyData.jobDetails.map(j => {
-          return `${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
+          return `${j.contactName} - ${cleanAddress(j.address) || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
         });
         const totalRevenue = weeklyData.jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
         if (totalRevenue > 0) {
@@ -108,96 +103,42 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
 }
 
 /**
- * Generate EOW report from live Weekly Storage formulas.
- * Creates the formula row if it doesn't exist yet, then reads back live values.
+ * Generate EOW report by counting raw Activity Log rows with exact week
+ * boundaries — same engine as EOD (countOutcomes), so a deleted activity
+ * disappears from the report on the next run. No storage-tab reads.
  */
 async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, companyName, ownerName, activityData) {
   const { blocks, formulas } = loadConfig(companyName);
   const outcomeNames = getOutcomeNames(ownerName, companyName);
-  const weeklyTab = salesPerson === 'Team' ? 'Team Weekly' : `${salesPerson} Weekly`;
-  const isTeam = salesPerson === 'Team';
 
-  // Read Weekly Storage
-  let weeklyRows = await readTab(spreadsheetId, weeklyTab);
+  const allRows = activityData || [];
+  const headers = allRows.length > 0 ? allRows[0] : [];
+  const allParsed = allRows.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+    return obj;
+  });
 
-  // Find the row for this week
-  let weekRow = weeklyRows.length >= 2
-    ? weeklyRows.slice(1).find(row => parseSerialDate(row[0]) === startDate)
-    : null;
+  const filtered = allParsed.filter(a => {
+    const d = a['Date'] || '';
+    if (d < startDate || d > endDate) return false;
+    if (salesPerson !== 'Team' && !(a['Sales Person'] || '').startsWith(salesPerson)) return false;
+    return true;
+  });
 
-  // If row doesn't exist, create the formula row so it's live in the sheet
-  if (!weekRow) {
-    const newRowNum = weeklyRows.length + 1;
-    const formulaRow = buildWeeklyStorageRow(startDate, endDate, newRowNum, salesPerson, companyName, ownerName, isTeam, '');
-    await appendRows(spreadsheetId, weeklyTab, [formulaRow]);
-    console.log(`  Created live weekly formula row for ${salesPerson} (${startDate} to ${endDate})`);
-
-    // Read back to get formula-computed values
-    weeklyRows = await readTab(spreadsheetId, weeklyTab);
-    weekRow = weeklyRows.slice(1).find(row => parseSerialDate(row[0]) === startDate);
-  }
-
-  // Extract counts from the formula-computed row
+  const data = countOutcomes(filtered, ownerName, companyName, allParsed);
   const weeklyCounts = {};
   for (const name of outcomeNames) {
-    weeklyCounts[name] = 0;
+    weeklyCounts[name] = data.counts[name] || 0;
   }
+  // Carry computed/synthetic counts that aren't positional outcome columns
+  weeklyCounts['Site Visits Booked'] = data.counts['Site Visits Booked'] || 0;
 
-  if (weekRow) {
-    let colIdx = 3; // Weekly: Start | End | Message | counts...
-    for (const name of outcomeNames) {
-      const val = parseFloat(weekRow[colIdx] || '0');
-      weeklyCounts[name] = isNaN(val) ? 0 : val;
-      colIdx++;
-    }
-  }
-
-  // Pull Job Won and Site Visit details from Activity Log
-  const weeklyData = { quoteDetails: [], siteVisits: [], jobDetails: [] };
-  try {
-    if (activityData && activityData.length >= 2) {
-      const headers = activityData[0];
-      const allParsed = activityData.slice(1).map(row => {
-        const obj = {};
-        headers.forEach((h, i) => { obj[h] = row[i] || ''; });
-        return obj;
-      });
-
-      for (const row of activityData.slice(1)) {
-        const rowDate = row[0];
-        if (rowDate < startDate || rowDate > endDate) continue;
-        if (salesPerson !== 'Team' && !row[1].startsWith(salesPerson)) continue;
-        const eventType = row[3];
-        if (eventType === 'Job Won') {
-          const valStr = (row[6] || '').replace(/[$,\s]/g, '');
-          let source = row[5] || '';
-          if (!source) {
-            source = resolveLeadSource(row[2], row[8], allParsed);
-          }
-          weeklyData.jobDetails.push({
-            contactName: row[2] || '',
-            address: (row[7] || '').replace(/,\s*$/, '').trim(),
-            value: parseFloat(valStr) || 0,
-            source,
-          });
-        } else if (eventType === 'Site Visit Booked') {
-          weeklyData.siteVisits.push({
-            contactName: row[2] || '',
-            address: (row[7] || '').replace(/,\s*$/, '').trim(),
-            datetime: row[9] || '',
-          });
-        }
-      }
-    }
-  } catch (e) {
-    console.error('  Could not read Activity Log for EOW details:', e.message);
-  }
-
-  // Synthetic display count for the Pipeline Progress block. EOW counts come
-  // from the sheet storage columns, which have NO column for this — so derive
-  // it from the activity-sourced details instead. Mirrors the EOD/dashboard
-  // renderers; "Site Visit Booked" (formula 8) still lists the visit details.
-  weeklyCounts['Site Visits Booked'] = weeklyData.siteVisits.length;
+  const weeklyData = {
+    quoteDetails: data.quoteDetails,
+    siteVisits: data.siteVisits,
+    jobDetails: data.jobDetails,
+  };
 
   const startFormatted = formatFullDate(startDate);
   const endFormatted = formatFullDate(endDate);

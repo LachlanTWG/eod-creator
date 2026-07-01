@@ -1,7 +1,8 @@
 // preview.js — returns report data as JSON, without sending to Slack/ClickUp or archiving.
 // Used by external tools (e.g. Agentic OS web dashboard) to render reports without firing them.
+// Reads activities from Postgres — same source as the real report runs.
 
-const { readTab } = require('./sheets/readSheet');
+const db = require('./db');
 const { generateEOD } = require('./reporting/generateEOD');
 const { generateEOW } = require('./reporting/generateEOW');
 const { generateEOM } = require('./reporting/generateEOM');
@@ -32,7 +33,7 @@ function activePeople(company) {
 }
 
 async function loadActivityData(company) {
-  return readTab(company.sheetId, 'Activity Log');
+  return db.fetchActivityGrid(company.name);
 }
 
 async function previewEOD(company, opts = {}) {
@@ -151,11 +152,12 @@ async function previewEOY(company, opts = {}) {
   const tz = company.timezone || 'Australia/Sydney';
   const today = todayInTz(tz);
   const year = opts.year ? parseInt(opts.year) : parseInt(today.split('-')[0]);
+  const activityData = await loadActivityData(company);
 
   const people = [];
   for (const person of activePeople(company)) {
     const { message, counts, monthlyBreakdown } = await generateEOY(
-      company.sheetId, person.name, year, company.name, company.ownerName
+      company.sheetId, person.name, year, company.name, company.ownerName, activityData
     );
     people.push({
       name: person.name,
@@ -166,7 +168,7 @@ async function previewEOY(company, opts = {}) {
   }
 
   const team = await generateEOY(
-    company.sheetId, 'Team', year, company.name, company.ownerName
+    company.sheetId, 'Team', year, company.name, company.ownerName, activityData
   );
 
   return {

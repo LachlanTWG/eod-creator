@@ -9,7 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { todayInTz, quoteGroupValue, SYDNEY_TZ } from "./format";
-import { mondayOf, type Period } from "./dates";
+import { mondayOf, addDaysIso, type Period } from "./dates";
 import { listCompanies, type CompanyRow } from "./queries";
 import blocksConfig from "./configs/blocks.json";
 import formulasConfig from "./configs/formulas.json";
@@ -382,16 +382,195 @@ function buildHeader(period: Period, companyLabel: string, personLabel: string, 
   if (period === "day") {
     return [`EOD Report - ${formatEODDate(rangeEnd)} - ${personLabel} - ${companyLabel}`, "----------------------------"];
   }
-  const title =
-    period === "week"    ? "SALES EXECUTIVE PERFORMANCE REPORT"
-  : period === "month"   ? "MONTHLY PERFORMANCE REPORT"
-  : period === "quarter" ? "QUARTERLY PERFORMANCE REPORT"
-  : /* year */            "ANNUAL PERFORMANCE REPORT";
   return [
-    `${title} - ${personLabel} - ${companyLabel}`,
+    `SALES EXECUTIVE PERFORMANCE REPORT - ${personLabel} - ${companyLabel}`,
     `Dates: ${formatLongDate(rangeStart)} - ${formatLongDate(rangeEnd)}`,
     "------------------------------------------",
   ];
+}
+
+// ─── Month / Quarter / Year formats (ported from generateEOM/EOQ/EOY.js) ──
+
+const MONTH_FULL = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+
+export type MonthBreakdown = { month: string; counts: Record<string, number> };
+
+function periodicLabel(period: Period, rangeStart: string): string {
+  const [y, m] = rangeStart.split("-").map(Number);
+  if (period === "month") return `${MONTH_FULL[m - 1]} ${y}`;
+  if (period === "quarter") {
+    const q = Math.ceil(m / 3);
+    const m1 = (q - 1) * 3 + 1;
+    const m3 = q * 3;
+    return `Q${q} ${y} (${MONTH_FULL[m1 - 1]} - ${MONTH_FULL[m3 - 1]})`;
+  }
+  return String(y);
+}
+
+function getTopSources(counts: Record<string, number>): { name: string; count: number }[] {
+  return OUTCOMES.outcomes
+    .filter(o => o.category === "source")
+    .map(o => ({ name: o.name, count: counts[o.name] || 0 }))
+    .filter(s => s.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+}
+
+function cleanAddress(address: string | null): string {
+  return (address || "").replace(/,\s*$/, "").trim();
+}
+
+/**
+ * Mirrors the backend MONTHLY / QUARTERLY / YEARLY PERFORMANCE REPORT
+ * formats so the dashboard shows exactly what Slack/ClickUp receive.
+ */
+function buildPeriodicMessage(opts: {
+  period: Period;
+  companyLabel: string;
+  personLabel: string;
+  ownerName: string;
+  rangeStart: string;
+  data: CountedData;
+  monthlyBreakdown?: MonthBreakdown[];
+}): string {
+  const { period, companyLabel, personLabel, ownerName, rangeStart, data, monthlyBreakdown } = opts;
+  const counts = data.counts;
+  const outcomeNames = getOutcomeNames(ownerName);
+  const has = (n: string) => outcomeNames.includes(n);
+  const isYear = period === "year";
+
+  const title = period === "month" ? "MONTHLY PERFORMANCE REPORT"
+    : period === "quarter" ? "QUARTERLY PERFORMANCE REPORT"
+    : "YEARLY PERFORMANCE REPORT";
+
+  const lines: string[] = [
+    `${title} - ${personLabel} - ${companyLabel}`,
+    periodicLabel(period, rangeStart),
+    "==========================================",
+    "",
+    "📞 Calls",
+  ];
+
+  const totalField = has("Total Calls") ? "Total Calls" : "Total Contact Attempts";
+  const totalCallCount = counts[totalField] || 0;
+  const answeredCount = counts["Answered"] || 0;
+  const pickUpRate = totalCallCount > 0 ? Math.round((answeredCount / totalCallCount) * 100) : 0;
+  lines.push(`Total Calls: ${totalCallCount}`);
+  lines.push(`Answered: ${answeredCount} | Didn't Answer: ${counts["Didn't Answer"] || 0}`);
+  if (totalCallCount > 0) lines.push(`Pick Up Rate: ${pickUpRate}%`);
+
+  if (has("New Leads")) {
+    const leadParts = [`New Leads: ${counts["New Leads"] || 0}`];
+    if (counts["Pre-Quote Follow Up"]) leadParts.push(`Pre-Quote Follow Up: ${counts["Pre-Quote Follow Up"]}`);
+    if (counts["Post Quote Follow Up"]) leadParts.push(`Post Quote Follow Up: ${counts["Post Quote Follow Up"]}`);
+    if (counts["Follow Up"]) leadParts.push(`Follow Up: ${counts["Follow Up"]}`);
+    lines.push(`📋 ${leadParts.join(" | ")}`);
+  }
+
+  const emailCount = counts["Emails Sent"] || 0;
+  if (emailCount > 0) {
+    lines.push("");
+    lines.push(`📧 Emails Sent: ${emailCount}`);
+  }
+
+  // Trade-specific metrics
+  if (has("Quote Sent")) {
+    lines.push("");
+    lines.push(isYear ? "💰 Revenue" : "💰 Revenue Pipeline");
+    lines.push(`Total Contacts Quoted: ${counts["Quote Sent"] || 0}`);
+    lines.push(`Total Individual Quotes: ${counts["Total Individual Quotes"] || 0}`);
+    lines.push(`${isYear ? "Total Pipeline Value" : "Pipeline Value"}: ${formatDollar(counts["Pipeline Value"] || 0)}`);
+    if (has("Site Visit Booked")) lines.push(`Site Visits: ${counts["Site Visit Booked"] || 0}`);
+    if (has("Job Won")) {
+      if (isYear) {
+        lines.push(`Jobs Won: ${counts["Job Won"] || 0}`);
+      } else {
+        const jobDetails = data.jobDetails;
+        const jobCount = jobDetails.length > 0 ? jobDetails.length : (counts["Job Won"] || 0);
+        lines.push(`Jobs Won: ${jobCount}`);
+        if (jobDetails.length > 0) {
+          for (const j of jobDetails) {
+            lines.push(`${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+          }
+          const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
+          lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
+        }
+      }
+    }
+  }
+
+  // Agency-specific metrics
+  if (has("Roadmap Booked")) {
+    lines.push("");
+    lines.push("🗺️ Roadmaps");
+    lines.push(`Roadmaps Booked: ${counts["Roadmap Booked"] || 0}`);
+    lines.push(`Roadmaps Proposed: ${counts["Roadmap Proposed"] || 0}`);
+    if (has("Deal Closed")) lines.push(`Deals Closed: ${counts["Deal Closed"] || 0}`);
+  }
+
+  const topSources = getTopSources(counts);
+  if (topSources.length > 0) {
+    lines.push("");
+    lines.push("📣 Top Lead Sources");
+    for (const s of topSources) lines.push(`${s.name}: ${s.count}`);
+  }
+
+  // Attrition (dynamic from outcome categories)
+  const sumCategory = (cat: string) =>
+    OUTCOMES.outcomes.filter(o => o.category === cat).reduce((sum, o) => sum + (counts[o.name] || 0), 0);
+  const totalLost = sumCategory("lost");
+  const totalAbandoned = sumCategory("abandoned");
+  const totalDQ = sumCategory("dq");
+  if (totalLost > 0 || totalAbandoned > 0 || totalDQ > 0) {
+    lines.push("");
+    lines.push("🔴 Attrition");
+    if (totalLost > 0) lines.push(`Lost: ${totalLost}`);
+    if (totalAbandoned > 0) lines.push(`Abandoned: ${totalAbandoned}`);
+    if (totalDQ > 0) lines.push(`Disqualified: ${totalDQ}`);
+  }
+
+  // Yearly extras: monthly breakdown table + best/quietest month
+  if (isYear && monthlyBreakdown && monthlyBreakdown.length > 1) {
+    lines.push("");
+    lines.push("📊 Monthly Breakdown");
+    const monthTag = (key: string) => {
+      const [yr, mo] = key.split("-").map(Number);
+      return `${MONTH_FULL[mo - 1]} ${yr}`;
+    };
+    if (has("Quote Sent")) {
+      lines.push("Month | Calls | Answered | Quotes | Site Visits | Jobs Won");
+      lines.push("------|-------|----------|--------|-------------|--------");
+      for (const mb of monthlyBreakdown) {
+        const c = mb.counts;
+        lines.push(`${monthTag(mb.month)} | ${c[totalField] || 0} | ${c["Answered"] || 0} | ${c["Quote Sent"] || 0} | ${c["Site Visit Booked"] || 0} | ${c["Job Won"] || 0}`);
+      }
+    } else {
+      lines.push("Month | Contacts | Answered | Roadmaps | Deals");
+      lines.push("------|----------|----------|----------|------");
+      for (const mb of monthlyBreakdown) {
+        const c = mb.counts;
+        lines.push(`${monthTag(mb.month)} | ${c[totalField] || 0} | ${c["Answered"] || 0} | ${c["Roadmap Booked"] || 0} | ${c["Deal Closed"] || 0}`);
+      }
+    }
+
+    let best: MonthBreakdown | null = null;
+    let worst: MonthBreakdown | null = null;
+    for (const mb of monthlyBreakdown) {
+      const calls = mb.counts[totalField] || 0;
+      if (!best || calls > (best.counts[totalField] || 0)) best = mb;
+      if (!worst || calls < (worst.counts[totalField] || 0)) worst = mb;
+    }
+    if (best && worst) {
+      lines.push("");
+      lines.push(`Best Month: ${monthTag(best.month)} (${best.counts[totalField] || 0} ${totalField.toLowerCase()})`);
+      lines.push(`Quietest Month: ${monthTag(worst.month)} (${worst.counts[totalField] || 0} ${totalField.toLowerCase()})`);
+    }
+  }
+
+  lines.push("");
+  lines.push("==========================================");
+  return lines.join("\n");
 }
 
 function buildMessage(opts: {
@@ -403,8 +582,19 @@ function buildMessage(opts: {
   rangeStart: string;
   rangeEnd: string;
   data: CountedData;
+  monthlyBreakdown?: MonthBreakdown[];
 }): string {
   const { period, companyLabel, personLabel, ownerName, scope, rangeStart, rangeEnd, data } = opts;
+
+  // Month / quarter / year use the backend's structured report format, not
+  // the EOW block list.
+  if (period === "month" || period === "quarter" || period === "year") {
+    return buildPeriodicMessage({
+      period, companyLabel, personLabel, ownerName, rangeStart,
+      data, monthlyBreakdown: opts.monthlyBreakdown,
+    });
+  }
+
   const blocks = period === "day" ? BLOCKS.eodBlocks : BLOCKS.eowBlocks;
   const formulaKey: "eod" | "eow" = period === "day" ? "eod" : "eow";
   const separator = period === "day" ? "----------------------------" : "------------------------------------------";
@@ -470,18 +660,32 @@ async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ dat
   return out;
 }
 
-function periodStartFor(period: Period, today: string): string {
+function pad2(n: number) { return String(n).padStart(2, "0"); }
+
+/**
+ * Full calendar period containing the anchor date. Used so any historical
+ * period can be rendered, not just period-start → today.
+ */
+export function fullPeriodRange(period: Period, anchor: string): { start: string; end: string } {
+  const [y, m] = anchor.split("-").map(Number);
   switch (period) {
-    case "day":     return today;
-    case "week":    return mondayOf(today);
-    case "month":   { const [y, m] = today.split("-"); return `${y}-${m}-01`; }
-    case "quarter": {
-      const [y, m] = today.split("-").map(Number);
-      const q = Math.ceil(m / 3);
-      const qStartMonth = (q - 1) * 3 + 1;
-      return `${y}-${String(qStartMonth).padStart(2, "0")}-01`;
+    case "day": return { start: anchor, end: anchor };
+    case "week": {
+      const start = mondayOf(anchor);
+      return { start, end: addDaysIso(start, 6) };
     }
-    case "year":    { const [y] = today.split("-"); return `${y}-01-01`; }
+    case "month": {
+      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      return { start: `${y}-${pad2(m)}-01`, end: `${y}-${pad2(m)}-${pad2(lastDay)}` };
+    }
+    case "quarter": {
+      const q = Math.ceil(m / 3);
+      const startMonth = (q - 1) * 3 + 1;
+      const endMonth = q * 3;
+      const lastDay = new Date(Date.UTC(y, endMonth, 0)).getUTCDate();
+      return { start: `${y}-${pad2(startMonth)}-01`, end: `${y}-${pad2(endMonth)}-${pad2(lastDay)}` };
+    }
+    case "year": return { start: `${y}-01-01`, end: `${y}-12-31` };
   }
 }
 
@@ -505,6 +709,18 @@ export type DashboardMessages = {
   grandTotal: LiveMessage | null;      // null when ≤ 1 visible company
 };
 
+/** Bucket rows per month of the range's year and count each — for EOY reports. */
+function monthlyBreakdownFor(rows: ActivityRow[], ownerName: string, all: ActivityRow[], year: string): MonthBreakdown[] {
+  const out: MonthBreakdown[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const prefix = `${year}-${pad2(m)}`;
+    const monthRows = rows.filter(r => r.occurred_on.startsWith(prefix));
+    if (monthRows.length === 0) continue;
+    out.push({ month: prefix, counts: countOutcomes(monthRows, ownerName, all).counts });
+  }
+  return out;
+}
+
 export async function loadDashboardMessages(
   supabase: SupabaseClient,
   opts: {
@@ -512,12 +728,12 @@ export async function loadDashboardMessages(
     mySalesPersonIds: Set<string>;
     myCompanyIds: Set<string>;
     myDisplayName: string;            // shown as "personLabel" in personal headers
+    anchor?: string;                  // any date inside the desired period; defaults to today
   },
 ): Promise<DashboardMessages> {
   const companies = await listCompanies(supabase);
   const today = todayInTz(SYDNEY_TZ);
-  const rangeStart = periodStartFor(opts.period, today);
-  const rangeEnd = today;
+  const { start: rangeStart, end: rangeEnd } = fullPeriodRange(opts.period, opts.anchor || today);
 
   // companies.owner_name comes from the table — listCompanies doesn't fetch
   // it, so pull it via a second targeted query.
@@ -545,6 +761,10 @@ export async function loadDashboardMessages(
   for (const c of companies) byCompany.set(c.id, []);
   for (const row of rows) byCompany.get(row.company_id)?.push(row);
 
+  const rangeYear = rangeStart.slice(0, 4);
+  const breakdownFor = (subset: ActivityRow[], ownerName: string, all: ActivityRow[]) =>
+    opts.period === "year" ? monthlyBreakdownFor(subset, ownerName, all, rangeYear) : undefined;
+
   // Build per-company messages
   const perCompany: DashboardMessages["perCompany"] = companies.map(c => {
     const all = byCompany.get(c.id) || [];
@@ -560,6 +780,7 @@ export async function loadDashboardMessages(
       scope: "team",
       rangeStart, rangeEnd,
       data: teamData,
+      monthlyBreakdown: breakdownFor(all, ownerName, all),
     });
 
     let personal: LiveMessage | null = null;
@@ -574,6 +795,7 @@ export async function loadDashboardMessages(
         scope: "personal",
         rangeStart, rangeEnd,
         data: personalData,
+        monthlyBreakdown: breakdownFor(mine, ownerName, all),
       });
       personal = {
         scope: "personal",
@@ -615,6 +837,7 @@ export async function loadDashboardMessages(
         scope: "personal",
         rangeStart, rangeEnd,
         data,
+        monthlyBreakdown: breakdownFor(mineAll, ownerName, rows),
       }),
     };
   }
@@ -635,9 +858,99 @@ export async function loadDashboardMessages(
         scope: "team",
         rangeStart, rangeEnd,
         data,
+        monthlyBreakdown: breakdownFor(rows, ownerName, rows),
       }),
     };
   }
 
   return { period: opts.period, rangeStart, rangeEnd, perCompany, personalTotal, grandTotal };
+}
+
+// ─── Company live reports (for /reports) ────────────────────────────
+
+export type CompanyLiveReport = {
+  company: { id: string; name: string; slug: string; timezone: string };
+  period: Period;
+  rangeStart: string;
+  rangeEnd: string;
+  team: { name: string; message: string; hasActivity: boolean };
+  people: { name: string; message: string; hasActivity: boolean }[];
+};
+
+/**
+ * Compute one company's Team + per-exec reports live from `activities` for
+ * the full period containing `anchor` (in the company's timezone by default).
+ * Exactly the messages the backend cron would generate for that period —
+ * delete an activity row and the report changes on the next render.
+ */
+export async function loadCompanyLiveReports(
+  supabase: SupabaseClient,
+  opts: { companyId: string; period: Period; anchor?: string },
+): Promise<CompanyLiveReport | null> {
+  const { data: c } = await supabase
+    .from("companies")
+    .select("id, name, slug, timezone, owner_name")
+    .eq("id", opts.companyId)
+    .single();
+  if (!c) return null;
+
+  const anchor = opts.anchor || todayInTz(c.timezone || SYDNEY_TZ);
+  const { start, end } = fullPeriodRange(opts.period, anchor);
+  const ownerName = (c.owner_name as string) || "Owner";
+
+  // Whole company log — lead-source resolution cross-references outside the
+  // period, matching the backend generators.
+  const all = await pageAll<ActivityRow>((from, to) =>
+    supabase
+      .from("activities")
+      .select("company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_id, contact_address, outcome, ad_source, quote_job_value, appointment_at")
+      .eq("company_id", c.id)
+      .order("occurred_on", { ascending: true })
+      .order("created_at", { ascending: true })
+      .range(from, to),
+  );
+  const inRange = all.filter(r => r.occurred_on >= start && r.occurred_on <= end);
+
+  const { data: roster } = await supabase
+    .from("sales_people")
+    .select("id, name")
+    .eq("company_id", c.id)
+    .eq("active", true)
+    .order("name");
+
+  const year = start.slice(0, 4);
+  const mkReport = (rows: ActivityRow[], personLabel: string, scope: MessageScope) => {
+    const data = countOutcomes(rows, ownerName, all);
+    const hasActivity = Object.values(data.counts).some(v => v > 0);
+    const message = buildMessage({
+      period: opts.period,
+      companyLabel: c.name as string,
+      personLabel,
+      ownerName,
+      scope,
+      rangeStart: start,
+      rangeEnd: end,
+      data,
+      monthlyBreakdown: opts.period === "year" ? monthlyBreakdownFor(rows, ownerName, all, year) : undefined,
+    });
+    return { message, hasActivity };
+  };
+
+  const team = { name: "Team", ...mkReport(inRange, "Team", "team") };
+  const people = (roster || []).map(p => {
+    const rows = inRange.filter(r =>
+      r.sales_person_id === p.id ||
+      (!r.sales_person_id && (r.sales_person_name || "").startsWith(p.name as string)),
+    );
+    return { name: p.name as string, ...mkReport(rows, p.name as string, "personal") };
+  });
+
+  return {
+    company: { id: c.id as string, name: c.name as string, slug: c.slug as string, timezone: (c.timezone as string) || SYDNEY_TZ },
+    period: opts.period,
+    rangeStart: start,
+    rangeEnd: end,
+    team,
+    people,
+  };
 }

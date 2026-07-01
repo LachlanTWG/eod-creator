@@ -1,60 +1,67 @@
-const { readTab } = require('../sheets/readSheet');
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { formatMonth, getTopSources } = require('./generateEOM');
 const { loadConfig } = require('../config/configLoader');
+const { countOutcomes } = require('./generateEOD');
 
 function formatDollar(value) {
   return '$' + Math.round(value).toLocaleString('en-AU');
 }
 
 /**
- * Generate EOY report by aggregating monthly storage data for a given year.
+ * Generate EOY report by counting raw Activity Log rows with exact year
+ * boundaries — no storage-tab reads, so deleted activities drop out of the
+ * report on the next run. Monthly breakdown is recomputed per month from the
+ * same rows.
  */
-async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerName) {
-  const monthlyTab = salesPerson === 'Team' ? 'Team Monthly' : `${salesPerson} Monthly`;
-  const allRows = await readTab(spreadsheetId, monthlyTab);
+async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerName, activityData) {
+  const yearStr = String(year);
 
+  const allRows = activityData || [];
   if (allRows.length < 2) {
-    return { message: 'No monthly data found.', counts: {}, monthlyBreakdown: [] };
+    return { message: `No data found for ${year}.`, counts: {}, monthlyBreakdown: [] };
   }
 
-  const dataRows = allRows.slice(1);
-  const yearStr = String(year);
-  const yearRows = dataRows.filter(row => row[0] && row[0].startsWith(yearStr));
+  const headers = allRows[0];
+  const allParsed = allRows.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+    return obj;
+  });
+
+  const yearRows = allParsed.filter(a => {
+    const d = a['Date'] || '';
+    if (!d.startsWith(`${yearStr}-`)) return false;
+    if (salesPerson !== 'Team' && !(a['Sales Person'] || '').startsWith(salesPerson)) return false;
+    return true;
+  });
 
   if (yearRows.length === 0) {
-    return { message: `No monthly data found for ${year}.`, counts: {}, monthlyBreakdown: [] };
+    return { message: `No data found for ${year}.`, counts: {}, monthlyBreakdown: [] };
   }
 
   const outcomeNames = getOutcomeNames(ownerName, companyName);
   const { outcomes } = loadConfig(companyName);
+
+  // Yearly totals computed directly over the whole year's rows
+  const yearlyData = countOutcomes(yearRows, ownerName, companyName, allParsed);
   const yearlyCounts = {};
   for (const name of outcomeNames) {
-    yearlyCounts[name] = 0;
+    yearlyCounts[name] = yearlyData.counts[name] || 0;
   }
 
+  // Per-month breakdown recomputed from the same rows
   const monthlyBreakdown = [];
-
-  for (const row of yearRows) {
-    const monthField = row[0];
+  for (let m = 1; m <= 12; m++) {
+    const monthPrefix = `${yearStr}-${String(m).padStart(2, '0')}`;
+    const monthRows = yearRows.filter(a => (a['Date'] || '').startsWith(monthPrefix));
+    if (monthRows.length === 0) continue;
+    const monthData = countOutcomes(monthRows, ownerName, companyName, allParsed);
     const monthCounts = {};
-    let colIdx = 2;
     for (const name of outcomeNames) {
-      const countVal = parseInt(row[colIdx] || '0', 10);
-      monthCounts[name] = isNaN(countVal) ? 0 : countVal;
-      yearlyCounts[name] += monthCounts[name];
-      colIdx++;
+      monthCounts[name] = monthData.counts[name] || 0;
     }
-    const totalAnswered = (monthCounts['Answered'] || 0) + (monthCounts["Didn't Answer"] || 0);
-    if ('Total Calls' in monthCounts) monthCounts['Total Calls'] = totalAnswered;
-    if ('Total Contact Attempts' in monthCounts) monthCounts['Total Contact Attempts'] = totalAnswered;
-    monthlyBreakdown.push({ month: monthField, counts: monthCounts });
+    monthlyBreakdown.push({ month: monthPrefix, counts: monthCounts });
   }
-
-  // Recompute totals
-  const totalAnswered = (yearlyCounts['Answered'] || 0) + (yearlyCounts["Didn't Answer"] || 0);
-  if ('Total Calls' in yearlyCounts) yearlyCounts['Total Calls'] = totalAnswered;
-  if ('Total Contact Attempts' in yearlyCounts) yearlyCounts['Total Contact Attempts'] = totalAnswered;
 
   const topSources = getTopSources(yearlyCounts, companyName);
 

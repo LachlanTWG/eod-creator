@@ -552,4 +552,4 @@ function buildEODSummaryTable(companyName, dateStr, ownerName, peopleData) {
   return buildSummaryTable(companyName, `EOD Summary — ${formatEODDate(dateStr)} — ${companyName}`, ownerName, peopleData);
 }
 
-module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage, buildEODSummaryTable, buildSummaryTable, resolveLeadSource, normalizeName };
+module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage, buildEODSummaryTable, buildSummaryTable, resolveLeadSource, normalizeName, formatVisitDateTime };
