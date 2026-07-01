@@ -1,6 +1,6 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
-const { generateEOD, countOutcomes, buildEODSummaryTable } = require('./reporting/generateEOD');
+const { generateEOD, countOutcomes, buildEODSummaryTable, buildSummaryTable } = require('./reporting/generateEOD');
 const { getOutcomeNames } = require('./sheets/createCompanySheet');
 const { archiveDaily } = require('./reporting/archiveDaily');
 const { generateEOW } = require('./reporting/generateEOW');
@@ -39,6 +39,50 @@ function getSundayOfWeek(dateStr) {
   const d = new Date(monday + 'T12:00:00Z');
   d.setDate(d.getDate() + 6);
   return d.toISOString().split('T')[0];
+}
+
+/**
+ * Parse the Activity Log grid into row objects keyed by header.
+ */
+function parseActivities(activityData) {
+  if (!activityData || activityData.length < 2) return [];
+  const headers = activityData[0];
+  return activityData.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] || ''; });
+    return obj;
+  });
+}
+
+/**
+ * Build per-person countOutcomes results over a period, for the ClickUp
+ * side-by-side summary table. `inPeriod(dateStr)` selects the rows in range.
+ */
+function buildPeopleData(activityData, activePeople, inPeriod, ownerName, companyName) {
+  const activities = parseActivities(activityData);
+  return activePeople.map(person => {
+    const filtered = activities.filter(a =>
+      inPeriod(a['Date']) && (a['Sales Person'] || '').startsWith(person.name)
+    );
+    return { name: person.name, data: countOutcomes(filtered, ownerName, companyName, activities) };
+  });
+}
+
+/**
+ * Post the period's Team output to ClickUp as TWO messages: a people
+ * side-by-side summary table first, then the detailed Team report. No-op if
+ * nobody had any activity in the period.
+ */
+async function sendTeamToClickUp(company, type, periodLabel, teamMessage, peopleData, ownerName) {
+  const anyActivity = peopleData.some(p => Object.values(p.data.counts || {}).some(v => v > 0));
+  if (!anyActivity) return;
+  const TYPE = type.toUpperCase();
+  const table = buildSummaryTable(company.name, `${TYPE} Summary — ${periodLabel} — ${company.name}`, ownerName, peopleData);
+  await sendReportToClickUp(company, type, `${TYPE} Summary - ${company.name} - ${periodLabel}`, table)
+    .catch(e => console.error(`  ClickUp table error: ${e.message}`));
+  await sendReportToClickUp(company, type, `${TYPE} - Team - ${periodLabel}`, teamMessage)
+    .catch(e => console.error(`  ClickUp Team report error: ${e.message}`));
+  console.log(`  ClickUp: Team ${TYPE} table + report sent.`);
 }
 
 // ─── Single-Company Runners ──────────────────────────────────────────
@@ -176,6 +220,8 @@ async function sendCompanyEOW(company, startDate, endDate) {
   const activityData = await readTab(company.sheetId, 'Activity Log');
 
   const activePeople = company.salesPeople.filter(p => p.active);
+  const peopleData = buildPeopleData(activityData, activePeople,
+    d => d >= start && d <= end, company.ownerName, company.name);
 
   for (const person of activePeople) {
     try {
@@ -183,20 +229,17 @@ async function sendCompanyEOW(company, startDate, endDate) {
         company.sheetId, person.name, start, end, company.name, company.ownerName, activityData
       );
 
+      // Individual reports go to Slack only (ClickUp gets the Team report + table)
       await sendReportToSlack(company, 'eow', message).catch(e =>
         console.error(`  Slack error: ${e.message}`)
       );
-      const title = `EOW - ${person.name} - ${start} to ${end}`;
-      await sendReportToClickUp(company, 'eow', title, message, person.name).catch(e =>
-        console.error(`  ClickUp error: ${e.message}`)
-      );
-      console.log(`  ${person.name}: Sent.`);
+      console.log(`  ${person.name}: Sent to Slack.`);
     } catch (err) {
       console.error(`  ${person.name}: ${err.message}`);
     }
   }
 
-  // Team send (skip Slack if only 1 active person — would be a duplicate)
+  // Team send: Slack (if >1 active person) + ClickUp (side-by-side table + Team report)
   try {
     const { message, counts } = await generateEOW(
       company.sheetId, 'Team', start, end, company.name, company.ownerName, activityData
@@ -204,6 +247,7 @@ async function sendCompanyEOW(company, startDate, endDate) {
     if (activePeople.length > 1) {
       await sendReportToSlack(company, 'eow', message).catch(() => {});
     }
+    await sendTeamToClickUp(company, 'eow', `${start} to ${end}`, message, peopleData, company.ownerName);
   } catch (err) {
     console.error(`  Team: ${err.message}`);
   }
@@ -264,6 +308,9 @@ async function runCompanyEOM(company, year, month) {
   const activityData = await readTab(company.sheetId, 'Activity Log');
 
   const activePeople = company.salesPeople.filter(p => p.active);
+  const monthLabel = `${actualYear}-${String(m).padStart(2, '0')}`;
+  const peopleData = buildPeopleData(activityData, activePeople,
+    d => (d || '').startsWith(monthLabel), company.ownerName, company.name);
 
   for (const person of activePeople) {
     try {
@@ -273,12 +320,9 @@ async function runCompanyEOM(company, year, month) {
       if (!counts || Object.keys(counts).length === 0) continue;
 
       await archiveMonthly(company.sheetId, person.name, actualYear, m, message, counts, {}, company.ownerName, company.name);
+      // Individual reports go to Slack only (ClickUp gets the Team report + table)
       await sendReportToSlack(company, 'eom', message).catch(e =>
         console.error(`  Slack error: ${e.message}`)
-      );
-      const title = `EOM - ${person.name} - ${actualYear}-${String(m).padStart(2, '0')}`;
-      await sendReportToClickUp(company, 'eom', title, message, person.name).catch(e =>
-        console.error(`  ClickUp error: ${e.message}`)
       );
       console.log(`  ${person.name}: Done.`);
     } catch (err) {
@@ -286,7 +330,7 @@ async function runCompanyEOM(company, year, month) {
     }
   }
 
-  // Team EOM (skip Slack if only 1 active person)
+  // Team EOM: Slack (if >1 active person) + ClickUp (side-by-side table + Team report)
   try {
     const { message, counts } = await generateEOM(
       company.sheetId, 'Team', actualYear, m, company.name, company.ownerName, activityData
@@ -296,6 +340,7 @@ async function runCompanyEOM(company, year, month) {
       if (activePeople.length > 1) {
         await sendReportToSlack(company, 'eom', message).catch(() => {});
       }
+      await sendTeamToClickUp(company, 'eom', monthLabel, message, peopleData, company.ownerName);
     }
   } catch (err) {
     console.error(`  Team: ${err.message}`);
@@ -322,6 +367,13 @@ async function runCompanyEOQ(company, year, quarter) {
   const activityData = await readTab(company.sheetId, 'Activity Log');
 
   const activePeople = company.salesPeople.filter(p => p.active);
+  const quarterLabel = `${actualYear}-Q${q}`;
+  const qStart = (q - 1) * 3 + 1, qEnd = q * 3;
+  const peopleData = buildPeopleData(activityData, activePeople, d => {
+    const parts = (d || '').split('-');
+    const yy = parseInt(parts[0], 10), mm = parseInt(parts[1], 10);
+    return yy === actualYear && mm >= qStart && mm <= qEnd;
+  }, company.ownerName, company.name);
 
   for (const person of activePeople) {
     try {
@@ -331,12 +383,9 @@ async function runCompanyEOQ(company, year, quarter) {
       if (!counts || Object.keys(counts).length === 0) continue;
 
       await archiveQuarterly(company.sheetId, person.name, actualYear, q, message, counts, company.ownerName, company.name);
+      // Individual reports go to Slack only (ClickUp gets the Team report + table)
       await sendReportToSlack(company, 'eoq', message).catch(e =>
         console.error(`  Slack error: ${e.message}`)
-      );
-      const title = `EOQ - ${person.name} - ${actualYear}-Q${q}`;
-      await sendReportToClickUp(company, 'eoq', title, message, person.name).catch(e =>
-        console.error(`  ClickUp error: ${e.message}`)
       );
       console.log(`  ${person.name}: Done.`);
     } catch (err) {
@@ -344,7 +393,7 @@ async function runCompanyEOQ(company, year, quarter) {
     }
   }
 
-  // Team EOQ (skip Slack if only 1 active person)
+  // Team EOQ: Slack (if >1 active person) + ClickUp (side-by-side table + Team report)
   try {
     const { message, counts } = await generateEOQ(
       company.sheetId, 'Team', actualYear, q, company.name, company.ownerName, activityData
@@ -354,6 +403,7 @@ async function runCompanyEOQ(company, year, quarter) {
       if (activePeople.length > 1) {
         await sendReportToSlack(company, 'eoq', message).catch(() => {});
       }
+      await sendTeamToClickUp(company, 'eoq', quarterLabel, message, peopleData, company.ownerName);
     }
   } catch (err) {
     console.error(`  Team: ${err.message}`);
@@ -372,6 +422,11 @@ async function runCompanyEOY(company, year) {
 
   const activePeople = company.salesPeople.filter(p => p.active);
 
+  // generateEOY reads storage tabs; read the Activity Log here for the ClickUp table
+  const activityData = await readTab(company.sheetId, 'Activity Log');
+  const peopleData = buildPeopleData(activityData, activePeople,
+    d => (d || '').startsWith(`${y}-`), company.ownerName, company.name);
+
   for (const person of activePeople) {
     try {
       const { message, counts } = await generateEOY(
@@ -380,12 +435,9 @@ async function runCompanyEOY(company, year) {
       if (!counts || Object.keys(counts).length === 0) continue;
 
       await archiveYearly(company.sheetId, person.name, y, message, counts, {}, company.ownerName, company.name);
+      // Individual reports go to Slack only (ClickUp gets the Team report + table)
       await sendReportToSlack(company, 'eoy', message).catch(e =>
         console.error(`  Slack error: ${e.message}`)
-      );
-      const title = `EOY - ${person.name} - ${y}`;
-      await sendReportToClickUp(company, 'eoy', title, message, person.name).catch(e =>
-        console.error(`  ClickUp error: ${e.message}`)
       );
       console.log(`  ${person.name}: Done.`);
     } catch (err) {
@@ -393,7 +445,7 @@ async function runCompanyEOY(company, year) {
     }
   }
 
-  // Team EOY (skip Slack if only 1 active person)
+  // Team EOY: Slack (if >1 active person) + ClickUp (side-by-side table + Team report)
   const activeEOY = company.salesPeople.filter(p => p.active);
   try {
     const { message, counts } = await generateEOY(
@@ -404,6 +456,7 @@ async function runCompanyEOY(company, year) {
       if (activeEOY.length > 1) {
         await sendReportToSlack(company, 'eoy', message).catch(() => {});
       }
+      await sendTeamToClickUp(company, 'eoy', String(y), message, peopleData, company.ownerName);
     }
   } catch (err) {
     console.error(`  Team: ${err.message}`);

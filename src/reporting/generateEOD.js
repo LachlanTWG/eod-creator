@@ -491,26 +491,27 @@ async function generateEOD(spreadsheetId, salesPerson, targetDate, companyName, 
 }
 
 /**
- * Build a summary table for ClickUp with all salespeople side-by-side.
+ * Build a people-side-by-side summary table for ClickUp (columns per exec + Team).
+ * Generic across periods — the caller supplies the bold heading line and the
+ * per-person countOutcomes results for the period being summarised.
  * @param {string} companyName
- * @param {string} dateStr
+ * @param {string} heading - bold heading text (rendered as **heading**)
  * @param {string} ownerName
  * @param {Array<{name: string, data: object}>} peopleData - each person's countOutcomes result
  */
-function buildEODSummaryTable(companyName, dateStr, ownerName, peopleData) {
+function buildSummaryTable(companyName, heading, ownerName, peopleData) {
   const { blocks } = loadConfig(companyName);
-  const dateFormatted = formatEODDate(dateStr);
   const personNames = peopleData.map(p => p.name);
 
   const lines = [];
-  lines.push(`**EOD Summary — ${dateFormatted} — ${companyName}**`);
+  lines.push(`**${heading}**`);
   lines.push('');
 
   // Table header
   lines.push(`| Metric | ${personNames.join(' | ')} | Team |`);
   lines.push(`|---|${personNames.map(() => '---:').join('|')}|---:|`);
 
-  // Walk through EOD blocks to keep same ordering as reports
+  // Walk through EOD blocks to keep the same metrics/ordering as the daily table
   for (const block of blocks.eodBlocks) {
     for (let outcomeTpl of block.outcomes) {
       const outcomeName = outcomeTpl.replace('{owner}', ownerName);
@@ -540,4 +541,15 @@ function buildEODSummaryTable(companyName, dateStr, ownerName, peopleData) {
   return lines.join('\n');
 }
 
-module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage, buildEODSummaryTable, resolveLeadSource, normalizeName };
+/**
+ * Build the daily (EOD) summary table for ClickUp — delegates to buildSummaryTable.
+ * @param {string} companyName
+ * @param {string} dateStr
+ * @param {string} ownerName
+ * @param {Array<{name: string, data: object}>} peopleData - each person's countOutcomes result
+ */
+function buildEODSummaryTable(companyName, dateStr, ownerName, peopleData) {
+  return buildSummaryTable(companyName, `EOD Summary — ${formatEODDate(dateStr)} — ${companyName}`, ownerName, peopleData);
+}
+
+module.exports = { generateEOD, countOutcomes, parseOutcome, buildEODMessage, buildEODSummaryTable, buildSummaryTable, resolveLeadSource, normalizeName };
