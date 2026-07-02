@@ -1,62 +1,53 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "@/lib/viewer";
-import { loadReports, listCompanies } from "@/lib/queries";
+import { listCompanies } from "@/lib/queries";
 import { loadBacklog } from "@/lib/analytics";
-import { loadCompanyLiveReports, type CompanyLiveReport } from "@/lib/messages";
+import { loadCompanyLiveReports, type CompanyLiveReport, type ReportFormat } from "@/lib/messages";
 import { formatCurrency, todayInTz, SYDNEY_TZ } from "@/lib/format";
-import { shiftPeriodAnchor, shortDate, monthLabel, weekdayShort, type Period } from "@/lib/dates";
+import { mondayOf, shiftPeriodAnchor } from "@/lib/dates";
 import { LiveRefresh } from "@/components/LiveRefresh";
 
 export const dynamic = "force-dynamic";
 
-const REPORT_TYPES = [
-  { key: "eod", label: "EOD", period: "day" },
-  { key: "eow", label: "EOW", period: "week" },
-  { key: "eom", label: "EOM", period: "month" },
-  { key: "eoq", label: "EOQ", period: "quarter" },
-  { key: "eoy", label: "EOY", period: "year" },
-] as const;
+const FORMATS: { key: ReportFormat; label: string; hint: string }[] = [
+  { key: "summary", label: "Summary", hint: "Performance report: calls, revenue pipeline, jobs won, lead sources, attrition." },
+  { key: "detailed", label: "Detailed", hint: "EOD-style breakdown with per-contact names, quote lines and the full site-visit list." },
+];
 
-type ReportType = typeof REPORT_TYPES[number]["key"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string; company?: string; date?: string }>;
+  searchParams: Promise<{ company?: string; from?: string; to?: string; format?: string }>;
 }) {
   const params = await searchParams;
   const viewer = await getViewer();
   const supabase = await createClient();
   const canSeeTeam = viewer.isAdmin || viewer.isViewer;
 
-  const typeEntry = REPORT_TYPES.find(t => t.key === params.type) ?? REPORT_TYPES[0];
-  const reportType: ReportType = typeEntry.key;
-  const period: Period = typeEntry.period;
-  const companyFilter = params.company || "";
-
   const today = todayInTz(SYDNEY_TZ);
-  const anchor = /^\d{4}-\d{2}-\d{2}$/.test(params.date || "") ? params.date! : today;
-  const isCurrentPeriod = !params.date;
+  const [y, m] = today.split("-").map(Number);
+  const monthStart = `${today.slice(0, 8)}01`;
+
+  // Range: custom from/to, defaulting to the current month-to-date.
+  let from = DATE_RE.test(params.from || "") ? params.from! : monthStart;
+  let to = DATE_RE.test(params.to || "") ? params.to! : today;
+  if (from > to) [from, to] = [to, from];
+
+  const format: ReportFormat = params.format === "detailed" ? "detailed" : "summary";
+  const companyFilter = params.company || "";
 
   const companies = await listCompanies(supabase);
   const selectedCompany = companies.find(c => c.slug === companyFilter);
   const targetCompanies = selectedCompany ? [selectedCompany] : companies;
 
-  // Live reports — computed straight from `activities` for the chosen period.
+  // Live reports — computed straight from `activities` for the chosen range.
+  // 100% Postgres: no Google Sheets, no stored snapshots.
   const liveReports = (await Promise.all(
-    targetCompanies.map(c => loadCompanyLiveReports(supabase, { companyId: c.id, period, anchor })),
+    targetCompanies.map(c => loadCompanyLiveReports(supabase, { companyId: c.id, start: from, end: to, format })),
   )).filter((r): r is CompanyLiveReport => r !== null);
-
-  const range = liveReports[0] ?? null;
-  const periodLabel = range ? labelForRange(period, range.rangeStart, range.rangeEnd) : "";
-
-  // Sent history — what the cron actually delivered (immutable audit log).
-  const sentReports = await loadReports(supabase, {
-    reportType,
-    companyId: selectedCompany?.id,
-    limit: 20,
-  });
 
   // Backlog data alongside (RLS-scoped automatically)
   const { openQuotes, pendingVisits } = await loadBacklog(supabase);
@@ -68,9 +59,20 @@ export default async function ReportsPage({
     : pendingVisits;
   const openValue = filteredOpenQuotes.reduce((s, q) => s + q.last_event_value, 0);
 
-  const prevHref = buildHref({ type: reportType, company: companyFilter, date: shiftPeriodAnchor(period, anchor, -1) });
-  const nextHref = buildHref({ type: reportType, company: companyFilter, date: shiftPeriodAnchor(period, anchor, 1) });
-  const currentHref = buildHref({ type: reportType, company: companyFilter });
+  // Quick-range presets (each preserves the current company + format).
+  const qStart = `${y}-${pad2((Math.ceil(m / 3) - 1) * 3 + 1)}-01`;
+  const prevMonthAnchor = shiftPeriodAnchor("month", today, -1);
+  const prevMonthLast = `${prevMonthAnchor.slice(0, 8)}${pad2(new Date(Date.UTC(y, m - 1, 0)).getUTCDate())}`;
+  const presets: { label: string; from: string; to: string }[] = [
+    { label: "Today", from: today, to: today },
+    { label: "This week", from: mondayOf(today), to: today },
+    { label: "This month", from: monthStart, to: today },
+    { label: "Last month", from: prevMonthAnchor, to: prevMonthLast },
+    { label: "This quarter", from: qStart, to: today },
+    { label: "This year", from: `${y}-01-01`, to: today },
+  ];
+
+  const rangeLabel = from === to ? prettyDate(from) : `${prettyDate(from)} – ${prettyDate(to)}`;
 
   return (
     <div className="px-8 py-6 space-y-6">
@@ -78,70 +80,67 @@ export default async function ReportsPage({
         <div>
           <h1 className="text-xl font-semibold">Reports</h1>
           <p className="mt-0.5 text-sm text-zinc-500">
-            Computed live from the activity database — edits and deletions are reflected immediately.{" "}
+            Computed live from the activity database — no Google Sheets, no snapshots. Edits and
+            deletions are reflected immediately.{" "}
             {canSeeTeam ? "All clients." : "Your reports only."}
           </p>
         </div>
         <LiveRefresh fetchedAtIso={new Date().toISOString()} />
       </header>
 
-      {/* Filters */}
-      <section className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-md border border-zinc-800 bg-zinc-900/40 p-0.5 text-xs">
-          {REPORT_TYPES.map(t => {
-            const active = t.key === reportType;
-            return (
-              <Link
-                key={t.key}
-                href={buildHref({ type: t.key, company: companyFilter })}
-                className={`px-3 py-1.5 rounded-sm transition-colors ${active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
-              >
-                {t.label}
-              </Link>
-            );
-          })}
-        </div>
+      {/* Filters — a single GET form so the whole thing is server-rendered. */}
+      <form action="/reports" method="get" className="flex flex-wrap items-end gap-3">
+        <Field label="Client">
+          <select name="company" defaultValue={companyFilter} className={selectClass}>
+            <option value="">All clients</option>
+            {companies.map(c => (
+              <option key={c.id} value={c.slug}>{c.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="From">
+          <input type="date" name="from" defaultValue={from} max={to} className={inputClass} />
+        </Field>
+        <Field label="To">
+          <input type="date" name="to" defaultValue={to} min={from} max={today} className={inputClass} />
+        </Field>
+        <Field label="Summarise as">
+          <select name="format" defaultValue={format} className={selectClass}>
+            {FORMATS.map(f => (
+              <option key={f.key} value={f.key}>{f.label}</option>
+            ))}
+          </select>
+        </Field>
+        <button
+          type="submit"
+          className="rounded-md border border-zinc-700 bg-zinc-800 px-4 py-1.5 text-xs font-medium text-zinc-100 hover:bg-zinc-700"
+        >
+          Apply
+        </button>
+      </form>
 
-        <div className="inline-flex rounded-md border border-zinc-800 bg-zinc-900/40 p-0.5 text-xs">
-          <Link
-            href={buildHref({ type: reportType, company: "", date: params.date })}
-            className={`px-3 py-1.5 rounded-sm transition-colors ${!selectedCompany ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
-          >
-            All clients
-          </Link>
-          {companies.map(c => {
-            const active = c.slug === companyFilter;
-            return (
-              <Link
-                key={c.id}
-                href={buildHref({ type: reportType, company: c.slug, date: params.date })}
-                className={`px-3 py-1.5 rounded-sm transition-colors ${active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200"}`}
-              >
-                {c.name}
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* Period navigation */}
-        <div className="inline-flex items-center rounded-md border border-zinc-800 bg-zinc-900/40 p-0.5 text-xs">
-          <Link href={prevHref} className="px-3 py-1.5 rounded-sm text-zinc-400 hover:text-zinc-200" title="Previous period">
-            ‹ Prev
-          </Link>
-          <span className="px-3 py-1.5 text-zinc-100 font-medium tabular-nums">{periodLabel}</span>
-          <Link href={nextHref} className="px-3 py-1.5 rounded-sm text-zinc-400 hover:text-zinc-200" title="Next period">
-            Next ›
-          </Link>
-        </div>
-        {!isCurrentPeriod && (
-          <Link
-            href={currentHref}
-            className="text-xs rounded-md border border-zinc-800 px-3 py-1.5 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200"
-          >
-            Jump to current
-          </Link>
-        )}
-      </section>
+      {/* Quick ranges */}
+      <div className="flex flex-wrap items-center gap-2">
+        {presets.map(p => {
+          const active = p.from === from && p.to === to;
+          return (
+            <Link
+              key={p.label}
+              href={buildHref({ company: companyFilter, from: p.from, to: p.to, format })}
+              className={`rounded-md border px-3 py-1.5 text-xs transition-colors ${
+                active
+                  ? "border-zinc-600 bg-zinc-800 text-zinc-100"
+                  : "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {p.label}
+            </Link>
+          );
+        })}
+        <span className="ml-1 text-[11px] text-zinc-500">
+          Showing {rangeLabel} · {FORMATS.find(f => f.key === format)?.label}
+        </span>
+      </div>
 
       {/* Live reports */}
       <section className="space-y-6">
@@ -163,14 +162,14 @@ export default async function ReportsPage({
             <div key={report.company.id} className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">
               <div className="flex items-baseline justify-between">
                 <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-300">
-                  {report.company.name} · {reportType.toUpperCase()} · {periodLabel}
+                  {report.company.name} · {rangeLabel}
                 </h2>
                 <span className="text-[11px] text-zinc-500">live from activity data</span>
               </div>
 
               {!anyActivity ? (
                 <div className="mt-4 text-sm text-zinc-500">
-                  No activity recorded for this period.
+                  No activity recorded for this range.
                 </div>
               ) : (
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -185,7 +184,7 @@ export default async function ReportsPage({
                           {c.message}
                         </pre>
                       ) : (
-                        <div className="text-xs text-zinc-600">No activity for {c.name} in this period.</div>
+                        <div className="text-xs text-zinc-600">No activity for {c.name} in this range.</div>
                       )}
                     </div>
                   ))}
@@ -229,72 +228,38 @@ export default async function ReportsPage({
           </div>
         )}
       </section>
-
-      {/* Sent history — immutable audit log of what was actually delivered */}
-      <section>
-        <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-300">
-          Sent history · {reportType.toUpperCase()}
-        </h2>
-        <p className="mt-0.5 text-[11px] text-zinc-500">
-          What was actually delivered to Slack/ClickUp at send time. Snapshots — they do NOT update
-          when activities are edited or deleted; the live reports above are the source of truth.
-        </p>
-
-        {sentReports.length === 0 ? (
-          <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-900/40 px-6 py-8 text-center text-sm text-zinc-500">
-            No sent {reportType.toUpperCase()} reports yet
-            {selectedCompany ? ` for ${selectedCompany.name}` : ""}.
-          </div>
-        ) : (
-          <div className="mt-4 space-y-4">
-            {sentReports.map(r => (
-              <details key={r.id} className="group rounded-lg border border-zinc-800 bg-zinc-900/40">
-                <summary className="cursor-pointer list-none px-5 py-3 flex items-center justify-between gap-3 hover:bg-zinc-900/70 rounded-lg">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-zinc-100 truncate">
-                      {r.sales_person_name} · {r.company_name}
-                    </div>
-                    <div className="text-[11px] text-zinc-500">
-                      {r.period_start === r.period_end ? r.period_start : `${r.period_start} → ${r.period_end}`}
-                    </div>
-                  </div>
-                  <span className="shrink-0 text-xs text-zinc-500 group-open:hidden">Click to expand →</span>
-                  <span className="shrink-0 text-xs text-zinc-500 hidden group-open:inline">▾</span>
-                </summary>
-                <div className="border-t border-zinc-800 px-5 py-4">
-                  <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-zinc-200">
-                    {r.formatted_text}
-                  </pre>
-                </div>
-              </details>
-            ))}
-          </div>
-        )}
-      </section>
     </div>
   );
 }
 
-function labelForRange(period: Period, start: string, end: string): string {
-  const year = start.slice(0, 4);
-  switch (period) {
-    case "day":     return `${weekdayShort(start)} ${shortDate(start)} ${year}`;
-    case "week":    return `${shortDate(start)} – ${shortDate(end)} ${end.slice(0, 4)}`;
-    case "month":   return monthLabel(start);
-    case "quarter": {
-      const m = Number(start.split("-")[1]);
-      return `Q${Math.ceil(m / 3)} ${year}`;
-    }
-    case "year":    return year;
-  }
+const selectClass = "rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-100 focus:border-zinc-600 focus:outline-none";
+const inputClass = "rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-100 focus:border-zinc-600 focus:outline-none [color-scheme:dark]";
+
+function pad2(n: number) { return String(n).padStart(2, "0"); }
+
+/** "2026-06-01" → "1 Jun 2026" */
+function prettyDate(dateStr: string): string {
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const [yy, mm, dd] = dateStr.split("-").map(Number);
+  return `${dd} ${months[mm - 1]} ${yy}`;
 }
 
-function buildHref(opts: { type: string; company: string; date?: string }): string {
+function buildHref(opts: { company: string; from: string; to: string; format: string }): string {
   const params = new URLSearchParams();
-  params.set("type", opts.type);
   if (opts.company) params.set("company", opts.company);
-  if (opts.date) params.set("date", opts.date);
+  params.set("from", opts.from);
+  params.set("to", opts.to);
+  params.set("format", opts.format);
   return `/reports?${params.toString()}`;
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</span>
+      {children}
+    </label>
+  );
 }
 
 function Stat({ label, value, accent = false }: { label: string; value: string | number; accent?: boolean }) {

@@ -8,9 +8,17 @@
 // (eodBlocks vs eowBlocks) (b) formula key (eod vs eow) (c) header.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { todayInTz, quoteGroupValue, SYDNEY_TZ } from "./format";
+import { todayInTz, SYDNEY_TZ } from "./format";
 import { mondayOf, addDaysIso, type Period } from "./dates";
 import { listCompanies, type CompanyRow } from "./queries";
+import { normName, normValue } from "./duplicates";
+
+// Report render format, decoupled from any fixed calendar period:
+//   "summary"  → the MONTHLY/PERFORMANCE-style aggregate (📞 Calls, 💰 Revenue
+//                Pipeline, Jobs Won list, Top Lead Sources, Attrition).
+//   "detailed" → the EOD-style block format (per-contact names, quote-detail
+//                lines, the full site-visit list). One report for the range.
+export type ReportFormat = "summary" | "detailed";
 import blocksConfig from "./configs/blocks.json";
 import formulasConfig from "./configs/formulas.json";
 import outcomesConfig from "./configs/outcomes.json";
@@ -126,8 +134,25 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
   const jobDetails: CountedData["jobDetails"] = [];
   const customNotes: CountedData["customNotes"] = [];
 
+  // Read-layer dedup: collapse exact-duplicate job_won / quote_sent rows (same
+  // customer + same value) so a re-delivered GHL webhook (source_row_id=null,
+  // ON CONFLICT can't fire) can never double a job in a live report. Same rule
+  // as the backend fetchActivityGrid and the Duplicates page (duplicates.ts),
+  // so every surface agrees. Site visits are deduped separately below.
+  const seenDup = new Set<string>();
+
   for (const a of filtered) {
     const ev = a.event_type;
+
+    if (ev === "job_won" || ev === "quote_sent") {
+      const nm = normName(a.contact_name);
+      const val = normValue(a.quote_job_value);
+      if (nm && val) {
+        const dk = `${ev}|${nm}|${val}`;
+        if (seenDup.has(dk)) continue;   // duplicate — first occurrence already counted
+        seenDup.add(dk);
+      }
+    }
 
     if (ev === "quote_sent") {
       const contactName = (a.contact_name || "").trim();
@@ -433,20 +458,25 @@ function buildPeriodicMessage(opts: {
   rangeStart: string;
   data: CountedData;
   monthlyBreakdown?: MonthBreakdown[];
+  // Overrides for custom-range rendering (period-agnostic). When omitted the
+  // period-derived title/label/isYear are used, preserving the cron formats.
+  titleOverride?: string;
+  labelOverride?: string;
+  isYearOverride?: boolean;
 }): string {
   const { period, companyLabel, personLabel, ownerName, rangeStart, data, monthlyBreakdown } = opts;
   const counts = data.counts;
   const outcomeNames = getOutcomeNames(ownerName);
   const has = (n: string) => outcomeNames.includes(n);
-  const isYear = period === "year";
+  const isYear = opts.isYearOverride ?? (period === "year");
 
-  const title = period === "month" ? "MONTHLY PERFORMANCE REPORT"
+  const title = opts.titleOverride ?? (period === "month" ? "MONTHLY PERFORMANCE REPORT"
     : period === "quarter" ? "QUARTERLY PERFORMANCE REPORT"
-    : "YEARLY PERFORMANCE REPORT";
+    : "YEARLY PERFORMANCE REPORT");
 
   const lines: string[] = [
     `${title} - ${personLabel} - ${companyLabel}`,
-    periodicLabel(period, rangeStart),
+    opts.labelOverride ?? periodicLabel(period, rangeStart),
     "==========================================",
     "",
     "📞 Calls",
@@ -641,6 +671,102 @@ function buildMessage(opts: {
   }
 
   return lines.join("\n");
+}
+
+// ─── Custom-range rendering (period-agnostic) ───────────────────────
+
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-06-01" → "1 Jun 2026"; a single date when start === end. */
+function rangeLabelText(start: string, end: string): string {
+  const fmt = (d: string) => {
+    const [y, m, day] = d.split("-").map(Number);
+    return `${day} ${MONTH_SHORT[m - 1]} ${y}`;
+  };
+  return start === end ? fmt(start) : `${fmt(start)} – ${fmt(end)}`;
+}
+
+/** EOD-style block report for an arbitrary [start, end] range. */
+function buildDetailedRangeMessage(opts: {
+  companyLabel: string;
+  personLabel: string;
+  ownerName: string;
+  scope: MessageScope;
+  rangeStart: string;
+  rangeEnd: string;
+  data: CountedData;
+}): string {
+  const { companyLabel, personLabel, ownerName, scope, rangeStart, rangeEnd, data } = opts;
+  const isTeam = scope === "team";
+  const separator = "----------------------------";
+  const lines: string[] = [
+    `PERFORMANCE REPORT - ${personLabel} - ${companyLabel}`,
+    `Dates: ${formatLongDate(rangeStart)} - ${formatLongDate(rangeEnd)}`,
+    separator,
+  ];
+
+  for (const block of BLOCKS.eodBlocks) {
+    const blockName = block.name.replace("{owner}", ownerName);
+    const blockLines: string[] = [];
+    for (const tpl of block.outcomes || []) {
+      const outcomeName = tpl.replace("{owner}", ownerName);
+      const formulaEntry = FORMULAS.outcomeFormulas[tpl] || {};
+      const formulaId = formulaEntry.eod ?? 1;
+      const line = formatEODLine(outcomeName, formulaId, data, isTeam);
+      if (line) blockLines.push(line);
+    }
+    if (blockLines.length > 0) {
+      lines.push(blockName);
+      lines.push(...blockLines);
+      lines.push(separator);
+    }
+  }
+
+  // 📝 Notes — custom outcomes surfaced verbatim, deduped on name+note.
+  if (data.customNotes.length > 0) {
+    const seen = new Set<string>();
+    const noteLines: string[] = [];
+    for (const { contactName, note } of data.customNotes) {
+      if (!note) continue;
+      const key = `${contactName}||${note}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      noteLines.push(contactName ? `${contactName} - ${note}` : note);
+    }
+    if (noteLines.length > 0) {
+      lines.push("📝 Notes");
+      lines.push(...noteLines);
+      lines.push(separator);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/** Render one report for a [start, end] range in the chosen format. */
+function buildRangeMessage(opts: {
+  format: ReportFormat;
+  companyLabel: string;
+  personLabel: string;
+  ownerName: string;
+  scope: MessageScope;
+  rangeStart: string;
+  rangeEnd: string;
+  data: CountedData;
+}): string {
+  if (opts.format === "detailed") return buildDetailedRangeMessage(opts);
+  return buildPeriodicMessage({
+    period: "month",                       // unused: title/label/isYear overridden
+    companyLabel: opts.companyLabel,
+    personLabel: opts.personLabel,
+    ownerName: opts.ownerName,
+    rangeStart: opts.rangeStart,
+    data: opts.data,
+    titleOverride: "PERFORMANCE REPORT",
+    labelOverride: rangeLabelText(opts.rangeStart, opts.rangeEnd),
+    isYearOverride: false,
+  });
 }
 
 // ─── Snapshot loader ─────────────────────────────────────────────────
@@ -870,7 +996,7 @@ export async function loadDashboardMessages(
 
 export type CompanyLiveReport = {
   company: { id: string; name: string; slug: string; timezone: string };
-  period: Period;
+  format: ReportFormat;
   rangeStart: string;
   rangeEnd: string;
   team: { name: string; message: string; hasActivity: boolean };
@@ -878,14 +1004,14 @@ export type CompanyLiveReport = {
 };
 
 /**
- * Compute one company's Team + per-exec reports live from `activities` for
- * the full period containing `anchor` (in the company's timezone by default).
- * Exactly the messages the backend cron would generate for that period —
- * delete an activity row and the report changes on the next render.
+ * Compute one company's Team + per-exec reports live from `activities` for an
+ * arbitrary [start, end] calendar range, in the chosen format. 100% Postgres —
+ * no Sheets, no snapshots. Delete or edit an activity row and the report
+ * changes on the next render.
  */
 export async function loadCompanyLiveReports(
   supabase: SupabaseClient,
-  opts: { companyId: string; period: Period; anchor?: string },
+  opts: { companyId: string; start: string; end: string; format: ReportFormat },
 ): Promise<CompanyLiveReport | null> {
   const { data: c } = await supabase
     .from("companies")
@@ -894,12 +1020,12 @@ export async function loadCompanyLiveReports(
     .single();
   if (!c) return null;
 
-  const anchor = opts.anchor || todayInTz(c.timezone || SYDNEY_TZ);
-  const { start, end } = fullPeriodRange(opts.period, anchor);
+  const { start, end } = opts;
   const ownerName = (c.owner_name as string) || "Owner";
 
   // Whole company log — lead-source resolution cross-references outside the
-  // period, matching the backend generators.
+  // range, matching the backend generators. Ordered so the earliest copy of a
+  // duplicate is the one countOutcomes keeps.
   const all = await pageAll<ActivityRow>((from, to) =>
     supabase
       .from("activities")
@@ -918,12 +1044,11 @@ export async function loadCompanyLiveReports(
     .eq("active", true)
     .order("name");
 
-  const year = start.slice(0, 4);
   const mkReport = (rows: ActivityRow[], personLabel: string, scope: MessageScope) => {
     const data = countOutcomes(rows, ownerName, all);
     const hasActivity = Object.values(data.counts).some(v => v > 0);
-    const message = buildMessage({
-      period: opts.period,
+    const message = buildRangeMessage({
+      format: opts.format,
       companyLabel: c.name as string,
       personLabel,
       ownerName,
@@ -931,7 +1056,6 @@ export async function loadCompanyLiveReports(
       rangeStart: start,
       rangeEnd: end,
       data,
-      monthlyBreakdown: opts.period === "year" ? monthlyBreakdownFor(rows, ownerName, all, year) : undefined,
     });
     return { message, hasActivity };
   };
@@ -947,7 +1071,7 @@ export async function loadCompanyLiveReports(
 
   return {
     company: { id: c.id as string, name: c.name as string, slug: c.slug as string, timezone: (c.timezone as string) || SYDNEY_TZ },
-    period: opts.period,
+    format: opts.format,
     rangeStart: start,
     rangeEnd: end,
     team,
