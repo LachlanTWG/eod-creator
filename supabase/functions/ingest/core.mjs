@@ -333,6 +333,18 @@ export function buildManualActivity(entry) {
   };
 }
 
+// Flip a reversed "Last, First" contact name to "First Last" (single clean
+// comma only) — some GHL automations (e.g. Bolton's) send names reversed.
+// Mirrors the Node helper in src/sheets/logActivity.js so both ingest paths agree.
+function flipReversedName(name) {
+  if (!name) return name;
+  const parts = String(name).split(',');
+  if (parts.length !== 2) return name;
+  const last = parts[0].trim(), first = parts[1].trim();
+  if (!last || !first) return name;
+  return `${first} ${last}`;
+}
+
 /**
  * Map a built activity to the activities-table insert row. Empty strings
  * become NULLs exactly like buildDbParams (`data.x || null`) did in Node.
@@ -345,7 +357,7 @@ export function toInsertRow(activity, { companyId, salesPersonId, rawPayload }) 
     occurred_on: activity.occurredOn,
     occurred_at: null,
     event_type: activity.eventType,
-    contact_name: activity.contactName || null,
+    contact_name: flipReversedName(activity.contactName) || null,
     contact_id: activity.contactId || null,
     contact_address: activity.contactAddress || null,
     outcome: activity.outcome || null,

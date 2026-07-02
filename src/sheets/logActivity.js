@@ -1,6 +1,19 @@
 const { appendRows } = require('./writeSheet');
 const db = require('../db');
 
+// Some GHL automations (e.g. Bolton's) send contact names reversed as
+// "Last, First". Flip a clean single-comma name to "First Last" at ingest so
+// every downstream surface (sheet, DB, reports, dashboard) is correct. Names
+// without exactly one comma, or with an empty side, are left untouched.
+function flipReversedName(name) {
+  if (!name) return name;
+  const parts = String(name).split(',');
+  if (parts.length !== 2) return name;
+  const last = parts[0].trim(), first = parts[1].trim();
+  if (!last || !first) return name;
+  return `${first} ${last}`;
+}
+
 // Sheet eventType strings → DB enum values
 const EVENT_TYPE_TO_DB = {
   'EOD Update': 'eod_update',
@@ -14,7 +27,7 @@ function toRow(data) {
   return [
     data.date,
     data.salesPerson,
-    data.contactName || '',
+    flipReversedName(data.contactName) || '',
     data.eventType || 'EOD Update',
     data.outcome || '',
     data.adSource || '',
@@ -34,7 +47,7 @@ function buildDbParams(data, ctx) {
     salesPersonName: data.salesPerson || 'Unknown',
     occurredOn: data.date,
     eventType,
-    contactName: data.contactName || null,
+    contactName: flipReversedName(data.contactName) || null,
     contactId: data.contactId || null,
     contactAddress: data.contactAddress || null,
     outcome: data.outcome || null,
