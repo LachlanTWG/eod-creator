@@ -207,6 +207,17 @@ async function fetchActivityGrid(companyName) {
 
 // ─── Inserts ────────────────────────────────────────────────────────
 
+// Force free-text like an address onto one line before storing: GHL address
+// fields arrive with embedded newlines ("31 Homestead Loop\nJurien Bay WA
+// 6516"), which break every report line. Collapse newlines / whitespace runs
+// to a single space at the write choke point so the stored value is clean for
+// all downstream consumers (reports, wins, visits, exports).
+function oneLine(value) {
+  if (value == null) return value;
+  const cleaned = String(value).replace(/\s+/g, ' ').trim();
+  return cleaned === '' ? null : cleaned;
+}
+
 /**
  * Insert one activity row.
  * @param {object} params
@@ -263,7 +274,7 @@ async function insertActivity(params) {
       params.eventType,
       params.contactName || null,
       params.contactId || null,
-      params.contactAddress || null,
+      oneLine(params.contactAddress),
       params.outcome || null,
       params.adSource || null,
       params.quoteJobValue || null,

@@ -15,7 +15,11 @@ function formatDollar(value) {
 }
 
 function cleanAddress(address) {
-  return (address || '').replace(/,\s*$/, '').trim();
+  return (address || '')
+    .replace(/\s+/g, ' ')        // collapse embedded newlines / whitespace runs → one space
+    .replace(/\s*,\s*/g, ', ')   // tidy comma spacing
+    .replace(/,\s*$/, '')        // drop any trailing comma
+    .trim();
 }
 
 function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {

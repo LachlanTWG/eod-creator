@@ -18,6 +18,17 @@ function parseOutcome(outcomeStr) {
   };
 }
 
+// Force an address onto one line: collapse embedded newlines / whitespace runs
+// to a single space and tidy comma spacing. Kept identical to the dashboard
+// (messages.ts) and generateEOW/EOM so every renderer agrees.
+function cleanAddress(address) {
+  return (address || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/,\s*$/, '')
+    .trim();
+}
+
 /**
  * Parse activity log rows into structured objects.
  */
@@ -377,7 +388,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
       if (isTeam) return `Site Visits Booked: ${siteVisits.length}`;
       const lines = siteVisits.map(sv => {
         const dt = formatVisitDateTime(sv.datetime);
-        return `${sv.contactName} - ${sv.address || 'TBC'} - ${dt || 'TBC'}`;
+        return `${sv.contactName} - ${cleanAddress(sv.address) || 'TBC'} - ${dt || 'TBC'}`;
       });
       return lines.join('\n');
     }
@@ -389,7 +400,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
         return `Jobs Won: ${jobDetails.length}${totalRevenue > 0 ? ` - Total Revenue: ${formatDollar(totalRevenue)}` : ''}`;
       }
       const lines = jobDetails.map(j => {
-        return `${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
+        return `${j.contactName} - ${cleanAddress(j.address) || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
       });
       if (totalRevenue > 0) {
         lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);

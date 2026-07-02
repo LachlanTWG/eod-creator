@@ -342,13 +342,13 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
       if (siteVisits.length === 0) return null;
       if (isTeam) return `Site Visits Booked: ${siteVisits.length}`;
       return siteVisits.map(sv =>
-        `${sv.contactName} - ${sv.address || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
+        `${sv.contactName} - ${cleanAddress(sv.address) || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
     }
     case 9: {                                                     // Job Details
       if (jobDetails.length === 0) return null;
       const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
       if (isTeam) return `Jobs Won: ${jobDetails.length}${total > 0 ? ` - Total Revenue: ${formatDollar(total)}` : ""}`;
-      const lines = jobDetails.map(j => `${j.contactName} - ${j.address || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+      const lines = jobDetails.map(j => `${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
       if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
       return lines.join("\n");
     }
@@ -380,14 +380,14 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
     case 8: {
       if (siteVisits.length > 0) {
         return siteVisits.map(sv =>
-          `${sv.contactName} - ${sv.address || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
+          `${sv.contactName} - ${cleanAddress(sv.address) || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
       }
       const c = counts[outcomeName] || 0;
       return c === 0 ? null : `${outcomeName}: ${c}`;
     }
     case 9: {
       if (jobDetails.length > 0) {
-        const lines = jobDetails.map(j => `${j.contactName} - ${j.address || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+        const lines = jobDetails.map(j => `${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
         const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
         if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
         return lines.join("\n");
@@ -443,7 +443,11 @@ function getTopSources(counts: Record<string, number>): { name: string; count: n
 }
 
 function cleanAddress(address: string | null): string {
-  return (address || "").replace(/,\s*$/, "").trim();
+  return (address || "")
+    .replace(/\s+/g, " ")        // collapse embedded newlines / whitespace runs → one space
+    .replace(/\s*,\s*/g, ", ")   // tidy comma spacing
+    .replace(/,\s*$/, "")        // drop any trailing comma
+    .trim();
 }
 
 /**
