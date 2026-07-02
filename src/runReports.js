@@ -16,8 +16,10 @@ const { sendReportToSlack } = require('./integrations/slack');
 const { sendReportToClickUp, createMeetingDocPage } = require('./integrations/clickup');
 
 const db = require('./db');
-const { loadCompanies, getSummarySheetId } = require('./config/companiesStore');
-const { archiveSummaryDaily, archiveSummaryWeekly, archiveSummaryMonthly, archiveSummaryTotalDaily, archiveSummaryTotalWeekly, archiveSummaryTotalMonthly, buildExecMap } = require('./sheets/summarySheet');
+const { loadCompanies } = require('./config/companiesStore');
+// Google Sheets is no longer read or written by the reporting pipeline —
+// Postgres is the sole source. The cross-company Summary sheet (summarySheet.js)
+// used to read per-company storage tabs here; that aggregation was removed.
 
 /**
  * Get today's date in a specific timezone.
@@ -607,27 +609,6 @@ async function runAllEOD(targetDate, mode = 'both') {
     if (mode === 'send' || mode === 'both') await sendCompanyEOD(company, targetDate);
     if (mode === 'archive' || mode === 'both') await archiveCompanyEOD(company, targetDate);
   }
-
-  // Update summary storage after all companies are archived
-  if (mode === 'archive' || mode === 'both') {
-    const summaryId = getSummarySheetId();
-    if (summaryId) {
-      const execMap = buildExecMap();
-      const date = targetDate || todayInTz('Australia/Sydney');
-      for (const execName of Object.keys(execMap)) {
-        try {
-          await archiveSummaryDaily(summaryId, execName, date);
-        } catch (e) {
-          console.error(`  Summary daily (${execName}): ${e.message}`);
-        }
-      }
-      try {
-        await archiveSummaryTotalDaily(summaryId, date);
-      } catch (e) {
-        console.error(`  Summary total daily: ${e.message}`);
-      }
-    }
-  }
 }
 
 async function runAllEOW(startDate, endDate, mode = 'both') {
@@ -637,28 +618,6 @@ async function runAllEOW(startDate, endDate, mode = 'both') {
     if (mode === 'send' || mode === 'both') await sendCompanyEOW(company, startDate, endDate);
     if (mode === 'archive' || mode === 'both') await archiveCompanyEOW(company, startDate, endDate);
   }
-
-  if (mode === 'archive' || mode === 'both') {
-    const summaryId = getSummarySheetId();
-    if (summaryId) {
-      const execMap = buildExecMap();
-      const today = todayInTz('Australia/Sydney');
-      const start = startDate || getMondayOfWeek(today);
-      const end = endDate || getSundayOfWeek(today);
-      for (const execName of Object.keys(execMap)) {
-        try {
-          await archiveSummaryWeekly(summaryId, execName, start, end);
-        } catch (e) {
-          console.error(`  Summary weekly (${execName}): ${e.message}`);
-        }
-      }
-      try {
-        await archiveSummaryTotalWeekly(summaryId, start, end);
-      } catch (e) {
-        console.error(`  Summary total weekly: ${e.message}`);
-      }
-    }
-  }
 }
 
 async function runAllEOM(year, month) {
@@ -666,28 +625,6 @@ async function runAllEOM(year, month) {
   for (const company of companies) {
     if (!company.sheetId) continue;
     await runCompanyEOM(company, year, month);
-  }
-
-  const summaryId = getSummarySheetId();
-  if (summaryId) {
-    const execMap = buildExecMap();
-    const today = todayInTz('Australia/Sydney');
-    const y = year || parseInt(today.split('-')[0]);
-    const todayDay = parseInt(today.split('-')[2]);
-    const m = month || (todayDay <= 3 ? (parseInt(today.split('-')[1]) - 1 || 12) : parseInt(today.split('-')[1]));
-    const actualYear = (!month && todayDay <= 3 && m === 12) ? y - 1 : y;
-    for (const execName of Object.keys(execMap)) {
-      try {
-        await archiveSummaryMonthly(summaryId, execName, actualYear, m);
-      } catch (e) {
-        console.error(`  Summary monthly (${execName}): ${e.message}`);
-      }
-    }
-    try {
-      await archiveSummaryTotalMonthly(summaryId, actualYear, m);
-    } catch (e) {
-      console.error(`  Summary total monthly: ${e.message}`);
-    }
   }
 }
 

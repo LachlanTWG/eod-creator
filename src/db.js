@@ -87,6 +87,56 @@ const ACTIVITY_GRID_HEADERS = [
   'Appointment Date Time', 'Appointment Date',
 ];
 
+// ─── Read-layer dedup ───────────────────────────────────────────────
+// Duplicate job_won / quote_sent / site_visit_booked rows must never double a
+// job in a report — even if a re-delivered GHL webhook (no source_row_id, so
+// the insert's ON CONFLICT can't fire) slips a copy into the table. Every
+// report reads through fetchActivityGrid, so collapsing exact duplicates HERE
+// makes doubling impossible everywhere at once. Rules mirror the dashboard
+// Duplicates page (dashboard/src/lib/duplicates.ts) so both agree on what a
+// "duplicate" is. Rows arrive ordered by (occurred_on, created_at), so the
+// first occurrence of a key is the earliest — the copy the page keeps.
+
+// Lowercase, drop punctuation, collapse whitespace. "J. Smith" == "J Smith".
+function normNameKey(raw) {
+  return String(raw || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Strip currency/commas, drop empty/zero tiers, SORT so order is irrelevant.
+// "$3,500 | $1,200" -> "1200|3500". Empty when no positive number is present.
+function normValueKey(raw) {
+  if (!raw) return '';
+  return String(raw)
+    .split('|')
+    .map(v => Number(String(v).replace(/[^\d.]/g, '')))
+    .filter(n => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b)
+    .map(n => String(n))
+    .join('|');
+}
+
+// The dedup key for a raw DB row, or null when the row lacks the fields needed
+// to match confidently (so we never collapse on blanks — those are all kept).
+// `r` has DB-enum event_type and a `date` = to_char(occurred_on).
+function dedupKey(r) {
+  const name = normNameKey(r.contact_name);
+  if (!name) return null;
+  if (r.event_type === 'job_won' || r.event_type === 'quote_sent') {
+    const value = normValueKey(r.quote_job_value);
+    if (!value) return null; // "same value" is meaningless without a value
+    return `${r.event_type}|${name}|${value}`;
+  }
+  if (r.event_type === 'site_visit_booked') {
+    if (!r.date) return null;
+    return `site_visit_booked|${name}|${r.date}`;
+  }
+  return null; // eod_update / email_sent etc. are never collapsed
+}
+
 /**
  * Read every activity for a company from Postgres, shaped exactly like the
  * Activity Log sheet grid (header row + string rows). This is the single
@@ -122,7 +172,16 @@ async function fetchActivityGrid(companyName) {
     );
 
     const grid = [ACTIVITY_GRID_HEADERS];
+    const seen = new Set();
+    let dropped = 0;
     for (const r of rows) {
+      // Collapse exact-duplicate job/quote/site-visit rows (first, i.e. earliest,
+      // occurrence wins). Every other row type is always kept.
+      const key = dedupKey(r);
+      if (key) {
+        if (seen.has(key)) { dropped++; continue; }
+        seen.add(key);
+      }
       grid.push([
         r.date,
         r.sales_person_name,
@@ -136,6 +195,9 @@ async function fetchActivityGrid(companyName) {
         r.appointment_date_time,
         r.appointment_date,
       ]);
+    }
+    if (dropped > 0) {
+      console.log(`[db] fetchActivityGrid(${companyName}): suppressed ${dropped} duplicate row(s) from reports`);
     }
     return grid;
   } finally {
@@ -303,6 +365,9 @@ module.exports = {
   fetchActivityGrid,
   ACTIVITY_GRID_HEADERS,
   DB_TO_EVENT_TYPE,
+  dedupKey,
+  normNameKey,
+  normValueKey,
   insertActivity,
   insertReport,
   insertWebhookEvent,
