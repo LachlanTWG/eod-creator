@@ -1,6 +1,7 @@
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 const { cleanAddress } = require('./addressFormat');
+const { displayLabel } = require('./displayLabels');
 
 /**
  * Parse a pipe-delimited outcome string.
@@ -320,6 +321,8 @@ function formatDollar(value) {
  */
 function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
   const { counts, names, quoteDetails, siteVisits, jobDetails } = data;
+  // Printed text only; counts/names stay keyed on the raw outcomeName.
+  const label = displayLabel(outcomeName);
 
   switch (formulaTypeId) {
     case 1: // Hidden
@@ -328,29 +331,29 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
     case 2: { // Count Only
       const count = counts[outcomeName] || 0;
       if (count === 0) return null;
-      return `${outcomeName} - ${count}`;
+      return `${label} - ${count}`;
     }
 
     case 3: { // Total Count
       const count = counts[outcomeName] || 0;
       if (count === 0) return null;
-      return `${outcomeName}: ${count}`;
+      return `${label}: ${count}`;
     }
 
     case 4: { // Count + Names
       const count = counts[outcomeName] || 0;
       if (count === 0) return null;
-      if (isTeam) return `${outcomeName} - ${count}`;
+      if (isTeam) return `${label} - ${count}`;
       const contactNames = names[outcomeName] || [];
       const uniqueNames = [...new Set(contactNames)].filter(n => n);
-      if (uniqueNames.length === 0) return `${outcomeName} - ${count}`;
-      return `${outcomeName} - ${count} - ${uniqueNames.join(', ')}`;
+      if (uniqueNames.length === 0) return `${label} - ${count}`;
+      return `${label} - ${count} - ${uniqueNames.join(', ')}`;
     }
 
     case 5: { // Section Header
       const count = counts[outcomeName] || 0;
       if (count === 0) return null;
-      return `${outcomeName}: ${count}`;
+      return `${label}: ${count}`;
     }
 
     case 6: { // Quote Details
@@ -525,7 +528,7 @@ function buildSummaryTable(companyName, heading, ownerName, peopleData) {
         const fmtValues = values.map(v => formatDollar(v));
         lines.push(`| Pipeline Value | ${fmtValues.join(' | ')} | ${formatDollar(team)} |`);
       } else {
-        lines.push(`| ${outcomeName} | ${values.join(' | ')} | ${team} |`);
+        lines.push(`| ${displayLabel(outcomeName)} | ${values.join(' | ')} | ${team} |`);
       }
     }
   }

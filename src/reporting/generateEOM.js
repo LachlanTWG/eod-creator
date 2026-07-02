@@ -2,6 +2,7 @@ const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 const { countOutcomes } = require('./generateEOD');
 const { cleanAddress } = require('./addressFormat');
+const { displayLabel } = require('./displayLabels');
 
 function formatMonth(year, month) {
   const months = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -142,7 +143,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     lines.push('');
     lines.push('📣 Top Lead Sources');
     for (const s of topSources) {
-      lines.push(`${s.name}: ${s.count}`);
+      lines.push(`${displayLabel(s.name)}: ${s.count}`);
     }
   }
 

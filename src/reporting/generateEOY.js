@@ -2,6 +2,7 @@ const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { formatMonth, getTopSources } = require('./generateEOM');
 const { loadConfig } = require('../config/configLoader');
 const { countOutcomes } = require('./generateEOD');
+const { displayLabel } = require('./displayLabels');
 
 function formatDollar(value) {
   return '$' + Math.round(value).toLocaleString('en-AU');
@@ -129,7 +130,7 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
     lines.push('');
     lines.push('📣 Top Lead Sources');
     for (const s of topSources) {
-      lines.push(`${s.name}: ${s.count}`);
+      lines.push(`${displayLabel(s.name)}: ${s.count}`);
     }
   }
 

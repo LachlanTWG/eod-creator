@@ -1,6 +1,7 @@
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 const { countOutcomes } = require('./generateEOD');
+const { displayLabel } = require('./displayLabels');
 
 const QUARTER_MONTHS = {
   1: [1, 2, 3],
@@ -150,7 +151,7 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
     lines.push('');
     lines.push('📣 Top Lead Sources');
     for (const s of topSources) {
-      lines.push(`${s.name}: ${s.count}`);
+      lines.push(`${displayLabel(s.name)}: ${s.count}`);
     }
   }
 

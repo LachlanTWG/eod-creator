@@ -308,21 +308,31 @@ function formatVisitDateTime(iso: string | null): string {
   return `${days[d.getDay()]} ${String(d.getDate()).padStart(2, "0")} ${months[d.getMonth()]} ${hours}:${mins}${ampm}`;
 }
 
+// Display-only relabels: shorten certain lead-source labels in the printed
+// report without changing the matching keys (outcomes.json / counts) that the
+// raw data is matched against. Mirrors src/reporting/displayLabels.js.
+const DISPLAY_LABELS: Record<string, string> = {
+  "Facebook Ad Form": "FB Ad Form",
+  "Direct Lead passed on from Client": "Direct Lead from Client",
+};
+const displayLabel = (name: string): string => DISPLAY_LABELS[name] || name;
+
 function formatEODLine(outcomeName: string, formulaId: number, data: CountedData, isTeam: boolean): string | null {
   const { counts, names, quoteDetails, siteVisits, jobDetails } = data;
+  const label = displayLabel(outcomeName);  // printed text only; keys stay raw
   switch (formulaId) {
     case 1: return null;                                          // Hidden
-    case 2: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName} - ${c}`; }
-    case 3: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName}: ${c}`; }
+    case 2: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label} - ${c}`; }
+    case 3: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label}: ${c}`; }
     case 4: {                                                     // Count + Names
       const c = counts[outcomeName] || 0;
       if (c === 0) return null;
-      if (isTeam) return `${outcomeName} - ${c}`;
+      if (isTeam) return `${label} - ${c}`;
       const unique = [...new Set((names[outcomeName] || []).filter(Boolean))];
-      if (unique.length === 0) return `${outcomeName} - ${c}`;
-      return `${outcomeName} - ${c} - ${unique.join(", ")}`;
+      if (unique.length === 0) return `${label} - ${c}`;
+      return `${label} - ${c} - ${unique.join(", ")}`;
     }
-    case 5: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName}: ${c}`; }
+    case 5: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label}: ${c}`; }
     case 6: {                                                     // Quote Details
       const valid = quoteDetails.filter(q => q.contactName || q.values.length > 0);
       if (valid.length === 0) return null;
@@ -359,9 +369,10 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
 
 function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData): string | null {
   const { counts, siteVisits, jobDetails, quoteDetails } = data;
+  const label = displayLabel(outcomeName);  // printed text only; keys stay raw
   switch (formulaId) {
     case 1: return null;
-    case 11: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName}: ${c}`; }
+    case 11: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label}: ${c}`; }
     case 12: {
       const total = counts["Total Calls"] || counts["Total Contact Attempts"] || 0;
       if (total === 0) return null;
@@ -383,7 +394,7 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
           `${sv.contactName} - ${cleanAddress(sv.address) || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
       }
       const c = counts[outcomeName] || 0;
-      return c === 0 ? null : `${outcomeName}: ${c}`;
+      return c === 0 ? null : `${label}: ${c}`;
     }
     case 9: {
       if (jobDetails.length > 0) {
@@ -393,10 +404,10 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
         return lines.join("\n");
       }
       const c = counts[outcomeName] || 0;
-      return c === 0 ? null : `${outcomeName}: ${c}`;
+      return c === 0 ? null : `${label}: ${c}`;
     }
     case 10: { const c = counts["Total Individual Quotes"] || 0; return c === 0 ? null : `Total Individual Quotes: ${c}`; }
-    case 2: case 3: case 4: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${outcomeName}: ${c}`; }
+    case 2: case 3: case 4: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label}: ${c}`; }
     default: return null;
   }
 }
@@ -559,7 +570,7 @@ function buildPeriodicMessage(opts: {
   if (topSources.length > 0) {
     lines.push("");
     lines.push("📣 Top Lead Sources");
-    for (const s of topSources) lines.push(`${s.name}: ${s.count}`);
+    for (const s of topSources) lines.push(`${displayLabel(s.name)}: ${s.count}`);
   }
 
   // Attrition (dynamic from outcome categories)
