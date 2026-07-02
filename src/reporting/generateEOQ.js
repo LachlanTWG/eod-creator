@@ -130,7 +130,7 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
       lines.push(`Jobs Won: ${jobCount}`);
       if (jobDetails.length > 0) {
         for (const j of jobDetails) {
-          lines.push(`${j.contactName} - ${j.address || 'N/A'} - ${formatDollar(j.value)} - ${displayLabel(j.source) || 'N/A'}`);
+          lines.push(`${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || 'N/A'} - ${j.address || 'N/A'}`);
         }
         const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
         lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
