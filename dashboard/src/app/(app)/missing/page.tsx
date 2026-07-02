@@ -16,9 +16,6 @@ import {
   type ActivityGaps,
   type WonJobGaps,
 } from "@/lib/missingInfo";
-import type { ActivityRowForEdit } from "../activities/EditDrawer";
-import type { WonJobRowForEdit } from "../wins/EditWonJobDrawer";
-import type { Stage } from "../wins/actions";
 import { MissingActivityCard } from "./MissingActivityCard";
 import { MissingWonJobCard } from "./MissingWonJobCard";
 
@@ -155,7 +152,7 @@ export default async function MissingInfoPage({
                 {sec.activities.map(a => (
                   <MissingActivityCard
                     key={a.row.id}
-                    row={a.row as ActivityRowForEdit}
+                    row={a.row}
                     gaps={a.gaps}
                     salesPeople={salesPeople}
                   />
@@ -163,10 +160,8 @@ export default async function MissingInfoPage({
                 {sec.wonJobs.map(w => (
                   <MissingWonJobCard
                     key={w.row.id}
-                    row={toWonJobEdit(w.row)}
+                    row={w.row}
                     gaps={w.gaps}
-                    companies={companyOptions}
-                    salesPeople={salesPeople}
                   />
                 ))}
               </div>
@@ -189,29 +184,6 @@ async function pageAll<T>(fetchPage: (from: number, to: number) => Promise<T[]>)
     from += PAGE_SIZE;
   }
   return rows;
-}
-
-// won_jobs numeric columns arrive as strings from PostgREST; normalise for the
-// drawer (mirrors /wins).
-function toWonJobEdit(r: ScanWonJob): WonJobRowForEdit {
-  return {
-    id: r.id,
-    company_id: r.company_id,
-    sales_person_id: r.sales_person_id,
-    contact_name: r.contact_name,
-    contact_address: r.contact_address,
-    contact_id: r.contact_id,
-    job_value: r.job_value !== null ? Number(r.job_value) : null,
-    commission_amount: r.commission_amount !== null ? Number(r.commission_amount) : null,
-    type: r.type,
-    stage: r.stage as Stage,
-    verbal_at: r.verbal_at,
-    approved_at: r.approved_at,
-    invoiced_at: r.invoiced_at,
-    paid_at: r.paid_at,
-    invoice_number: r.invoice_number,
-    notes: r.notes,
-  };
 }
 
 function FilterBar({
