@@ -23,6 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                               navItems.push({ href: "/activities", label: "Activities",                                icon: "activities" });
   if (showExecsNav)           navItems.push({ href: "/visits",     label: seesAll ? "Site visits" : "My visits",       icon: "visits" });
   if (showAdminNav)           navItems.push({ href: "/duplicates", label: "Duplicates",                                icon: "duplicates" });
+  if (showAdminNav)           navItems.push({ href: "/missing",     label: "Missing info",                              icon: "missing" });
                               navItems.push({ href: "/wins",       label: "Wins pipeline",                             icon: "wins" });
                               navItems.push({ href: "/backlog",    label: seesAll ? "Backlog" : "My backlog",          icon: "backlog" });
   if (showAdminNav)           navItems.push({ href: "/health",     label: "Health",                                    icon: "health" });
