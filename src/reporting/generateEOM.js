@@ -1,6 +1,7 @@
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 const { countOutcomes } = require('./generateEOD');
+const { cleanAddress } = require('./addressFormat');
 
 function formatMonth(year, month) {
   const months = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -68,11 +69,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   }
   const jobDetails = data.jobDetails.map(j => ({
     ...j,
-    address: (j.address || '')
-      .replace(/\s+/g, ' ')        // collapse embedded newlines / whitespace runs → one space
-      .replace(/\s*,\s*/g, ', ')   // tidy comma spacing
-      .replace(/,\s*$/, '')        // drop any trailing comma
-      .trim(),
+    address: cleanAddress(j.address),
   }));
 
   const topSources = getTopSources(monthlyCounts, companyName);

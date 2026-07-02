@@ -1,6 +1,7 @@
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 const { countOutcomes, formatVisitDateTime } = require('./generateEOD');
+const { cleanAddress } = require('./addressFormat');
 
 function formatFullDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00+10:00');
@@ -12,14 +13,6 @@ function formatFullDate(dateStr) {
 
 function formatDollar(value) {
   return '$' + Math.round(value).toLocaleString('en-AU');
-}
-
-function cleanAddress(address) {
-  return (address || '')
-    .replace(/\s+/g, ' ')        // collapse embedded newlines / whitespace runs → one space
-    .replace(/\s*,\s*/g, ', ')   // tidy comma spacing
-    .replace(/,\s*$/, '')        // drop any trailing comma
-    .trim();
 }
 
 function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {

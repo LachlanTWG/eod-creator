@@ -1,5 +1,6 @@
 const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
+const { cleanAddress } = require('./addressFormat');
 
 /**
  * Parse a pipe-delimited outcome string.
@@ -16,17 +17,6 @@ function parseOutcome(outcomeStr) {
     notes: parts[3] || '',
     source: parts[4] || '',
   };
-}
-
-// Force an address onto one line: collapse embedded newlines / whitespace runs
-// to a single space and tidy comma spacing. Kept identical to the dashboard
-// (messages.ts) and generateEOW/EOM so every renderer agrees.
-function cleanAddress(address) {
-  return (address || '')
-    .replace(/\s+/g, ' ')
-    .replace(/\s*,\s*/g, ', ')
-    .replace(/,\s*$/, '')
-    .trim();
 }
 
 /**
