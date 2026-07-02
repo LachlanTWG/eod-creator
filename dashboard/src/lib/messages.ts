@@ -358,7 +358,7 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
       if (jobDetails.length === 0) return null;
       const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
       if (isTeam) return `Jobs Won: ${jobDetails.length}${total > 0 ? ` - Total Revenue: ${formatDollar(total)}` : ""}`;
-      const lines = jobDetails.map(j => `${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+      const lines = jobDetails.map(j => `${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${displayLabel(j.source) || "N/A"}`);
       if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
       return lines.join("\n");
     }
@@ -398,7 +398,7 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
     }
     case 9: {
       if (jobDetails.length > 0) {
-        const lines = jobDetails.map(j => `${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+        const lines = jobDetails.map(j => `${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${displayLabel(j.source) || "N/A"}`);
         const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
         if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
         return lines.join("\n");
@@ -548,7 +548,7 @@ function buildPeriodicMessage(opts: {
         lines.push(`Jobs Won: ${jobCount}`);
         if (jobDetails.length > 0) {
           for (const j of jobDetails) {
-            lines.push(`${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${j.source || "N/A"}`);
+            lines.push(`${j.contactName} - ${cleanAddress(j.address) || "N/A"} - ${formatDollar(j.value)} - ${displayLabel(j.source) || "N/A"}`);
           }
           const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
           lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);

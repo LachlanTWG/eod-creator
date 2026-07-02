@@ -2,6 +2,7 @@ const { getOutcomeNames } = require('../sheets/createCompanySheet');
 const { loadConfig } = require('../config/configLoader');
 const { countOutcomes, formatVisitDateTime } = require('./generateEOD');
 const { cleanAddress } = require('./addressFormat');
+const { displayLabel } = require('./displayLabels');
 
 function formatFullDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00+10:00');
@@ -62,7 +63,7 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 9: {
       if (weeklyData.jobDetails && weeklyData.jobDetails.length > 0) {
         const lines = weeklyData.jobDetails.map(j => {
-          return `${j.contactName} - ${cleanAddress(j.address) || 'N/A'} - ${formatDollar(j.value)} - ${j.source || 'N/A'}`;
+          return `${j.contactName} - ${cleanAddress(j.address) || 'N/A'} - ${formatDollar(j.value)} - ${displayLabel(j.source) || 'N/A'}`;
         });
         const totalRevenue = weeklyData.jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
         if (totalRevenue > 0) {

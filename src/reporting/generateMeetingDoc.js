@@ -2,6 +2,7 @@ const db = require('../db');
 const { countOutcomes } = require('./generateEOD');
 const { loadConfig } = require('../config/configLoader');
 const { loadCompanies } = require('../config/companiesStore');
+const { displayLabel } = require('./displayLabels');
 
 function formatDollar(value) {
   return '$' + Math.round(value).toLocaleString('en-AU');
@@ -676,7 +677,7 @@ async function generateMeetingDoc(startDate, endDate) {
         lines.push('|---|---|---|---|---|');
         for (const j of allJobs) {
           const addr = (j.address || '-').replace(/[\n\r]+/g, ', ');
-          lines.push(`| ${j.contactName || '-'} | ${addr} | ${formatDollar(j.value || 0)} | ${j.source || '-'} | ${j.salesPerson} |`);
+          lines.push(`| ${j.contactName || '-'} | ${addr} | ${formatDollar(j.value || 0)} | ${displayLabel(j.source) || '-'} | ${j.salesPerson} |`);
         }
         lines.push('');
       }
@@ -997,7 +998,7 @@ async function generateMonthlyDoc(year, month) {
         lines.push('|---|---|---|---|---|');
         for (const j of allJobs) {
           const addr = (j.address || '-').replace(/[\n\r]+/g, ', ');
-          lines.push(`| ${j.contactName || '-'} | ${addr} | ${formatDollar(j.value || 0)} | ${j.source || '-'} | ${j.salesPerson} |`);
+          lines.push(`| ${j.contactName || '-'} | ${addr} | ${formatDollar(j.value || 0)} | ${displayLabel(j.source) || '-'} | ${j.salesPerson} |`);
         }
         lines.push('');
       }
