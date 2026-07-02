@@ -393,7 +393,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
         return `Jobs Won: ${jobDetails.length}${totalRevenue > 0 ? ` - Total Revenue: ${formatDollar(totalRevenue)}` : ''}`;
       }
       const lines = jobDetails.map(j => {
-        return `${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || 'N/A'} - ${cleanAddress(j.address) || 'N/A'}`;
+        return `${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || 'N/A'} - ${cleanAddress(j.address).replace(/,/g, '') || 'N/A'}`;
       });
       if (totalRevenue > 0) {
         lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);

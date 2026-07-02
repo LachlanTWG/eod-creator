@@ -63,7 +63,7 @@ function formatEOWLine(outcomeName, formulaTypeId, weeklyCounts, weeklyData) {
     case 9: {
       if (weeklyData.jobDetails && weeklyData.jobDetails.length > 0) {
         const lines = weeklyData.jobDetails.map(j => {
-          return `${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || 'N/A'} - ${cleanAddress(j.address) || 'N/A'}`;
+          return `${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || 'N/A'} - ${cleanAddress(j.address).replace(/,/g, '') || 'N/A'}`;
         });
         const totalRevenue = weeklyData.jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
         if (totalRevenue > 0) {

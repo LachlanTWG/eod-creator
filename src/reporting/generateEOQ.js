@@ -80,7 +80,7 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
   }
   const jobDetails = data.jobDetails.map(j => ({
     ...j,
-    address: (j.address || '').replace(/,\s*$/, '').trim(),
+    address: (j.address || '').replace(/,/g, '').trim(),
   }));
 
   const topSources = getTopSources(quarterlyCounts, companyName);

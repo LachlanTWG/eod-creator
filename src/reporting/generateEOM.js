@@ -70,7 +70,7 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   }
   const jobDetails = data.jobDetails.map(j => ({
     ...j,
-    address: cleanAddress(j.address),
+    address: cleanAddress(j.address).replace(/,/g, ''),
   }));
 
   const topSources = getTopSources(monthlyCounts, companyName);
