@@ -24,6 +24,7 @@ const FIELD_META: Record<string, FieldMeta> = {
   contact_name:    { kind: "text", placeholder: "Contact name" },
   quote_job_value: { kind: "text", placeholder: "1200|3500", hint: "Pipe-separated tiers, no symbols" },
   contact_address: { kind: "text", placeholder: "Address" },
+  ad_source:       { kind: "text", placeholder: "e.g. Facebook Ad Form" },
   appointment_at:  { kind: "datetime" },
   sales_person:    { kind: "select" },
 };
@@ -68,6 +69,7 @@ export function MissingActivityCard({
         case "appointment_at":  input.appointment_at = v; break;
         case "contact_name":    input.contact_name = v; break;
         case "contact_address": input.contact_address = v; break;
+        case "ad_source":       input.ad_source = v; break;
       }
     }
     if (Object.keys(input).length <= 1) { setError("Enter a value first"); return; }

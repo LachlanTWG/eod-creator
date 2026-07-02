@@ -28,6 +28,7 @@ export type EditActivityInput = {
   outcome?: string | null;
   contact_name?: string | null;
   contact_address?: string | null;
+  ad_source?: string | null;
   quote_job_value?: string | null;
   appointment_at?: string | null;
 };
@@ -84,6 +85,7 @@ export async function editActivity(input: EditActivityInput): Promise<ActionResu
   if (input.outcome !== undefined) update.outcome = input.outcome || null;
   if (input.contact_name !== undefined) update.contact_name = input.contact_name || null;
   if (input.contact_address !== undefined) update.contact_address = input.contact_address || null;
+  if (input.ad_source !== undefined) update.ad_source = input.ad_source || null;
   if (input.quote_job_value !== undefined) update.quote_job_value = input.quote_job_value || null;
   if (input.appointment_at !== undefined) update.appointment_at = sanitiseTimestamp(input.appointment_at) ?? null;
 

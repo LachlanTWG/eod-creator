@@ -32,6 +32,7 @@ export type ScanActivity = {
   contact_name: string | null;
   contact_address: string | null;
   outcome: string | null;
+  ad_source: string | null;
   quote_job_value: string | null;
   appointment_at: string | null;
 };
@@ -82,6 +83,13 @@ export function activityGaps(a: ScanActivity): Gap[] {
   if (type === "site_visit_booked") {
     if (isBlank(a.contact_address)) gaps.push({ field: "contact_address", label: "address" });
     if (isBlank(a.appointment_at)) gaps.push({ field: "appointment_at", label: "appointment time" });
+  }
+  // Jobs won show address + lead source in reports, so flag those when blank.
+  // Quotes are deliberately excluded — ~99% carry no ad source by design
+  // (it lives on the lead/EOD, not the quote), so flagging them is pure noise.
+  if (type === "job_won") {
+    if (isBlank(a.contact_address)) gaps.push({ field: "contact_address", label: "address" });
+    if (isBlank(a.ad_source)) gaps.push({ field: "ad_source", label: "source" });
   }
   // sales_person_name is NOT NULL and defaults to 'Unknown' when ingest can't
   // attribute the row — that's the real gap. A blank sales_person_id with a

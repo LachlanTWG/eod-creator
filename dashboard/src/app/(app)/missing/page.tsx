@@ -58,7 +58,7 @@ export default async function MissingInfoPage({
           let q = supabase
             .from("activities")
             .select(
-              "id, company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_address, outcome, quote_job_value, appointment_at",
+              "id, company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_address, outcome, ad_source, quote_job_value, appointment_at",
             )
             .in("event_type", SCANNED_EVENT_TYPES as readonly string[])
             .order("occurred_on", { ascending: false })
