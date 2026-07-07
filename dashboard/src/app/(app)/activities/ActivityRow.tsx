@@ -38,18 +38,18 @@ export function ActivityRow({
     <>
       <tr className="border-t border-zinc-800 align-top hover:bg-zinc-900/40">
         <td className="px-3 py-2 text-xs tabular-nums text-zinc-300">{row.occurred_on}</td>
-        <td className="px-3 py-2 text-xs text-zinc-400">{companyName}</td>
-        <td className="px-3 py-2 text-xs text-zinc-300">{row.sales_person_name || "—"}</td>
+        <td className="hidden px-3 py-2 text-xs text-zinc-400 md:table-cell">{companyName}</td>
+        <td className="hidden px-3 py-2 text-xs text-zinc-300 sm:table-cell">{row.sales_person_name || "—"}</td>
         <td className="px-3 py-2">
           <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${badgeClass}`}>
             {EVENT_LABELS[row.event_type] || row.event_type}
           </span>
         </td>
         <td className="px-3 py-2 text-xs text-zinc-200">{row.contact_name || <span className="text-zinc-600 italic">—</span>}</td>
-        <td className="px-3 py-2 text-[11px] text-zinc-500">
+        <td className="hidden px-3 py-2 text-[11px] text-zinc-500 lg:table-cell">
           {row.outcome ? <span className="font-mono">{truncate(row.outcome, 80)}</span> : "—"}
         </td>
-        <td className="px-3 py-2 text-xs tabular-nums text-zinc-400">{row.quote_job_value || "—"}</td>
+        <td className="hidden px-3 py-2 text-xs tabular-nums text-zinc-400 sm:table-cell">{row.quote_job_value || "—"}</td>
         <td className="px-2 py-2 text-right">
           {canEdit ? (
             <button

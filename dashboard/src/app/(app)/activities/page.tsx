@@ -123,17 +123,17 @@ export default async function ActivitiesPage({
         <Filters companies={companies} salesPeople={salesPeople} defaults={filters} />
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-zinc-800">
+      <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-800">
         <table className="w-full text-sm">
           <thead className="bg-zinc-900/60 text-[10px] uppercase tracking-wider text-zinc-500">
             <tr>
               <th className="px-3 py-2 text-left font-normal">Date</th>
-              <th className="px-3 py-2 text-left font-normal">Company</th>
-              <th className="px-3 py-2 text-left font-normal">Sales person</th>
+              <th className="hidden px-3 py-2 text-left font-normal md:table-cell">Company</th>
+              <th className="hidden px-3 py-2 text-left font-normal sm:table-cell">Sales person</th>
               <th className="px-3 py-2 text-left font-normal">Type</th>
               <th className="px-3 py-2 text-left font-normal">Contact</th>
-              <th className="px-3 py-2 text-left font-normal">Outcome</th>
-              <th className="px-3 py-2 text-left font-normal">Value</th>
+              <th className="hidden px-3 py-2 text-left font-normal lg:table-cell">Outcome</th>
+              <th className="hidden px-3 py-2 text-left font-normal sm:table-cell">Value</th>
               <th className="px-2 py-2 text-right font-normal">Edit</th>
             </tr>
           </thead>
