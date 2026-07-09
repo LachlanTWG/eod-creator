@@ -24,6 +24,7 @@ const {
 } = require('./sheets/summarySheet');
 const { getSummarySheetId } = require('./config/companiesStore');
 const { previewEOD, previewEOW, previewEOM, previewEOQ, previewEOY } = require('./preview');
+const { syncHuddleBoard, createWeeklyHuddleTask } = require('./integrations/huddleBoard');
 const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -211,6 +212,23 @@ function scheduleMonthlyDoc() {
     runMonthlyDoc().catch(e => console.error('Monthly doc error:', e.message));
   }, { timezone: 'Australia/Sydney' }));
   console.log(`  Monthly Review Doc: 12pm 1st of month AEST`);
+}
+
+// Sales Exec Huddle Board (ClickUp) — hourly DB→ClickUp sync so the huddle
+// dashboard cards stay live, plus the weekly meeting task Friday 8am AEST
+// (before the huddle; the 6pm meeting DOC is a separate client-facing artefact).
+function scheduleHuddleBoard() {
+  scheduledJobs.push(cron.schedule('5 * * * *', () => {
+    console.log(`[${new Date().toISOString()}] HUDDLE BOARD SYNC`);
+    syncHuddleBoard().catch(e => console.error('Huddle board sync error:', e.message));
+  }, { timezone: 'Australia/Sydney' }));
+
+  scheduledJobs.push(cron.schedule('0 8 * * 5', () => {
+    console.log(`[${new Date().toISOString()}] HUDDLE MEETING TASK`);
+    createWeeklyHuddleTask().catch(e => console.error('Huddle meeting task error:', e.message));
+  }, { timezone: 'Australia/Sydney' }));
+
+  console.log(`  Huddle Board: sync hourly at :05, meeting task Friday 8am AEST`);
 }
 
 // ─── Webhook Server ──────────────────────────────────────────────────
@@ -950,6 +968,7 @@ function start() {
   scheduleMeetingDoc();
   scheduleMonthlyDoc();
   scheduleSummaryArchive();
+  scheduleHuddleBoard();
 
   console.log(`\nTotal cron jobs: ${scheduledJobs.length}`);
 
