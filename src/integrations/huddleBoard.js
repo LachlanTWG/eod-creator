@@ -16,9 +16,10 @@ const { clickupRequest } = require('./clickup');
 const { loadCompanies } = require('../config/companiesStore');
 const db = require('../db');
 const {
-  gridToRows, execMetrics, clientMetrics, deadLeads,
+  gridToRows, execMetrics, clientMetrics, deadLeads, upcomingSiteVisits,
   todayInTz, mondayOf, monthStartOf,
 } = require('../reporting/huddleMetrics');
+const { cleanAddress } = require('../reporting/addressFormat');
 const cfg = require('../config/huddleBoard.json');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -120,6 +121,32 @@ const money = n => '$' + Math.round(n).toLocaleString('en-AU');
 const pretty = d => new Date(d + 'T12:00:00Z')
   .toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
+// "2026-07-18T09:00:00" (client wall-clock, no zone) → "Sat 18 Jul 9:00am",
+// same shape as the EOD report's visit lines. Date-only visits → "Sun 19 Jul".
+const VISIT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const VISIT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function prettyVisit(v) {
+  const iso = v.datetime || (v.date ? v.date + 'T00:00:00' : '');
+  const d = new Date(iso + 'Z'); // parse as UTC so local machine TZ can't shift the wall-clock
+  if (!iso || isNaN(d.getTime())) return v.datetime || v.date || 'TBC';
+  const day = `${VISIT_DAYS[d.getUTCDay()]} ${String(d.getUTCDate()).padStart(2, '0')} ${VISIT_MONTHS[d.getUTCMonth()]}`;
+  if (!v.datetime) return day;
+  let h = d.getUTCHours();
+  const mins = String(d.getUTCMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12 || 12;
+  return `${day} ${h}:${mins}${ampm}`;
+}
+
+function siteVisitsSection(visits) {
+  if (!visits.length) return '### 🏠 Site visits (upcoming)\n_None booked._';
+  const lines = visits.map(v => {
+    const addr = cleanAddress(v.address);
+    return `- **${v.contact}** — ${v.company}${addr ? ` — ${addr}` : ''} — ${prettyVisit(v)}`;
+  });
+  return `### 🏠 Site visits (upcoming)\n${lines.join('\n')}`;
+}
+
 function syncedStamp() {
   const now = new Date().toLocaleString('en-AU', {
     timeZone: cfg.timezone, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
@@ -185,6 +212,8 @@ async function syncHuddleBoard() {
     const description = [
       syncedStamp(),
       '',
+      siteVisitsSection(upcomingSiteVisits(rows, exec, today)),
+      '',
       `### This week (from Mon ${pretty(weekStart)})`,
       Object.keys(wtd.byCompany).length ? metricsTable(wtd.byCompany) : '_No activity yet this week._',
       '',
@@ -232,12 +261,17 @@ async function syncHuddleBoard() {
 }
 
 // Weekly huddle meeting task — idempotent by name, so the Friday cron and
-// manual runs can overlap safely.
-async function createWeeklyHuddleTask() {
+// manual runs can overlap safely. By default reviews the current week to
+// date (Friday-huddle shape); pass {statsStart, statsEnd, weekLabel} to
+// review a different window, e.g. the previous full week for a Monday run.
+async function createWeeklyHuddleTask(opts = {}) {
   const { rows, companyNames } = await loadAllRows();
   const { today, weekStart } = periods();
+  const statsStart = opts.statsStart || weekStart;
+  const statsEnd = opts.statsEnd || today;
+  const weekLabel = opts.weekLabel || pretty(weekStart);
 
-  const name = `🏂 Sales Exec Huddle — Week of ${pretty(weekStart)}`;
+  const name = `🏂 Sales Exec Huddle — Week of ${weekLabel}`;
   const tasks = await getTasks(cfg.meetingsListId);
   if (tasks.some(t => t.name === name)) {
     console.log(`  [huddle] meeting task already exists: "${name}"`);
@@ -249,26 +283,27 @@ async function createWeeklyHuddleTask() {
     '| --- | --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const exec of cfg.execs) {
-    const { total: m } = execMetrics(rows, exec, weekStart, today);
+    const { total: m } = execMetrics(rows, exec, statsStart, statsEnd);
     execLines.push(`| ${exec} | ${m.calls} | ${m.spokeTo} | ${m.appointments} | ${m.quotesSent} | ${money(m.quoteValue)} | ${m.jobsWon} | ${money(m.revenue)} |`);
   }
 
   const deadSections = [];
   for (const company of companyNames) {
-    const dead = deadLeads(rows.filter(r => r.company === company), weekStart, today);
+    const dead = deadLeads(rows.filter(r => r.company === company), statsStart, statsEnd);
     if (!dead.length) continue;
     deadSections.push(`**${company}**\n` + dead.map(d =>
       `- ${d.contact} — ${d.outcome} (${d.exec}, ${pretty(d.date)})${d.notes ? ` — ${d.notes}` : ''}`
     ).join('\n'));
   }
 
+  const statsLabel = `${pretty(statsStart)} – ${pretty(statsEnd)}`;
   const description = [
-    `Stats as of ${pretty(today)} morning — live numbers are on the Leaderboards and Client Health lists.`,
+    `Stats cover ${statsLabel} — live numbers are on the Leaderboards and Client Health lists.`,
     '',
-    '## This week by exec',
+    `## By exec (${statsLabel})`,
     execLines.join('\n'),
     '',
-    '## Dead leads this week',
+    `## Dead leads (${statsLabel})`,
     deadSections.length ? deadSections.join('\n\n') : '_None recorded._',
     '',
     '## Agenda',

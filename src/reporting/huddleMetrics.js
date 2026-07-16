@@ -102,6 +102,9 @@ function gridToRows(grid, companyName) {
     adSource: r[idx['Ad Source']],
     quoteJobValue: r[idx['Quote/Job Value']],
     contactId: r[idx['Contact ID']],
+    contactAddress: r[idx['Contact Address']],
+    appointmentDateTime: r[idx['Appointment Date Time']],
+    appointmentDate: r[idx['Appointment Date']],
   }));
 }
 
@@ -203,6 +206,29 @@ function clientMetrics(rows, { today, weekStart, monthStart, target }) {
   return { jobsWonMTD, revenueMTD, fbLeadsWTD, fbLeadsMTD, leadToApptPct, deadLeadsWTD, health };
 }
 
+// ─── Site visits ────────────────────────────────────────────────────
+
+// Upcoming booked site visits for one exec, across all companies: appointment
+// date on/after `fromDate`, soonest first. appointment_at is client wall-clock
+// (fetchActivityGrid emits it as a naive string), so the >= compare against a
+// Sydney "today" can be a few hours off around midnight — fine for a board.
+// Visits with no appointment date at all can't be placed in time, so they're
+// left out (mirrors the morning Slack notification in runReports.js).
+function upcomingSiteVisits(rows, execName, fromDate) {
+  return rows
+    .filter(r => r.eventType === 'Site Visit Booked'
+      && r.salesPerson === execName
+      && (r.appointmentDate || (r.appointmentDateTime || '').slice(0, 10)) >= fromDate)
+    .map(r => ({
+      company: r.company,
+      contact: r.contactName || '(no name)',
+      address: r.contactAddress || '',
+      datetime: r.appointmentDateTime || '',
+      date: r.appointmentDate || (r.appointmentDateTime || '').slice(0, 10),
+    }))
+    .sort((a, b) => (a.datetime || a.date).localeCompare(b.datetime || b.date));
+}
+
 // Dead leads over [start, end] for the meeting agenda: who, which client,
 // which exec, and the outcome that killed it.
 function deadLeads(rows, start, end) {
@@ -230,6 +256,7 @@ module.exports = {
   execMetrics,
   clientMetrics,
   deadLeads,
+  upcomingSiteVisits,
   todayInTz,
   mondayOf,
   monthStartOf,
