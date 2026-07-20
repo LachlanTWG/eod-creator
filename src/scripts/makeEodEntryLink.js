@@ -9,7 +9,7 @@
 //   node src/scripts/makeEodEntryLink.js <company-slug> [baseUrl]
 //   baseUrl defaults to DASHBOARD_URL env var.
 
-require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env'), quiet: true });
 
 const crypto = require('crypto');
 
