@@ -71,7 +71,23 @@ function cleanName(raw) {
 }
 
 function scrapeContactName(contactId, knownLink) {
-  // Best-effort: any link to this contact whose text looks like a name.
+  // Strongest source: the contact panel's own First/Last Name inputs — GHL
+  // names them "contact.first_name" / "contact.last_name" (with a
+  // "contact.name" variant on some views).
+  const inputVal = sel => document.querySelector(sel)?.value?.trim() || "";
+  const full = inputVal('input[name="contact.name"], input[name="contact.full_name"]');
+  if (full) {
+    const cleaned = cleanName(full);
+    if (cleaned) return cleaned;
+  }
+  const first = inputVal('input[name="contact.first_name"]');
+  const last = inputVal('input[name="contact.last_name"]');
+  if (first || last) {
+    const cleaned = cleanName(`${first} ${last}`.trim());
+    if (cleaned) return cleaned;
+  }
+
+  // Next: any link to this contact whose text looks like a name.
   const links = knownLink
     ? [knownLink]
     : Array.from(document.querySelectorAll(`a[href*="/contacts/detail/${contactId}"]`));
