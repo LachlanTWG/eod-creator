@@ -9,6 +9,7 @@
 
 import { verifyEodEntryToken } from "@/lib/eodEntryToken";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { pushEodFieldsToGhl } from "./ghlPipeline";
 import {
   ALLOWED_EVENT_TYPES,
   buildSheetActivities,
@@ -26,9 +27,14 @@ export type EodEntryInput = {
   occurred_on: string;  // YYYY-MM-DD
   event_type: EventType;
   items: NewActivityItem[];
+  // EOD call-log values, discrete — used to mirror onto the GHL contact's
+  // custom fields so the location's pipeline workflow fires.
+  eod_fields?: { stage: string; answered: string; std_outcome: string };
 };
 
-export type EodEntryResult = { ok: true; count: number } | { ok: false; error: string };
+export type EodEntryResult =
+  | { ok: true; count: number; pipeline?: string } // pipeline: "updated" or a skip/fail reason
+  | { ok: false; error: string };
 
 export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResult> {
   const slug = verifyEodEntryToken(input.token || "");
@@ -71,5 +77,24 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   }
 
   const activities = buildSheetActivities(input.occurred_on, input.event_type, salesPersonName, items);
-  return postManualActivities(company.name, activities);
+  const posted = await postManualActivities(company.name, activities);
+  if (!posted.ok) return posted;
+
+  // Activity is logged; now nudge the GHL pipeline workflow by writing the
+  // EOD fields onto the contact. Failure here never fails the submission —
+  // the reason is surfaced as a note instead.
+  let pipeline: string | undefined;
+  if (input.event_type === "eod_update" && input.eod_fields) {
+    const contactId = items.find(it => it.contact_id?.trim())?.contact_id?.trim() || "";
+    const pushed = await pushEodFieldsToGhl({
+      locationId: input.ghl_location_id || "",
+      contactId,
+      stage: input.eod_fields.stage,
+      answered: input.eod_fields.answered,
+      stdOutcome: input.eod_fields.std_outcome,
+    });
+    pipeline = pushed.ok ? "updated" : pushed.reason;
+  }
+
+  return { ...posted, pipeline };
 }

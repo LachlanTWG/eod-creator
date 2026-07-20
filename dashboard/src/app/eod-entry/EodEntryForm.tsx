@@ -68,6 +68,7 @@ export function EodEntryForm({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
+  const [pipelineNote, setPipelineNote] = useState<string | null>(null);
 
   const [salesPerson, setSalesPerson] = useState(people[0] ?? "");
   const [date, setDate] = useState(defaultDate);
@@ -98,11 +99,16 @@ export function EodEntryForm({
       occurred_on: date,
       event_type: evType,
       items: payloadItems,
+      eod_fields:
+        evType === "eod_update"
+          ? { stage, answered, std_outcome: stdOutcome }
+          : undefined,
     };
     startTransition(async () => {
       const res = await submitEodEntry(input);
       if (!res.ok) { setError(res.error); return; }
       setSavedCount(res.count);
+      setPipelineNote(res.pipeline ?? null);
       if (evType === "eod_update") {
         // Keep stage + source (same contact, likely same context next time);
         // clear the per-call outcomes.
@@ -119,6 +125,7 @@ export function EodEntryForm({
     e.preventDefault();
     setError(null);
     setSavedCount(null);
+    setPipelineNote(null);
 
     if (eventType === "eod_update") {
       if (!answered) { setError("Tap Answered or Didn't Answer"); return; }
@@ -347,6 +354,12 @@ export function EodEntryForm({
           {savedCount !== null && !error && (
             <div className="rounded border border-emerald-900/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
               Saved {savedCount === 1 ? "1 activity" : `${savedCount} activities`}. It&apos;s in the reports + dashboard.
+              {pipelineNote === "updated" && (
+                <span className="mt-0.5 block text-emerald-400">Pipeline workflow triggered ✓</span>
+              )}
+              {pipelineNote && pipelineNote !== "updated" && (
+                <span className="mt-0.5 block text-amber-300/90">Pipeline not nudged: {pipelineNote}</span>
+              )}
             </div>
           )}
 

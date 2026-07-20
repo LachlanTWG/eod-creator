@@ -40,8 +40,14 @@ export type ContactHistory = {
 };
 
 const DEFAULT_STAGES = ["New Leads", "Pre-Quote Follow Up", "Post Quote Follow Up"];
+// The pipeline workflows branch on string equality against these values, so
+// they must stay in sync with the workflow conditions. Deliberately uses the
+// CORRECTED "Not a Good Time to Talk" (GHL's field had a "TIme" typo, being
+// retired) — the workflow branch conditions must be updated to match. The
+// lowercase learned-options dedup hides the historical typo'd variant.
 const DEFAULT_OUTCOMES = [
   "Requires Quoting",
+  "Quote Sent",
   "Book Site Visit",
   "Verbal Confirmation",
   "Waiting on Photos",
@@ -56,6 +62,8 @@ const DEFAULT_OUTCOMES = [
   "DQ - Extent of Works",
   "DQ - Price",
   "DQ - Lead Looking for Work",
+  "DQ - Recommended Another Company",
+  "DQ - Trying to Sell Me Something",
   "Abandoned - Not Responding",
   "Abandoned - Headache",
 ];
