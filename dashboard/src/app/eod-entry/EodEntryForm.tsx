@@ -152,8 +152,7 @@ export function EodEntryForm({
     : "Email";
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-md px-5 py-5">
+    <div>
         {/* ── Details ─────────────────────────────────────────────── */}
         <div className="mb-4 border-b border-zinc-800 pb-3">
           <div className="flex items-baseline justify-between">
@@ -361,8 +360,7 @@ export function EodEntryForm({
             </button>
           </div>
         </form>
-      </div>
-    </main>
+    </div>
   );
 }
 

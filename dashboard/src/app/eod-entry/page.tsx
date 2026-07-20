@@ -10,7 +10,14 @@
 import type { Metadata } from "next";
 import { verifyEodEntryToken } from "@/lib/eodEntryToken";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchContactHistory, fetchEodOptions } from "./data";
+import {
+  fetchAllExecNames,
+  fetchCompanyToday,
+  fetchContactHistory,
+  fetchEodOptions,
+  fetchMyToday,
+} from "./data";
+import { MeView, TabBar, TodayView } from "./views";
 import { EodEntryForm } from "./EodEntryForm";
 
 export const metadata: Metadata = {
@@ -43,9 +50,16 @@ function Notice({ children }: { children: React.ReactNode }) {
 export default async function EodEntryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ token?: string; location?: string; contact_name?: string; contact_id?: string }>;
+  searchParams: Promise<{
+    token?: string;
+    location?: string;
+    contact_name?: string;
+    contact_id?: string;
+    tab?: string;
+    exec?: string;
+  }>;
 }) {
-  const { token, location, contact_name, contact_id } = await searchParams;
+  const { token, location, contact_name, contact_id, tab, exec } = await searchParams;
   const slug = token ? verifyEodEntryToken(token) : null;
   if (!token || !slug) {
     return <Notice>This entry link is missing or invalid. Ask Lachlan for a fresh link.</Notice>;
@@ -69,28 +83,50 @@ export default async function EodEntryPage({
 
   const cName = contact_name?.trim() || "";
   const cId = contact_id?.trim() || "";
-  const [{ data: people }, options, history] = await Promise.all([
-    supabase
-      .from("sales_people")
-      .select("name")
-      .eq("company_id", company.id)
-      .eq("active", true)
-      .order("name"),
-    fetchEodOptions(company.id),
-    fetchContactHistory(company.id, cId, cName),
-  ]);
+  const base = { token, location, contact_name: cName || undefined, contact_id: cId || undefined };
+  const activeTab = tab === "today" ? ("today" as const) : tab === "me" ? ("me" as const) : ("log" as const);
+  const today = todayIn(company.timezone);
+
+  let content: React.ReactNode;
+  if (activeTab === "today") {
+    const stats = await fetchCompanyToday(company.id, today);
+    content = <TodayView companyName={company.name} date={today} today={stats} />;
+  } else if (activeTab === "me") {
+    const execNames = await fetchAllExecNames();
+    const my = exec ? await fetchMyToday(exec, tz => todayIn(tz)) : null;
+    content = <MeView exec={exec || ""} execNames={execNames} my={my} base={base} />;
+  } else {
+    const [{ data: people }, options, history] = await Promise.all([
+      supabase
+        .from("sales_people")
+        .select("name")
+        .eq("company_id", company.id)
+        .eq("active", true)
+        .order("name"),
+      fetchEodOptions(company.id),
+      fetchContactHistory(company.id, cId, cName),
+    ]);
+    content = (
+      <EodEntryForm
+        token={token}
+        ghlLocationId={location || ""}
+        companyName={company.name}
+        people={(people ?? []).map(p => p.name)}
+        defaultDate={today}
+        contactName={cName}
+        contactId={cId}
+        options={options}
+        history={history}
+      />
+    );
+  }
 
   return (
-    <EodEntryForm
-      token={token}
-      ghlLocationId={location || ""}
-      companyName={company.name}
-      people={(people ?? []).map(p => p.name)}
-      defaultDate={todayIn(company.timezone)}
-      contactName={cName}
-      contactId={cId}
-      options={options}
-      history={history}
-    />
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="mx-auto max-w-md px-5 py-4">
+        <TabBar active={activeTab} base={base} />
+        {content}
+      </div>
+    </main>
   );
 }

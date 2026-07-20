@@ -130,6 +130,140 @@ export async function fetchEodOptions(companyId: string): Promise<EodOptions> {
   };
 }
 
+// ─── Today / Me tabs ─────────────────────────────────────────────────
+
+export type DayTally = {
+  eodUpdates: number;
+  answered: number;
+  didntAnswer: number;
+  quotes: number;
+  quotedTotal: number;
+  siteVisits: number;
+  emails: number;
+  jobsWon: number;
+};
+
+export type CompanyToday = {
+  tally: DayTally;
+  perPerson: { name: string; tally: DayTally }[];
+};
+
+export type MyToday = {
+  total: DayTally;
+  perCompany: { company: string; date: string; tally: DayTally }[];
+};
+
+const emptyTally = (): DayTally => ({
+  eodUpdates: 0, answered: 0, didntAnswer: 0,
+  quotes: 0, quotedTotal: 0, siteVisits: 0, emails: 0, jobsWon: 0,
+});
+
+type TallyRow = { event_type: string; outcome: string | null; quote_job_value: string | null };
+
+function addToTally(t: DayTally, row: TallyRow) {
+  switch (row.event_type) {
+    case "eod_update": {
+      t.eodUpdates++;
+      const answered = String(row.outcome || "").split("|")[1]?.trim();
+      if (answered === "Answered") t.answered++;
+      else if (answered) t.didntAnswer++;
+      break;
+    }
+    case "quote_sent":
+      t.quotes++;
+      t.quotedTotal += quoteGroupValue(row.quote_job_value);
+      break;
+    case "site_visit_booked": t.siteVisits++; break;
+    case "email_sent": t.emails++; break;
+    case "job_won": t.jobsWon++; break;
+  }
+}
+
+/** Today's activity for one company, with a per-exec breakdown. */
+export async function fetchCompanyToday(companyId: string, date: string): Promise<CompanyToday> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("activities")
+    .select("event_type, outcome, quote_job_value, sales_person_name")
+    .eq("company_id", companyId)
+    .eq("occurred_on", date)
+    .limit(2000);
+
+  const tally = emptyTally();
+  const byPerson = new Map<string, DayTally>();
+  for (const row of data ?? []) {
+    addToTally(tally, row);
+    const name = row.sales_person_name || "Team";
+    if (!byPerson.has(name)) byPerson.set(name, emptyTally());
+    addToTally(byPerson.get(name)!, row);
+  }
+
+  const perPerson = [...byPerson.entries()]
+    .map(([name, t]) => ({ name, tally: t }))
+    .sort((a, b) => (b.tally.eodUpdates + b.tally.quotes) - (a.tally.eodUpdates + a.tally.quotes));
+  return { tally, perPerson };
+}
+
+/**
+ * One exec's day across every active client. "Today" is evaluated in each
+ * company's own timezone, matching how occurred_on is written.
+ */
+export async function fetchMyToday(
+  execName: string,
+  todayFor: (timezone: string) => string,
+): Promise<MyToday> {
+  const supabase = createAdminClient();
+  const { data: companies } = await supabase
+    .from("companies")
+    .select("id, name, timezone")
+    .eq("active", true)
+    .order("name");
+
+  const total = emptyTally();
+  const perCompany: MyToday["perCompany"] = [];
+
+  await Promise.all(
+    (companies ?? []).map(async c => {
+      const date = todayFor(c.timezone);
+      const { data } = await supabase
+        .from("activities")
+        .select("event_type, outcome, quote_job_value")
+        .eq("company_id", c.id)
+        .eq("occurred_on", date)
+        .eq("sales_person_name", execName)
+        .limit(2000);
+      if (!data || data.length === 0) return;
+      const tally = emptyTally();
+      for (const row of data) addToTally(tally, row);
+      perCompany.push({ company: c.name, date, tally });
+    }),
+  );
+
+  perCompany.sort((a, b) => (b.tally.eodUpdates + b.tally.quotes) - (a.tally.eodUpdates + a.tally.quotes));
+  for (const c of perCompany) {
+    total.eodUpdates += c.tally.eodUpdates;
+    total.answered += c.tally.answered;
+    total.didntAnswer += c.tally.didntAnswer;
+    total.quotes += c.tally.quotes;
+    total.quotedTotal += c.tally.quotedTotal;
+    total.siteVisits += c.tally.siteVisits;
+    total.emails += c.tally.emails;
+    total.jobsWon += c.tally.jobsWon;
+  }
+  return { total, perCompany };
+}
+
+/** All active exec names across all active clients (deduped, sorted). */
+export async function fetchAllExecNames(): Promise<string[]> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("sales_people")
+    .select("name, companies!inner(active)")
+    .eq("active", true)
+    .eq("companies.active", true);
+  return [...new Set((data ?? []).map(p => p.name))].sort();
+}
+
 export async function fetchContactHistory(
   companyId: string,
   contactId: string,
