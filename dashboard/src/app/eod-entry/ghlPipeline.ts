@@ -34,7 +34,7 @@ function locationToken(locationId: string): string | null {
   }
 }
 
-async function getFieldIds(locationId: string, token: string): Promise<Record<string, string> | null> {
+async function getFieldIds(locationId: string, token: string): Promise<Record<string, string> | "unauthorized" | null> {
   const cached = fieldIdCache.get(locationId);
   if (cached) return cached;
 
@@ -42,6 +42,7 @@ async function getFieldIds(locationId: string, token: string): Promise<Record<st
     headers: { Authorization: `Bearer ${token}`, Version: GHL_VERSION },
     cache: "no-store",
   });
+  if (res.status === 401 || res.status === 403) return "unauthorized";
   if (!res.ok) return null;
   const body = await res.json();
   const fields: { id: string; name?: string }[] = body?.customFields ?? [];
@@ -73,13 +74,16 @@ export async function pushEodFieldsToGhl(input: {
   const token = locationToken(locationId);
   if (!token) return { ok: false, reason: "no API token for this location" };
 
-  let ids: Record<string, string> | null;
+  let ids: Record<string, string> | "unauthorized" | null;
   try {
     ids = await getFieldIds(locationId, token);
   } catch {
     return { ok: false, reason: "couldn't read the location's fields" };
   }
-  if (!ids) return { ok: false, reason: "EOD fields not found (check token scopes / field setup)" };
+  if (ids === "unauthorized") {
+    return { ok: false, reason: "token missing the View Custom Fields / Edit Contacts scopes" };
+  }
+  if (!ids) return { ok: false, reason: "no EOD fields exist in this location" };
 
   // The workflow's "Didn't Answer" ladder branches on EOD 3 == "Didn't
   // Answer", so mirror a no-answer into EOD 3 when no explicit outcome given.
