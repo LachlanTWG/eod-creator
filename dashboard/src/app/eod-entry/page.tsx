@@ -10,6 +10,7 @@
 import type { Metadata } from "next";
 import { verifyEodEntryToken } from "@/lib/eodEntryToken";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchContactHistory, fetchEodOptions } from "./data";
 import { EodEntryForm } from "./EodEntryForm";
 
 export const metadata: Metadata = {
@@ -66,12 +67,18 @@ export default async function EodEntryPage({
     return <Notice>This client is no longer active. Ask Lachlan for a fresh link.</Notice>;
   }
 
-  const { data: people } = await supabase
-    .from("sales_people")
-    .select("name")
-    .eq("company_id", company.id)
-    .eq("active", true)
-    .order("name");
+  const cName = contact_name?.trim() || "";
+  const cId = contact_id?.trim() || "";
+  const [{ data: people }, options, history] = await Promise.all([
+    supabase
+      .from("sales_people")
+      .select("name")
+      .eq("company_id", company.id)
+      .eq("active", true)
+      .order("name"),
+    fetchEodOptions(company.id),
+    fetchContactHistory(company.id, cId, cName),
+  ]);
 
   return (
     <EodEntryForm
@@ -80,8 +87,10 @@ export default async function EodEntryPage({
       companyName={company.name}
       people={(people ?? []).map(p => p.name)}
       defaultDate={todayIn(company.timezone)}
-      contactName={contact_name?.trim() || ""}
-      contactId={contact_id?.trim() || ""}
+      contactName={cName}
+      contactId={cId}
+      options={options}
+      history={history}
     />
   );
 }
