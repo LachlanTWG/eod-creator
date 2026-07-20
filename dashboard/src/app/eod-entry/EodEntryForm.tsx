@@ -9,7 +9,7 @@
 // produces. Quotes / jobs / site visits / emails stay available behind the
 // event-type selector with the original multi-row UI.
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
 import type { ContactHistory, EodOptions } from "./data";
 import { submitEodEntry, type EodEntryInput } from "./actions";
@@ -71,6 +71,24 @@ export function EodEntryForm({
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
 
   const [salesPerson, setSalesPerson] = useState(people[0] ?? "");
+
+  // Each exec's browser remembers who they are: pick your name once and every
+  // popup on this device defaults to you, across all clients (as long as
+  // you're on that client's roster). Read after hydration — localStorage
+  // isn't available during SSR.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("eod-exec");
+      if (stored && people.includes(stored)) setSalesPerson(stored); // eslint-disable-line react-hooks/set-state-in-effect
+    } catch { /* storage unavailable (rare iframe modes) — keep default */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function chooseSalesPerson(name: string) {
+    setSalesPerson(name);
+    try {
+      if (name) localStorage.setItem("eod-exec", name);
+    } catch { /* ignore */ }
+  }
   const [date, setDate] = useState(defaultDate);
   const [eventType, setEventType] = useState<EventType>("eod_update");
 
@@ -183,7 +201,7 @@ export function EodEntryForm({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Sales person">
-              <select value={salesPerson} onChange={e => setSalesPerson(e.target.value)} className={inputClass}>
+              <select value={salesPerson} onChange={e => chooseSalesPerson(e.target.value)} className={inputClass}>
                 {people.map(p => <option key={p} value={p}>{p}</option>)}
                 <option value="">— team —</option>
               </select>
