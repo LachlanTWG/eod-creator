@@ -40,6 +40,7 @@ const PERSON_NAME_CANONICAL = {
   'buzz brady':   'Buzz',
   'zac russell':  'Zac',
   'benji boys':   'Benji',
+  'max brady':    'Max',
 };
 function canonicalisePersonName(name) {
   if (!name) return name;
