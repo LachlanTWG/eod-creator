@@ -21,6 +21,9 @@ export type HistoryEntry = {
 };
 
 export type ContactHistory = {
+  /** The contact's name as recorded in our DB — more reliable than the
+   *  extension's DOM scrape, which can pick up page headings ("Contacts"). */
+  canonicalName: string;
   total: number;
   firstDate: string;
   lastDate: string;
@@ -81,6 +84,8 @@ type ActivityRow = {
   sales_person_name: string | null;
   ad_source: string | null;
   appointment_at: string | null;
+  contact_id: string | null;
+  contact_name: string | null;
 };
 
 /** Mean of pipe-separated quote tiers (they're alternatives, never summed). */
@@ -274,7 +279,7 @@ export async function fetchContactHistory(
   const supabase = createAdminClient();
   let query = supabase
     .from("activities")
-    .select("occurred_on, event_type, outcome, quote_job_value, sales_person_name, ad_source, appointment_at")
+    .select("occurred_on, event_type, outcome, quote_job_value, sales_person_name, ad_source, appointment_at, contact_id, contact_name")
     .eq("company_id", companyId)
     .order("occurred_on", { ascending: false })
     .limit(200);
@@ -295,7 +300,14 @@ export async function fetchContactHistory(
   const rows = (data ?? []) as ActivityRow[];
   if (rows.length === 0) return null;
 
+  // Newest row with the exact contact id wins; any named row is the fallback.
+  const canonicalName =
+    (contactId && rows.find(r => r.contact_id === contactId && r.contact_name?.trim())?.contact_name) ||
+    rows.find(r => r.contact_name?.trim())?.contact_name ||
+    "";
+
   const h: ContactHistory = {
+    canonicalName: canonicalName.trim(),
     total: rows.length,
     firstDate: rows[rows.length - 1].occurred_on,
     lastDate: rows[0].occurred_on,

@@ -106,6 +106,9 @@ export default async function EodEntryPage({
       fetchEodOptions(company.id),
       fetchContactHistory(company.id, cId, cName),
     ]);
+    // The DB's name for a known contact beats the extension's DOM scrape,
+    // which can grab page headings like "Contacts".
+    const displayName = history?.canonicalName || cName;
     content = (
       <EodEntryForm
         token={token}
@@ -113,7 +116,7 @@ export default async function EodEntryPage({
         companyName={company.name}
         people={(people ?? []).map(p => p.name)}
         defaultDate={today}
-        contactName={cName}
+        contactName={displayName}
         contactId={cId}
         options={options}
         history={history}

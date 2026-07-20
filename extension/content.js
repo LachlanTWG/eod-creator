@@ -52,19 +52,39 @@ function getContext() {
   return null;
 }
 
+// GHL page/section headings that the scraper must never mistake for a
+// person's name (the server also overrides with the DB name for known
+// contacts, so a blank here just means the exec types the name once).
+const JUNK_HEADINGS = new Set([
+  "contacts", "contact", "conversations", "opportunities", "calendars",
+  "calendar", "dashboard", "launchpad", "marketing", "automation", "sites",
+  "payments", "reputation", "reporting", "app marketplace", "settings",
+  "activity", "notes", "tasks", "appointments", "associations", "documents",
+]);
+
+function cleanName(raw) {
+  const text = (raw || "").trim();
+  if (!text || text.length > 80) return "";
+  if (/^https?:/.test(text)) return "";
+  if (JUNK_HEADINGS.has(text.toLowerCase())) return "";
+  return text;
+}
+
 function scrapeContactName(contactId, knownLink) {
   // Best-effort: any link to this contact whose text looks like a name.
   const links = knownLink
     ? [knownLink]
     : Array.from(document.querySelectorAll(`a[href*="/contacts/detail/${contactId}"]`));
   for (const a of links) {
-    const text = (a.textContent || "").trim();
-    if (text && text.length <= 80 && !/^https?:/.test(text)) return text;
+    const text = cleanName(a.textContent);
+    if (text) return text;
   }
-  // Contact detail page header fallback: the first <h2>-ish heading up top.
-  const h = document.querySelector("h2, h1");
-  const text = h ? (h.textContent || "").trim() : "";
-  return text.length > 0 && text.length <= 80 ? text : "";
+  // Fallback: first heading that isn't a known GHL page/section title.
+  for (const h of document.querySelectorAll("h1, h2, h3")) {
+    const text = cleanName(h.textContent);
+    if (text) return text;
+  }
+  return "";
 }
 
 function formUrl(ctx) {
