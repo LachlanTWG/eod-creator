@@ -11,10 +11,12 @@ import type { Metadata } from "next";
 import { verifyEodEntryToken } from "@/lib/eodEntryToken";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  cleanScrapedName,
   fetchAllExecNames,
   fetchCompanyToday,
   fetchContactHistory,
   fetchEodOptions,
+  fetchGhlContactName,
   fetchMyToday,
 } from "./data";
 import { MeView, TabBar, TodayView } from "./views";
@@ -96,7 +98,8 @@ export default async function EodEntryPage({
     const my = exec ? await fetchMyToday(exec, tz => todayIn(tz)) : null;
     content = <MeView exec={exec || ""} execNames={execNames} my={my} base={base} />;
   } else {
-    const [{ data: people }, options, history] = await Promise.all([
+    const scraped = cleanScrapedName(cName);
+    const [{ data: people }, options, history, ghlName] = await Promise.all([
       supabase
         .from("sales_people")
         .select("name")
@@ -104,11 +107,14 @@ export default async function EodEntryPage({
         .eq("active", true)
         .order("name"),
       fetchEodOptions(company.id),
-      fetchContactHistory(company.id, cId, cName),
+      fetchContactHistory(company.id, cId, scraped),
+      fetchGhlContactName(location || "", cId),
     ]);
-    // The DB's name for a known contact beats the extension's DOM scrape,
-    // which can grab page headings like "Contacts".
-    const displayName = history?.canonicalName || cName;
+    // Name precedence: GHL API (authoritative, needs a location token) →
+    // DB name for a known contact → the extension's DOM scrape (fragile,
+    // junk-filtered). Junk can poison the DB via a bad submission, so the
+    // API also outranks the DB.
+    const displayName = ghlName || cleanScrapedName(history?.canonicalName || "") || scraped;
     content = (
       <EodEntryForm
         token={token}

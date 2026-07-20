@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EOD Logger",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Floating EOD activity logger on GHL contact and conversation pages. Logs straight into the EOD reports + dashboard.",
   "content_scripts": [
     {

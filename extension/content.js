@@ -67,6 +67,7 @@ function cleanName(raw) {
   if (!text || text.length > 80) return "";
   if (/^https?:/.test(text)) return "";
   if (JUNK_HEADINGS.has(text.toLowerCase())) return "";
+  if (/^[\w-]+(\.[\w-]+)+$/.test(text)) return ""; // raw i18n key, not a name
   return text;
 }
 

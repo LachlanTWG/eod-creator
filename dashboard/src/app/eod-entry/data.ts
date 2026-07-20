@@ -135,6 +135,59 @@ export async function fetchEodOptions(companyId: string): Promise<EodOptions> {
   };
 }
 
+// ─── GHL contact lookup ──────────────────────────────────────────────
+// The authoritative name source. GHL_LOCATION_TOKENS is a JSON map of
+// { "<ghl location id>": "<private integration token>" } — each sub-account
+// issues its own token (Settings → Private Integrations, View Contacts
+// scope). DOM scraping in the extension is the fallback when a location has
+// no token; it's fragile (GHL headings, i18n keys), hence this.
+
+export async function fetchGhlContactName(
+  ghlLocationId: string,
+  contactId: string,
+): Promise<string> {
+  if (!ghlLocationId || !contactId) return "";
+  let tokens: Record<string, string>;
+  try {
+    tokens = JSON.parse(process.env.GHL_LOCATION_TOKENS || "{}");
+  } catch {
+    return "";
+  }
+  const token = tokens[ghlLocationId];
+  if (!token) return "";
+
+  try {
+    const res = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+      headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28" },
+      cache: "no-store",
+    });
+    if (!res.ok) return "";
+    const body = await res.json();
+    const c = body?.contact ?? {};
+    const name =
+      [c.firstName, c.lastName].filter(Boolean).join(" ").trim() ||
+      String(c.contactName || "").trim();
+    return name;
+  } catch {
+    return "";
+  }
+}
+
+// Obvious non-names from GHL page furniture: section headings and raw i18n
+// keys (dot-separated tokens like "snapshots.loadSnapshotsTemplate.x").
+const JUNK_NAMES = new Set([
+  "contacts", "contact", "conversations", "opportunities", "activity",
+  "notes", "tasks", "appointments", "associations", "documents",
+]);
+
+export function cleanScrapedName(raw: string): string {
+  const text = (raw || "").trim();
+  if (!text || text.length > 80) return "";
+  if (JUNK_NAMES.has(text.toLowerCase())) return "";
+  if (/^[\w-]+(\.[\w-]+)+$/.test(text)) return ""; // i18n key, not a name
+  return text;
+}
+
 // ─── Today / Me tabs ─────────────────────────────────────────────────
 
 export type DayTally = {
