@@ -1,19 +1,13 @@
 "use client";
 
-// Drawer for adding activities by hand — e.g. when the Quotie "Quote Sent"
-// automation didn't fire and a quote needs backfilling. Submits via the
-// createManualActivities server action, which routes through the same
-// sheet + Postgres dual-write the webhooks use (so the entry shows up in BOTH
-// the Slack/ClickUp reports and this dashboard).
-//
-// "Multiple quotes, one entry": the company / person / date / type are shared
-// across the submission; you add one row per quote and they're each saved as a
-// separate activity, so the report maths stay correct.
+// Compact version of the Add Activity drawer, sized for the GHL iframe.
+// Same field logic per event type; company is fixed by the URL token, and
+// the exec picks their name from the roster. Forces the dark palette
+// explicitly (bg on <main>) so it doesn't follow GHL users' light scheme.
 
-import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { createManualActivities } from "./actions";
+import { useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
+import { submitEodEntry, type EodEntryInput } from "./actions";
 
 const EVENT_TYPES = [
   { value: "quote_sent",        label: "Quote sent" },
@@ -24,9 +18,6 @@ const EVENT_TYPES = [
 ] as const;
 
 type EventType = (typeof EVENT_TYPES)[number]["value"];
-
-export type CompanyOption = { id: string; name: string };
-export type SalesPersonOption = { id: string; name: string; company_id: string };
 
 type Item = {
   contact_name: string;
@@ -46,44 +37,25 @@ const emptyItem = (): Item => ({
   appointment_at: "",
 });
 
-export function AddActivityDrawer({
-  onClose,
-  companies,
-  salesPeople,
-  isAdmin,
-  mySalesPersonIds,
+export function EodEntryForm({
+  token,
+  companyName,
+  people,
   defaultDate,
 }: {
-  onClose: () => void;
-  companies: CompanyOption[];
-  salesPeople: SalesPersonOption[];
-  isAdmin: boolean;
-  mySalesPersonIds: string[];
+  token: string;
+  companyName: string;
+  people: string[];
   defaultDate: string;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [savedCount, setSavedCount] = useState<number | null>(null);
 
-  const peopleFor = (companyId: string) => {
-    const all = salesPeople.filter(p => p.company_id === companyId);
-    return isAdmin ? all : all.filter(p => mySalesPersonIds.includes(p.id));
-  };
-  const defaultPerson = (companyId: string) => peopleFor(companyId)[0]?.id ?? "";
-
-  const firstCompany = companies[0]?.id ?? "";
-  const [companyId, setCompanyId] = useState(firstCompany);
-  const [salesPersonId, setSalesPersonId] = useState(defaultPerson(firstCompany));
+  const [salesPerson, setSalesPerson] = useState(people[0] ?? "");
   const [date, setDate] = useState(defaultDate);
   const [eventType, setEventType] = useState<EventType>("quote_sent");
   const [items, setItems] = useState<Item[]>([emptyItem()]);
-
-  const companyPeople = useMemo(() => peopleFor(companyId), [companyId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function chooseCompany(id: string) {
-    setCompanyId(id);
-    setSalesPersonId(defaultPerson(id));
-  }
 
   function patchItem(i: number, patch: Partial<Item>) {
     setItems(list => list.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
@@ -94,26 +66,20 @@ export function AddActivityDrawer({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!companyId) { setError("Pick a client"); return; }
+    setSavedCount(null);
     startTransition(async () => {
-      const payloadItems: NewActivityItem[] = items.map(it => ({
-        contact_name: it.contact_name,
-        contact_address: it.contact_address,
-        outcome: it.outcome,
-        ad_source: it.ad_source,
-        quote_job_value: it.quote_job_value,
-        appointment_at: it.appointment_at,
-      }));
-      const res = await createManualActivities({
-        company_id: companyId,
-        sales_person_id: salesPersonId || null,
+      const payloadItems: NewActivityItem[] = items.map(it => ({ ...it }));
+      const input: EodEntryInput = {
+        token,
+        sales_person: salesPerson,
         occurred_on: date,
         event_type: eventType,
         items: payloadItems,
-      });
+      };
+      const res = await submitEodEntry(input);
       if (!res.ok) { setError(res.error); return; }
-      router.refresh();
-      onClose();
+      setSavedCount(res.count);
+      setItems([emptyItem()]);
     });
   }
 
@@ -124,40 +90,21 @@ export function AddActivityDrawer({
     : "Entry";
 
   return (
-    <div className="fixed inset-0 z-40 flex items-stretch justify-end bg-black/60" onClick={onClose}>
-      <div
-        className="flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-zinc-800 bg-zinc-950 shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4">
-          <div>
-            <div className="text-sm text-zinc-500">Add activity</div>
-            <div className="mt-0.5 text-base font-semibold text-zinc-100">Manual entry</div>
-            <div className="mt-1 text-[11px] text-zinc-500">
-              Saved to the reports <span className="text-zinc-400">and</span> this dashboard.
-            </div>
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="mx-auto max-w-md px-5 py-6">
+        <div className="mb-5 border-b border-zinc-800 pb-4">
+          <div className="text-sm text-zinc-500">EOD entry</div>
+          <div className="mt-0.5 text-base font-semibold text-zinc-100">{companyName}</div>
+          <div className="mt-1 text-[11px] text-zinc-500">
+            Saved to the reports <span className="text-zinc-400">and</span> the dashboard.
           </div>
-          <button
-            onClick={onClose}
-            className="rounded border border-zinc-800 px-2 py-1 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
-          >
-            Close
-          </button>
         </div>
 
-        <form className="flex-1 space-y-4 px-5 py-5" onSubmit={handleSubmit}>
-          <Field label="Client">
-            <select value={companyId} onChange={e => chooseCompany(e.target.value)} className={inputClass}>
-              {companies.length === 0 && <option value="">— no clients —</option>}
-              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </Field>
-
-          <Field label="Sales person" hint={isAdmin ? "Empty = team (no exec attribution)." : "You can only add under your own name."}>
-            <select value={salesPersonId} onChange={e => setSalesPersonId(e.target.value)} className={inputClass}>
-              {isAdmin && <option value="">— (no exec / team) —</option>}
-              {companyPeople.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              {companyPeople.length === 0 && <option value="">— none on this client —</option>}
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <Field label="Sales person">
+            <select value={salesPerson} onChange={e => setSalesPerson(e.target.value)} className={inputClass}>
+              {people.map(p => <option key={p} value={p}>{p}</option>)}
+              <option value="">— (no exec / team) —</option>
             </select>
           </Field>
 
@@ -307,18 +254,16 @@ export function AddActivityDrawer({
             </div>
           )}
 
-          <div className="flex items-center justify-end gap-2 border-t border-zinc-800 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={pending}
-              className="rounded border border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 disabled:opacity-50"
-            >
-              Cancel
-            </button>
+          {savedCount !== null && !error && (
+            <div className="rounded border border-emerald-900/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
+              Saved {savedCount === 1 ? "1 activity" : `${savedCount} activities`}. Add more below or close this tab.
+            </div>
+          )}
+
+          <div className="flex items-center justify-end border-t border-zinc-800 pt-4">
             <button
               type="submit"
-              disabled={pending || companies.length === 0}
+              disabled={pending}
               className="rounded bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
             >
               {pending ? "Saving…" : `Add ${items.length > 1 ? items.length + " activities" : "activity"}`}
@@ -326,7 +271,7 @@ export function AddActivityDrawer({
           </div>
         </form>
       </div>
-    </div>
+    </main>
   );
 }
 

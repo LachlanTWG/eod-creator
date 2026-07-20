@@ -7,7 +7,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback"];
+// /eod-entry is the GHL-embedded form — auth is its signed URL token, not a
+// session (third-party cookies don't survive inside the GHL iframe anyway).
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/eod-entry"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

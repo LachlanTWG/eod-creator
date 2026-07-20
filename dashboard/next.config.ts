@@ -6,6 +6,21 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  async headers() {
+    return [
+      {
+        // /eod-entry renders inside a GoHighLevel Custom Menu Link iframe.
+        // frame-ancestors * rather than listing GHL domains because agency
+        // white-label domains are arbitrary; the page is token-gated and
+        // cookie-free, so framing it gains an attacker nothing.
+        source: "/eod-entry",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors *" },
+          { key: "X-Robots-Tag", value: "noindex" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

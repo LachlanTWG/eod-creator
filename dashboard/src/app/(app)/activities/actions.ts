@@ -7,18 +7,14 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer } from "@/lib/viewer";
-
-const ALLOWED_EVENT_TYPES = ["eod_update", "quote_sent", "site_visit_booked", "email_sent", "job_won"] as const;
-type EventType = (typeof ALLOWED_EVENT_TYPES)[number];
-
-// DB enum → the sheet's "Event Type" label that the backend / logActivities expects.
-const EVENT_TYPE_TO_SHEET: Record<EventType, string> = {
-  eod_update:        "EOD Update",
-  quote_sent:        "Quote Sent",
-  site_visit_booked: "Site Visit Booked",
-  email_sent:        "Email Sent",
-  job_won:           "Job Won",
-};
+import {
+  ALLOWED_EVENT_TYPES,
+  buildSheetActivities,
+  isMeaningful,
+  postManualActivities,
+  type EventType,
+  type NewActivityItem,
+} from "@/lib/manualActivities";
 
 export type EditActivityInput = {
   id: string;
@@ -113,15 +109,6 @@ export async function editActivity(input: EditActivityInput): Promise<ActionResu
 // company + which exec) is enforced HERE, server-side, against the viewer's
 // roster; the backend trusts this call via the shared WEBHOOK_SECRET.
 
-export type NewActivityItem = {
-  contact_name?: string;
-  contact_address?: string;
-  outcome?: string;
-  ad_source?: string;
-  quote_job_value?: string;
-  appointment_at?: string; // "YYYY-MM-DDTHH:MM" from datetime-local
-};
-
 export type CreateManualActivitiesInput = {
   company_id: string;
   sales_person_id: string | null; // null = team (no exec attribution)
@@ -129,26 +116,6 @@ export type CreateManualActivitiesInput = {
   event_type: EventType;
   items: NewActivityItem[];
 };
-
-// Strip $, commas and whitespace; keep pipe separators (alternative quote
-// tiers). Mirrors the /webhook/quote cleaning in src/server.js.
-function cleanValue(raw: string | null | undefined): string {
-  return String(raw || "")
-    .split("|")
-    .map(v => v.replace(/[$,\s]/g, "").trim())
-    .filter(Boolean)
-    .join("|");
-}
-
-function isMeaningful(it: NewActivityItem): boolean {
-  return Boolean(
-    (it.contact_name && it.contact_name.trim()) ||
-    (it.quote_job_value && it.quote_job_value.trim()) ||
-    (it.contact_address && it.contact_address.trim()) ||
-    (it.outcome && it.outcome.trim()) ||
-    (it.appointment_at && it.appointment_at.trim()),
-  );
-}
 
 export async function createManualActivities(
   input: CreateManualActivitiesInput,
@@ -198,61 +165,14 @@ export async function createManualActivities(
     return { ok: false, error: "Add at least one entry (a contact name or value)" };
   }
 
-  const sheetType = EVENT_TYPE_TO_SHEET[input.event_type];
-  const activities = items.map(it => ({
-    date: input.occurred_on,
-    salesPerson: salesPersonName,
-    contactName: it.contact_name?.trim() || "",
-    eventType: sheetType,
-    outcome: it.outcome?.trim() || "",
-    adSource: it.ad_source?.trim() || "",
-    quoteJobValue:
-      input.event_type === "quote_sent" || input.event_type === "job_won"
-        ? cleanValue(it.quote_job_value)
-        : "",
-    contactAddress: it.contact_address?.trim() || "",
-    contactId: "",
-    appointmentDateTime: it.appointment_at?.trim() || "",
-    appointmentDate: it.appointment_at ? it.appointment_at.slice(0, 10) : "",
-  }));
+  const activities = buildSheetActivities(input.occurred_on, input.event_type, salesPersonName, items);
 
-  // INGEST_URL (the Supabase Edge Function base, e.g.
-  // https://<ref>.supabase.co/functions/v1/ingest) takes precedence once set.
-  // String-concat, not new URL(path, base): an absolute path would REPLACE
-  // the /functions/v1/ingest prefix and 404 at the gateway. NODE_SERVICE_URL
-  // stays as the Railway fallback until the cutover.
-  const ingestBase = process.env.INGEST_URL;
-  const base = process.env.NODE_SERVICE_URL;
-  const secret = process.env.WEBHOOK_SECRET;
-  if (!ingestBase && !base) return { ok: false, error: "INGEST_URL / NODE_SERVICE_URL not configured" };
-  const endpoint = ingestBase
-    ? `${ingestBase.replace(/\/+$/, "")}/api/activities/manual`
-    : new URL("/api/activities/manual", base).toString();
-
-  let res: Response;
-  try {
-    res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
-      },
-      body: JSON.stringify({ companyName: company.name, activities }),
-      cache: "no-store",
-    });
-  } catch (e) {
-    return { ok: false, error: `Couldn't reach the activity service: ${(e as Error).message}` };
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let msg = `Service error ${res.status}`;
-    try { msg = JSON.parse(text).error || msg; } catch { /* keep default */ }
-    return { ok: false, error: msg };
-  }
+  const posted = await postManualActivities(company.name, activities);
+  if (!posted.ok) return posted;
 
   revalidatePath("/activities");
   revalidatePath("/me");
-  return { ok: true, count: activities.length };
+  return { ok: true, count: posted.count };
 }
 
 export async function deleteActivity(id: string): Promise<ActionResult> {
