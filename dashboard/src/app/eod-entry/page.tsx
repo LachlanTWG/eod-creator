@@ -42,20 +42,26 @@ function Notice({ children }: { children: React.ReactNode }) {
 export default async function EodEntryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ token?: string }>;
+  searchParams: Promise<{ token?: string; location?: string; contact_name?: string; contact_id?: string }>;
 }) {
-  const { token } = await searchParams;
+  const { token, location, contact_name, contact_id } = await searchParams;
   const slug = token ? verifyEodEntryToken(token) : null;
   if (!token || !slug) {
     return <Notice>This entry link is missing or invalid. Ask Lachlan for a fresh link.</Notice>;
   }
 
+  // "agency" is the browser extension's pseudo-slug: one token for the whole
+  // team, with the client resolved per page view from the GHL location id in
+  // the URL the exec is currently on.
   const supabase = createAdminClient();
-  const { data: company } = await supabase
-    .from("companies")
-    .select("id, name, timezone, active")
-    .eq("slug", slug)
-    .single();
+  let query = supabase.from("companies").select("id, name, timezone, active");
+  if (slug === "agency") {
+    if (!location) return <Notice>Open this from the EOD Logger extension inside GHL.</Notice>;
+    query = query.eq("ghl_location_id", location);
+  } else {
+    query = query.eq("slug", slug);
+  }
+  const { data: company } = await query.single();
   if (!company || !company.active) {
     return <Notice>This client is no longer active. Ask Lachlan for a fresh link.</Notice>;
   }
@@ -70,9 +76,12 @@ export default async function EodEntryPage({
   return (
     <EodEntryForm
       token={token}
+      ghlLocationId={location || ""}
       companyName={company.name}
       people={(people ?? []).map(p => p.name)}
       defaultDate={todayIn(company.timezone)}
+      contactName={contact_name?.trim() || ""}
+      contactId={contact_id?.trim() || ""}
     />
   );
 }

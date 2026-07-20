@@ -21,6 +21,7 @@ import {
 
 export type EodEntryInput = {
   token: string;
+  ghl_location_id?: string; // required with the "agency" token (browser extension)
   sales_person: string; // roster name, or "" = team (no exec attribution)
   occurred_on: string;  // YYYY-MM-DD
   event_type: EventType;
@@ -41,11 +42,14 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   }
 
   const supabase = createAdminClient();
-  const { data: company } = await supabase
-    .from("companies")
-    .select("id, name, active")
-    .eq("slug", slug)
-    .single();
+  let query = supabase.from("companies").select("id, name, active");
+  if (slug === "agency") {
+    if (!input.ghl_location_id) return { ok: false, error: "Missing GHL location" };
+    query = query.eq("ghl_location_id", input.ghl_location_id);
+  } else {
+    query = query.eq("slug", slug);
+  }
+  const { data: company } = await query.single();
   if (!company || !company.active) return { ok: false, error: "Client not found" };
 
   let salesPersonName = "Team";

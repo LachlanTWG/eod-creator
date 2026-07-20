@@ -28,8 +28,8 @@ type Item = {
   appointment_at: string;
 };
 
-const emptyItem = (): Item => ({
-  contact_name: "",
+const emptyItem = (contactName = ""): Item => ({
+  contact_name: contactName,
   contact_address: "",
   outcome: "",
   ad_source: "",
@@ -39,14 +39,20 @@ const emptyItem = (): Item => ({
 
 export function EodEntryForm({
   token,
+  ghlLocationId = "",
   companyName,
   people,
   defaultDate,
+  contactName = "",
+  contactId = "",
 }: {
   token: string;
+  ghlLocationId?: string;
   companyName: string;
   people: string[];
   defaultDate: string;
+  contactName?: string;
+  contactId?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -55,12 +61,12 @@ export function EodEntryForm({
   const [salesPerson, setSalesPerson] = useState(people[0] ?? "");
   const [date, setDate] = useState(defaultDate);
   const [eventType, setEventType] = useState<EventType>("quote_sent");
-  const [items, setItems] = useState<Item[]>([emptyItem()]);
+  const [items, setItems] = useState<Item[]>([emptyItem(contactName)]);
 
   function patchItem(i: number, patch: Partial<Item>) {
     setItems(list => list.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   }
-  function addItem() { setItems(list => [...list, emptyItem()]); }
+  function addItem() { setItems(list => [...list, emptyItem(contactName)]); }
   function removeItem(i: number) { setItems(list => list.filter((_, idx) => idx !== i)); }
 
   function handleSubmit(e: React.FormEvent) {
@@ -68,9 +74,16 @@ export function EodEntryForm({
     setError(null);
     setSavedCount(null);
     startTransition(async () => {
-      const payloadItems: NewActivityItem[] = items.map(it => ({ ...it }));
+      // Attach the GHL contact id only to rows still about the pre-filled
+      // contact — if the exec retyped the name, the id no longer applies.
+      const payloadItems: NewActivityItem[] = items.map(it => ({
+        ...it,
+        contact_id:
+          contactId && it.contact_name.trim() === contactName.trim() ? contactId : "",
+      }));
       const input: EodEntryInput = {
         token,
+        ghl_location_id: ghlLocationId,
         sales_person: salesPerson,
         occurred_on: date,
         event_type: eventType,
@@ -79,7 +92,7 @@ export function EodEntryForm({
       const res = await submitEodEntry(input);
       if (!res.ok) { setError(res.error); return; }
       setSavedCount(res.count);
-      setItems([emptyItem()]);
+      setItems([emptyItem(contactName)]);
     });
   }
 
@@ -95,6 +108,11 @@ export function EodEntryForm({
         <div className="mb-5 border-b border-zinc-800 pb-4">
           <div className="text-sm text-zinc-500">EOD entry</div>
           <div className="mt-0.5 text-base font-semibold text-zinc-100">{companyName}</div>
+          {contactName && (
+            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-sky-900/60 bg-sky-950/40 px-2.5 py-0.5 text-[11px] text-sky-300">
+              Contact: {contactName}
+            </div>
+          )}
           <div className="mt-1 text-[11px] text-zinc-500">
             Saved to the reports <span className="text-zinc-400">and</span> the dashboard.
           </div>

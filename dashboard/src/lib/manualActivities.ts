@@ -25,6 +25,7 @@ export const EVENT_TYPE_TO_SHEET: Record<EventType, string> = {
 
 export type NewActivityItem = {
   contact_name?: string;
+  contact_id?: string; // GHL contact id, when the entry came from the browser extension
   contact_address?: string;
   outcome?: string;
   ad_source?: string;
@@ -89,7 +90,7 @@ export function buildSheetActivities(
         ? cleanValue(it.quote_job_value)
         : "",
     contactAddress: it.contact_address?.trim() || "",
-    contactId: "",
+    contactId: it.contact_id?.trim() || "",
     appointmentDateTime: it.appointment_at?.trim() || "",
     appointmentDate: it.appointment_at ? it.appointment_at.slice(0, 10) : "",
   }));
