@@ -1,11 +1,12 @@
 // Verify GHL Private Integration tokens for every client sub-account.
 //
-// Probes the three read scopes the popup relies on, per location:
+// Probes the read scopes the popup relies on, per location:
 //   - View Custom Fields   GET /locations/{id}/customFields
 //   - View Contacts        GET /contacts?locationId=&limit=1
 //   - View Opportunities   GET /opportunities/search?location_id=&limit=1
-// (Edit Contacts / Edit Opportunities can't be probed non-destructively —
-// they're granted alongside the read scopes in the same PIT save.)
+//   - pipelines.readonly   GET /opportunities/pipelines?locationId=
+// (Edit/write scopes can't be probed non-destructively — they're granted
+// alongside the read scopes in the same PIT save.)
 //
 // Usage:
 //   node src/scripts/verifyGhlTokens.js                   verify GHL_LOCATION_TOKENS from .env
@@ -46,18 +47,19 @@ async function main() {
       allOk = false;
       continue;
     }
-    const [fields, contacts, opps] = await Promise.all([
+    const [fields, contacts, opps, pipelines] = await Promise.all([
       probe(`${GHL_BASE}/locations/${loc}/customFields`, token),
       probe(`${GHL_BASE}/contacts/?locationId=${loc}&limit=1`, token),
       probe(`${GHL_BASE}/opportunities/search?location_id=${loc}&limit=1`, token),
+      probe(`${GHL_BASE}/opportunities/pipelines?locationId=${loc}`, token),
     ]);
-    const ok = fields === 'ok' && contacts === 'ok' && opps === 'ok';
+    const ok = fields === 'ok' && contacts === 'ok' && opps === 'ok' && pipelines === 'ok';
     if (!ok) allOk = false;
-    console.log(`${ok ? '✓' : '✗'} ${c.name.padEnd(24)} customFields:${fields}  contacts:${contacts}  opportunities:${opps}  (${token.slice(0, 12)}…)`);
+    console.log(`${ok ? '✓' : '✗'} ${c.name.padEnd(24)} customFields:${fields}  contacts:${contacts}  opportunities:${opps}  pipelines:${pipelines}  (${token.slice(0, 12)}…)`);
   }
 
   console.log(allOk
-    ? '\nAll tokens verified for custom-field, contact and opportunity read scopes.'
+    ? '\nAll tokens verified for custom-field, contact, opportunity and pipeline read scopes.'
     : '\nSome tokens failed — recreate/rescope those PITs and re-run.');
   process.exit(allOk ? 0 : 1);
 }
