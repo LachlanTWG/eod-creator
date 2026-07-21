@@ -9,7 +9,7 @@
 
 import { verifyEodEntryToken } from "@/lib/eodEntryToken";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { pushEodFieldsToGhl } from "./ghlPipeline";
+import { moveEodOpportunity } from "./ghlPipeline";
 import {
   ALLOWED_EVENT_TYPES,
   buildSheetActivities,
@@ -80,20 +80,22 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   const posted = await postManualActivities(company.name, activities);
   if (!posted.ok) return posted;
 
-  // Activity is logged; now nudge the GHL pipeline workflow by writing the
-  // EOD fields onto the contact. Failure here never fails the submission —
-  // the reason is surfaced as a note instead.
+  // Activity is logged; now move the contact's opportunity in the GHL EOD
+  // pipeline directly (the EOD fields + "Contact Changed" workflows are
+  // retired). Failure here never fails the submission — the reason is
+  // surfaced as a note instead.
   let pipeline: string | undefined;
   if (input.event_type === "eod_update" && input.eod_fields) {
-    const contactId = items.find(it => it.contact_id?.trim())?.contact_id?.trim() || "";
-    const pushed = await pushEodFieldsToGhl({
+    const withContact = items.find(it => it.contact_id?.trim());
+    const moved = await moveEodOpportunity({
       locationId: input.ghl_location_id || "",
-      contactId,
+      contactId: withContact?.contact_id?.trim() || "",
+      contactName: withContact?.contact_name?.trim() || items[0]?.contact_name?.trim() || "",
       stage: input.eod_fields.stage,
       answered: input.eod_fields.answered,
       stdOutcome: input.eod_fields.std_outcome,
     });
-    pipeline = pushed.ok ? "updated" : pushed.reason;
+    pipeline = moved.ok ? (moved.moved || "updated") : moved.reason;
   }
 
   return { ...posted, pipeline };
