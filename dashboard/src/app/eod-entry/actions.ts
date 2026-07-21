@@ -33,7 +33,7 @@ export type EodEntryInput = {
 };
 
 export type EodEntryResult =
-  | { ok: true; count: number; pipeline?: string } // pipeline: "updated" or a skip/fail reason
+  | { ok: true; count: number; pipeline?: string; pipelineOk?: boolean } // pipeline: what happened ("moved to X") or a skip/fail reason
   | { ok: false; error: string };
 
 export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResult> {
@@ -85,6 +85,7 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   // retired). Failure here never fails the submission — the reason is
   // surfaced as a note instead.
   let pipeline: string | undefined;
+  let pipelineOk: boolean | undefined;
   if (input.event_type === "eod_update" && input.eod_fields) {
     const withContact = items.find(it => it.contact_id?.trim());
     const moved = await moveEodOpportunity({
@@ -95,8 +96,9 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
       answered: input.eod_fields.answered,
       stdOutcome: input.eod_fields.std_outcome,
     });
+    pipelineOk = moved.ok;
     pipeline = moved.ok ? (moved.moved || "updated") : moved.reason;
   }
 
-  return { ...posted, pipeline };
+  return { ...posted, pipeline, pipelineOk };
 }
