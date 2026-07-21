@@ -144,6 +144,34 @@ function execMetrics(rows, execName, start, end) {
   return { total, byCompany };
 }
 
+// Activity totals over [start, end] for whatever rows are passed in (one
+// company's rows, or all companies' rows for portfolio totals). Same event
+// classification as execMetrics, plus New Leads from the outcome lead type.
+function rangeTotals(rows, start, end) {
+  const t = {
+    calls: 0, spokeTo: 0, newLeads: 0, appointments: 0,
+    quotesSent: 0, quoteValue: 0, jobsWon: 0, revenue: 0,
+  };
+  for (const row of rows) {
+    if (!inRange(row, start, end)) continue;
+    if (row.eventType === 'EOD Update') {
+      const { leadType, answerStatus } = parseOutcome(row.outcome);
+      if (answerStatus === 'Answered' || answerStatus === "Didn't Answer") t.calls += 1;
+      if (answerStatus === 'Answered') t.spokeTo += 1;
+      if (leadType === 'New Leads') t.newLeads += 1;
+    } else if (row.eventType === 'Site Visit Booked') {
+      t.appointments += 1;
+    } else if (row.eventType === 'Quote Sent') {
+      t.quotesSent += 1;
+      t.quoteValue += quoteGroupValue(row.quoteJobValue);
+    } else if (row.eventType === 'Job Won') {
+      t.jobsWon += 1;
+      t.revenue += quoteGroupValue(row.quoteJobValue);
+    }
+  }
+  return t;
+}
+
 // ─── Client metrics ─────────────────────────────────────────────────
 
 // Contact registry for one company's rows: first-seen date, whether the
@@ -254,6 +282,7 @@ module.exports = {
   parseOutcome,
   gridToRows,
   execMetrics,
+  rangeTotals,
   clientMetrics,
   deadLeads,
   upcomingSiteVisits,

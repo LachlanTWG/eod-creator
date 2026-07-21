@@ -328,17 +328,17 @@ async function main() {
       const endIdx = args.indexOf('--end');
       const today = todayAEST();
 
-      // Default to current week
+      // Default to the last completed week, Mon–Sun (matches runReports.js)
       const d = new Date(today + 'T12:00:00+10:00');
       const day = d.getDay();
       const mondayDiff = day === 0 ? -6 : 1 - day;
       const monday = new Date(d);
-      monday.setDate(d.getDate() + mondayDiff);
-      const friday = new Date(monday);
-      friday.setDate(monday.getDate() + 4);
+      monday.setDate(d.getDate() + mondayDiff - 7);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
 
       const startDate = startIdx !== -1 ? args[startIdx + 1] : monday.toISOString().split('T')[0];
-      const endDate = endIdx !== -1 ? args[endIdx + 1] : friday.toISOString().split('T')[0];
+      const endDate = endIdx !== -1 ? args[endIdx + 1] : sunday.toISOString().split('T')[0];
 
       const { title, content } = await generateMeetingDoc(startDate, endDate);
       console.log('\n' + content + '\n');

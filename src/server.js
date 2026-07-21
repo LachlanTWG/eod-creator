@@ -197,13 +197,14 @@ function scheduleSummaryArchive() {
   console.log(`  Summary Archive: Daily 11:59pm Mon-Fri, Weekly 11:59pm Fri, Monthly 2pm 1st (all AEST)`);
 }
 
-// Meeting Doc — Friday 6pm AEST (after all EOW sends have fired)
+// Meeting Doc — Monday 6am AEST, covering the week that just ended (so
+// weekend-logged activity is included before the Monday morning meeting).
 function scheduleMeetingDoc() {
-  scheduledJobs.push(cron.schedule('0 18 * * 5', () => {
+  scheduledJobs.push(cron.schedule('0 6 * * 1', () => {
     console.log(`[${new Date().toISOString()}] MEETING DOC`);
     runMeetingDoc().catch(e => console.error('Meeting doc error:', e.message));
   }, { timezone: 'Australia/Sydney' }));
-  console.log(`  Meeting Doc: Friday 6pm AEST`);
+  console.log(`  Meeting Doc: Monday 6am AEST (previous week)`);
 }
 
 // Monthly Review Doc — 1st of month, 12pm AEST (after per-company EOM at ~11am AEST)
