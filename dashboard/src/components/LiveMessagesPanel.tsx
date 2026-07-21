@@ -35,9 +35,12 @@ export async function LiveMessagesPanel({
     myDisplayName: targetExecName || "Team",
   });
 
-  const onRoster = messages.perCompany.filter(c => targetCompanyIds.has(c.company.id));
-  const offRoster = messages.perCompany.filter(c => !targetCompanyIds.has(c.company.id));
+  const byName = (a: { company: { name: string } }, b: { company: { name: string } }) =>
+    a.company.name.localeCompare(b.company.name);
+  const onRoster = messages.perCompany.filter(c => targetCompanyIds.has(c.company.id)).sort(byName);
+  const offRoster = messages.perCompany.filter(c => !targetCompanyIds.has(c.company.id)).sort(byName);
   const ordered = [...onRoster, ...offRoster];
+  const teamOrdered = [...messages.perCompany].sort(byName);
 
   return (
     <>
@@ -69,7 +72,7 @@ export async function LiveMessagesPanel({
             subtitle="Every exec across every active company."
           />
           <CardRow>
-            {ordered.map(c => (
+            {teamOrdered.map(c => (
               <LiveMessage key={`t-${c.company.id}`} data={c.team} variant="hero" />
             ))}
             {messages.grandTotal && (
