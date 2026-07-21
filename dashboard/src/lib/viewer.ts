@@ -41,11 +41,13 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
 
   const { data: salesRows } = await supabase
     .from("sales_people")
-    .select("name, company_id")
+    .select("name, company_id, active")
     .eq("user_id", user.id);
 
   const salesPersonName = salesRows && salesRows.length > 0 ? salesRows[0].name : null;
-  const companyIds = (salesRows || []).map(r => r.company_id);
+  // Active rosters only: an exec taken off a client shouldn't see its
+  // drill-down or be able to log activities against it.
+  const companyIds = (salesRows || []).filter(r => r.active).map(r => r.company_id);
 
   return {
     user,

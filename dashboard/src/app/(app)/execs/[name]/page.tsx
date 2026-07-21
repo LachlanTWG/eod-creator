@@ -51,13 +51,17 @@ export default async function ExecDetail({
   const supabase = await createClient();
 
   // Resolve target exec's sales_people rows (one per company). All rows for
-  // the same exec share the canonical first name.
+  // the same exec share the canonical first name. IDs keep every row so
+  // historical activity stays attributed; the company card roster only
+  // includes clients the exec is still active on.
   const { data: targetRows } = await supabase
     .from("sales_people")
-    .select("id, company_id")
+    .select("id, company_id, active")
     .ilike("name", name);
   const targetSalesPersonIds = new Set((targetRows || []).map(r => r.id as string));
-  const targetCompanyIds = new Set((targetRows || []).map(r => r.company_id as string));
+  const targetCompanyIds = new Set(
+    (targetRows || []).filter(r => r.active).map(r => r.company_id as string),
+  );
 
   const [{ totals, perCompany, weekly, outcomes, recent }, heatmap, pipeline] = await Promise.all([
     loadExecDetail(supabase, name),
