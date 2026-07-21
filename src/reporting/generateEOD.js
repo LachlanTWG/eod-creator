@@ -420,7 +420,7 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
   const dateFormatted = formatEODDate(dateStr);
   const personLabel = salesPerson || 'Team';
   const lines = [`EOD Report - ${dateFormatted} - ${personLabel} - ${companyName}`];
-  lines.push('----------------------------');
+  lines.push('');
 
   for (const block of blocks.eodBlocks) {
     const blockName = block.name.replace('{owner}', ownerName);
@@ -438,7 +438,7 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
     if (blockLines.length > 0) {
       lines.push(blockName);
       lines.push(...blockLines);
-      lines.push('----------------------------');
+      lines.push('');
     }
   }
 
@@ -458,7 +458,7 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
     if (noteLines.length > 0) {
       lines.push('📝 Notes');
       lines.push(...noteLines);
-      lines.push('----------------------------');
+      lines.push('');
     }
   }
 

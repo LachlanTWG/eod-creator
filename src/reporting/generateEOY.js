@@ -84,7 +84,6 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
   const lines = [
     `YEARLY PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `${year}`,
-    '==========================================',
     '',
     `📞 Calls`,
     `Total Calls: ${totalCallCount}`,
@@ -180,9 +179,6 @@ async function generateEOY(spreadsheetId, salesPerson, year, companyName, ownerN
     lines.push(`Best Month: ${formatMonth(parseInt(bestParts[0]), parseInt(bestParts[1]))} (${bestMonth.counts[totalField]} ${totalField.toLowerCase()})`);
     lines.push(`Quietest Month: ${formatMonth(parseInt(worstParts[0]), parseInt(worstParts[1]))} (${worstMonth.counts[totalField]} ${totalField.toLowerCase()})`);
   }
-
-  lines.push('');
-  lines.push('==========================================');
 
   const message = lines.join('\n');
   return { message, counts: yearlyCounts, monthlyBreakdown };

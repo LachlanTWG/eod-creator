@@ -416,12 +416,12 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
 
 function buildHeader(period: Period, companyLabel: string, personLabel: string, rangeStart: string, rangeEnd: string): string[] {
   if (period === "day") {
-    return [`EOD Report - ${formatEODDate(rangeEnd)} - ${personLabel} - ${companyLabel}`, "----------------------------"];
+    return [`EOD Report - ${formatEODDate(rangeEnd)} - ${personLabel} - ${companyLabel}`, ""];
   }
   return [
     `SALES EXECUTIVE PERFORMANCE REPORT - ${personLabel} - ${companyLabel}`,
     `Dates: ${formatLongDate(rangeStart)} - ${formatLongDate(rangeEnd)}`,
-    "------------------------------------------",
+    "",
   ];
 }
 
@@ -504,7 +504,6 @@ function buildPeriodicMessage(opts: {
   const lines: string[] = [
     `${title} - ${personLabel} - ${companyLabel}`,
     opts.labelOverride ?? periodicLabel(period, rangeStart),
-    "==========================================",
     "",
     "📞 Calls",
   ];
@@ -625,8 +624,6 @@ function buildPeriodicMessage(opts: {
     }
   }
 
-  lines.push("");
-  lines.push("==========================================");
   return lines.join("\n");
 }
 
@@ -654,7 +651,7 @@ function buildMessage(opts: {
 
   const blocks = period === "day" ? BLOCKS.eodBlocks : BLOCKS.eowBlocks;
   const formulaKey: "eod" | "eow" = period === "day" ? "eod" : "eow";
-  const separator = period === "day" ? "----------------------------" : "------------------------------------------";
+  const separator = ""; // blank line between sections
   const isTeam = scope === "team";
 
   const lines: string[] = buildHeader(period, companyLabel, personLabel, rangeStart, rangeEnd);
@@ -726,7 +723,7 @@ function buildDetailedRangeMessage(opts: {
 }): string {
   const { companyLabel, personLabel, ownerName, scope, rangeStart, rangeEnd, data } = opts;
   const isTeam = scope === "team";
-  const separator = "----------------------------";
+  const separator = ""; // blank line between sections
   const lines: string[] = [
     `PERFORMANCE REPORT - ${personLabel} - ${companyLabel}`,
     `Dates: ${formatLongDate(rangeStart)} - ${formatLongDate(rangeEnd)}`,

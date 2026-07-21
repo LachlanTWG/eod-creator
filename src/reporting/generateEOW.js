@@ -143,7 +143,7 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
   const lines = [
     `SALES EXECUTIVE PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `Dates: ${startFormatted} - ${endFormatted}`,
-    '------------------------------------------',
+    '',
   ];
 
   for (const block of blocks.eowBlocks) {
@@ -163,7 +163,7 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
     if (blockLines.length > 0) {
       lines.push(blockName);
       lines.push(...blockLines);
-      lines.push('------------------------------------------');
+      lines.push('');
     }
   }
 

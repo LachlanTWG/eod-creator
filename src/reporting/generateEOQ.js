@@ -90,7 +90,6 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
   const lines = [
     `QUARTERLY PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `${quarterStr}`,
-    '==========================================',
     '',
     `📞 Calls`,
   ];
@@ -171,9 +170,6 @@ async function generateEOQ(spreadsheetId, salesPerson, year, quarter, companyNam
     if (totalAbandoned > 0) lines.push(`Abandoned: ${totalAbandoned}`);
     if (totalDQ > 0) lines.push(`Disqualified: ${totalDQ}`);
   }
-
-  lines.push('');
-  lines.push('==========================================');
 
   const message = lines.join('\n');
   return { message, counts: quarterlyCounts };

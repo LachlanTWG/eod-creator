@@ -82,7 +82,6 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
   const lines = [
     `MONTHLY PERFORMANCE REPORT - ${salesPerson || 'Team'} - ${companyName}`,
     `${monthStr}`,
-    '==========================================',
     '',
     `📞 Calls`,
   ];
@@ -163,9 +162,6 @@ async function generateEOM(spreadsheetId, salesPerson, year, month, companyName,
     if (totalAbandoned > 0) lines.push(`Abandoned: ${totalAbandoned}`);
     if (totalDQ > 0) lines.push(`Disqualified: ${totalDQ}`);
   }
-
-  lines.push('');
-  lines.push('==========================================');
 
   const message = lines.join('\n');
   return { message, counts: monthlyCounts };
