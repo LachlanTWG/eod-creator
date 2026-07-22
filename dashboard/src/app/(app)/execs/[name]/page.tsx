@@ -70,7 +70,10 @@ export default async function ExecDetail({
   ]);
   const heatmapPeak = Math.max(0, ...heatmap.days.map(d => d.count));
 
-  if (totals.eod_update + totals.quote_sent + totals.job_won + totals.site_visit_booked + totals.email_sent === 0) {
+  // 404 only for names that aren't on any roster (garbage URLs). A real exec
+  // with no activity yet (freshly onboarded) still gets their page, zeroed.
+  const hasActivity = totals.eod_update + totals.quote_sent + totals.job_won + totals.site_visit_booked + totals.email_sent > 0;
+  if (!hasActivity && targetSalesPersonIds.size === 0) {
     notFound();
   }
 
