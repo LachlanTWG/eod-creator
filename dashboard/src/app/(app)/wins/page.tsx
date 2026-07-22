@@ -114,8 +114,8 @@ export default async function WinsPage({ searchParams }: { searchParams: Promise
           <p className="mt-0.5 text-sm text-zinc-500">
             {viewer.isAdmin
               ? "Every won job across every exec. Move through verbal → approved → invoiced → paid."
-              : viewer.isViewer
-              ? "Every won job across every exec."
+              : viewer.seesAll
+              ? "Every won job across every exec. Move your own through verbal → approved → invoiced → paid."
               : "Your won jobs. Track from verbal confirmation through to paid."}
           </p>
         </div>

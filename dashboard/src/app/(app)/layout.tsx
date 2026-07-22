@@ -4,9 +4,9 @@ import { Sidebar, type NavItem } from "@/components/Sidebar";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();
   const showAdminNav = viewer.isAdmin;
-  // Admins and read-only viewers both see every client's data, so all-clients
-  // surfaces and "all" labels gate on this rather than admin alone.
-  const seesAll = viewer.isAdmin || viewer.isViewer;
+  // Every role sees every client's data now (admins, viewers, roster execs),
+  // so all-clients surfaces and "all" labels gate on this.
+  const seesAll = viewer.seesAll;
   const myHref = viewer.salesPersonName
     ? `/execs/${encodeURIComponent(viewer.salesPersonName)}`
     : "/";

@@ -22,6 +22,10 @@ export type Viewer = {
   isViewer: boolean;
   salesPersonName: string | null;
   companyIds: string[];
+  // Read visibility is org-wide for every role: admins, viewers, and roster
+  // execs all see every client + exec + report (migration 0009). Writes stay
+  // scoped — this flag gates read surfaces and "all" labels only.
+  seesAll: boolean;
 };
 
 // Wrapped in React.cache so the 3 auth round-trips (getUser + profiles +
@@ -55,6 +59,7 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
     isViewer: !!profile?.is_viewer,
     salesPersonName,
     companyIds,
+    seesAll: !!profile?.is_admin || !!profile?.is_viewer || !!salesPersonName,
   };
 });
 
@@ -68,11 +73,12 @@ export function requireAdmin(viewer: Viewer): void {
 }
 
 /**
- * Allow admins and read-only viewers through. Use for all-clients read-only
- * admin surfaces (the overview) that a viewer should also be able to see.
+ * Allow anyone with org-wide read visibility (admins, read-only viewers, and
+ * roster execs) through. Use for all-clients read-only surfaces (the
+ * overview). Only accounts with no role at all are turned away.
  */
 export function requireAdminOrViewer(viewer: Viewer): void {
-  if (viewer.isAdmin || viewer.isViewer) return;
+  if (viewer.seesAll) return;
   redirect("/me");
 }
 
@@ -101,8 +107,8 @@ export function gateExecName(viewer: Viewer, _requestedName: string): void {
 }
 
 /**
- * For company drill-down pages. Admins and viewers can view any; execs can
- * only view companies they're on the roster of.
+ * For company drill-down pages. Every role (admin, viewer, roster exec) can
+ * view any client; only role-less accounts are turned away.
  */
 export async function gateCompanySlug(
   viewer: Viewer,
@@ -115,8 +121,6 @@ export async function gateCompanySlug(
     .eq("slug", slug)
     .single();
   if (!company) return null;
-  if (viewer.isAdmin) return company;
-  if (viewer.isViewer) return company;
-  if (viewer.companyIds.includes(company.id)) return company;
+  if (viewer.seesAll) return company;
   redirect("/me");
 }

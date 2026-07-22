@@ -25,7 +25,7 @@ export default async function ReportsPage({
   const params = await searchParams;
   const viewer = await getViewer();
   const supabase = await createClient();
-  const canSeeTeam = viewer.isAdmin || viewer.isViewer;
+  const canSeeTeam = viewer.seesAll;
 
   const today = todayInTz(SYDNEY_TZ);
   const [y, m] = today.split("-").map(Number);

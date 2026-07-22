@@ -103,8 +103,8 @@ export default async function ExecDetail({
 
   return (
     <div className="px-6 py-6 lg:px-8">
-      {/* Crumb (admins + viewers drilling in from the leaderboard) */}
-      {(viewer.isAdmin || viewer.isViewer) && !isOwnPage && (
+      {/* Crumb (anyone drilling in from the leaderboard) */}
+      {viewer.seesAll && !isOwnPage && (
         <div className="flex items-center gap-3 text-sm">
           <Link href="/execs" className="text-zinc-500 hover:text-zinc-300">← Execs</Link>
           <span className="text-zinc-700">/</span>
@@ -133,7 +133,7 @@ export default async function ExecDetail({
           targetExecName={name}
           targetSalesPersonIds={targetSalesPersonIds}
           targetCompanyIds={targetCompanyIds}
-          isAdmin={viewer.isAdmin}
+          isAdmin={viewer.seesAll}
           basePath={basePath}
         />
       </div>
