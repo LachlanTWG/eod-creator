@@ -83,37 +83,42 @@ function targetStageFor(
   stages: Stage[],
   current: Stage | null,
   input: { stage: string; answered: string; stdOutcome: string },
-): Stage | null {
+): { stage: Stage; status: OppStatus } | null {
   const out = normalise(input.stdOutcome);
+  // Every non-terminal move carries status "open" so a revived dead lead
+  // (e.g. Requires Quoting on a previously Lost contact) is re-opened.
+  const to = (stage: Stage | null, status: OppStatus = "open") => (stage ? { stage, status } : null);
 
   if (out && out !== "didntanswer" && out !== "answered") {
-    if (out.startsWith("lost")) return findStage(stages, ["Lost"]);
-    if (out.startsWith("abandoned")) return findStage(stages, ["Abandoned"]);
-    if (out.startsWith("dq") || out.startsWith("disqualified")) return findStage(stages, ["Disqualified"]);
-    if (out.startsWith("passedonto")) return findStage(stages, [input.stdOutcome + "*", "Passed Onto*"]);
-    if (out.startsWith("notagoodtime")) return findStage(stages, ["Not a Good Time to Talk"]);
+    if (out.startsWith("lost")) return to(findStage(stages, ["Lost"]), "lost");
+    if (out.startsWith("abandoned")) return to(findStage(stages, ["Abandoned"]), "abandoned");
+    // GHL has no "disqualified" status — DQ stays distinct via its STAGE and
+    // maps to "abandoned" so junk leads don't drag win rates (won/(won+lost)).
+    if (out.startsWith("dq") || out.startsWith("disqualified")) return to(findStage(stages, ["Disqualified"]), "abandoned");
+    if (out.startsWith("passedonto")) return to(findStage(stages, [input.stdOutcome + "*", "Passed Onto*"]));
+    if (out.startsWith("notagoodtime")) return to(findStage(stages, ["Not a Good Time to Talk"]));
     if (out.startsWith("notready") || out.startsWith("notyetready")) {
       const postQuote = normalise(input.stage).includes("post");
-      return findStage(stages, postQuote ? NOT_READY_POST : NOT_READY_PRE);
+      return to(findStage(stages, postQuote ? NOT_READY_POST : NOT_READY_PRE));
     }
-    if (out === "requiresquoting") return findStage(stages, ["Requires Quoting"]);
-    if (out === "quotesent") return findStage(stages, ["Quote Sent"]);
-    if (out === "verbalconfirmation") return findStage(stages, ["Verbal Confirmation"]);
-    if (out === "sitevisitbooked") return findStage(stages, ["Site Visit Booked", "Site Visit"]);
-    if (out === "jobwon" || out === "dealclosed") return findStage(stages, ["Accepted", "Accepted - Needs Scheduling*", "Deposit Paid / Job Won", "Verbal Confirmation"]);
+    if (out === "requiresquoting") return to(findStage(stages, ["Requires Quoting"]));
+    if (out === "quotesent") return to(findStage(stages, ["Quote Sent"]));
+    if (out === "verbalconfirmation") return to(findStage(stages, ["Verbal Confirmation"]));
+    if (out === "sitevisitbooked") return to(findStage(stages, ["Site Visit Booked", "Site Visit"]));
+    if (out === "jobwon" || out === "dealclosed") return to(findStage(stages, ["Accepted", "Accepted - Needs Scheduling*", "Deposit Paid / Job Won", "Verbal Confirmation"]), "won");
     // Client-specific outcome that names a stage directly (e.g. ECE's
     // "Waiting on Photos") — move only on an exact stage-name match.
-    return findStage(stages, [input.stdOutcome]);
+    return to(findStage(stages, [input.stdOutcome]));
   }
 
   // No standard outcome: a ring-out advances the day ladder. Only from a
   // ladder stage — a no-answer on a post-quote follow-up must not reset the
   // opportunity back into the ladder. No opportunity yet → Day 1.
   if (out === "didntanswer" || normalise(input.answered) === "didntanswer") {
-    if (!current) return findStage(stages, ["Day 1"]);
+    if (!current) return to(findStage(stages, ["Day 1"]));
     const idx = DAY_LADDER.findIndex(n => normalise(n) === current.norm);
     if (idx === -1 || idx === DAY_LADDER.length - 1) return null; // not on the ladder, or parked at Day 5
-    return findStage(stages, [DAY_LADDER[idx + 1]]);
+    return to(findStage(stages, [DAY_LADDER[idx + 1]]));
   }
 
   return null;
@@ -121,12 +126,14 @@ function targetStageFor(
 
 // ─── Opportunity lookup / move ──────────────────────────────────────
 
+export type OppStatus = "open" | "won" | "lost" | "abandoned";
+
 async function findOpportunity(
   locationId: string,
   token: string,
   contactId: string,
   pipelineId: string,
-): Promise<{ id: string; pipelineStageId: string } | null> {
+): Promise<{ id: string; pipelineStageId: string; status: OppStatus } | null> {
   const res = await fetch(
     `${GHL_BASE}/opportunities/search?location_id=${locationId}&contact_id=${encodeURIComponent(contactId)}&limit=20`,
     { headers: { Authorization: `Bearer ${token}`, Version: GHL_VERSION }, cache: "no-store" },
@@ -139,7 +146,9 @@ async function findOpportunity(
   const open = inPipeline.filter(o => (o.status || "open") === "open");
   const pick = (open.length > 0 ? open : inPipeline)
     .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
-  return pick ? { id: pick.id, pipelineStageId: pick.pipelineStageId } : null;
+  return pick
+    ? { id: pick.id, pipelineStageId: pick.pipelineStageId, status: (pick.status as OppStatus) || "open" }
+    : null;
 }
 
 export type PipelinePushResult = { ok: true; moved?: string } | { ok: false; reason: string };
@@ -166,7 +175,7 @@ export async function moveEodOpportunity(input: {
   if (pipeline === "unauthorized") return { ok: false, reason: "token missing the opportunity/pipeline scopes" };
   if (!pipeline) return { ok: false, reason: "no EOD pipeline (with a Day 1 stage) in this location" };
 
-  let opp: { id: string; pipelineStageId: string } | null;
+  let opp: { id: string; pipelineStageId: string; status: OppStatus } | null;
   try {
     opp = await findOpportunity(locationId, token, contactId, pipeline.id);
   } catch {
@@ -176,14 +185,16 @@ export async function moveEodOpportunity(input: {
   const current = opp ? pipeline.stages.find(s => s.id === opp!.pipelineStageId) || null : null;
   const target = targetStageFor(pipeline.stages, current, input);
   if (!target) return { ok: true, moved: "no stage change for this outcome" };
-  if (current && current.id === target.id) return { ok: true, moved: `already at ${target.name}` };
+  const sameStage = !!current && current.id === target.stage.id;
+  const sameStatus = !!opp && opp.status === target.status;
+  if (sameStage && sameStatus) return { ok: true, moved: `already at ${target.stage.name}` };
 
   try {
     const res = opp
       ? await fetch(`${GHL_BASE}/opportunities/${opp.id}`, {
           method: "PUT",
           headers: { Authorization: `Bearer ${token}`, Version: GHL_VERSION, "Content-Type": "application/json" },
-          body: JSON.stringify({ pipelineId: pipeline.id, pipelineStageId: target.id }),
+          body: JSON.stringify({ pipelineId: pipeline.id, pipelineStageId: target.stage.id, status: target.status }),
           cache: "no-store",
         })
       : await fetch(`${GHL_BASE}/opportunities/`, {
@@ -193,9 +204,9 @@ export async function moveEodOpportunity(input: {
             locationId,
             contactId,
             pipelineId: pipeline.id,
-            pipelineStageId: target.id,
+            pipelineStageId: target.stage.id,
             name: input.contactName || "EOD Lead",
-            status: "open",
+            status: target.status,
           }),
           cache: "no-store",
         });
@@ -207,5 +218,13 @@ export async function moveEodOpportunity(input: {
     return { ok: false, reason: `GHL unreachable: ${(e as Error).message}` };
   }
 
-  return { ok: true, moved: opp ? `moved to ${target.name}` : `created at ${target.name}` };
+  // Banner text: name the stage, plus the status when it's noteworthy —
+  // a terminal/won marking, or a dead lead coming back to life.
+  const statusNote = target.status !== "open" ? ` · marked ${target.status}`
+    : opp && opp.status !== "open" ? " · re-opened"
+    : "";
+  const verb = !opp ? `created at ${target.stage.name}`
+    : sameStage ? `kept at ${target.stage.name}`
+    : `moved to ${target.stage.name}`;
+  return { ok: true, moved: verb + statusNote };
 }
