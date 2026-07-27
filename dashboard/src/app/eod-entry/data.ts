@@ -70,6 +70,7 @@ const DEFAULT_OUTCOMES = [
 const DEFAULT_SOURCES = [
   "Facebook Ad Form",
   "Facebook Message",
+  "Google Ads",
   "Website Form",
   "Direct Phone Call",
   "Direct Email",
