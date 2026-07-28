@@ -48,6 +48,22 @@ function canonicalisePersonName(name) {
   return PERSON_NAME_CANONICAL[key] || name;
 }
 
+// Company names arrive hand-typed into Make.com scenarios, GHL workflows and
+// URLs, so "&" vs "and", stray punctuation and extra spaces must all match
+// the config's spelling.
+function normaliseCompanyName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+function findCompanyByName(companies, name) {
+  const target = normaliseCompanyName(name);
+  if (!target) return undefined;
+  return companies.find(c => normaliseCompanyName(c.name) === target);
+}
+
 // ─── Per-Company Timezone Scheduling ─────────────────────────────────
 //
 // Each company has its own timezone. We schedule cron jobs per-company
@@ -378,7 +394,7 @@ const server = http.createServer(async (req, res) => {
     const [, reportType, companySlug] = previewMatch;
     const companyName = decodeURIComponent(companySlug);
     const { companies } = loadCompanies();
-    const company = companies.find(c => c.name.toLowerCase() === companyName.toLowerCase());
+    const company = findCompanyByName(companies, companyName);
     if (!company) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: `Company "${companyName}" not found` }));
@@ -427,9 +443,7 @@ const server = http.createServer(async (req, res) => {
   // (the global auth gate above) and trusts that caller.
   if (pathname === '/api/activities/manual' && req.method === 'POST') {
     const { companies } = loadCompanies();
-    const company = companies.find(c =>
-      c.name.toLowerCase() === String(body.companyName || '').toLowerCase()
-    );
+    const company = findCompanyByName(companies, body.companyName);
     if (!company) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: `Company "${body.companyName}" not found` }));
@@ -726,9 +740,7 @@ const server = http.createServer(async (req, res) => {
     // Expected JSON from Make.com HTTP module:
     // { companyName, salesPerson, contactName, quoteValue, contactAddress, contactId, source }
     const { companies } = loadCompanies();
-    const company = companies.find(c =>
-      c.name.toLowerCase() === (body.companyName || '').toLowerCase()
-    );
+    const company = findCompanyByName(companies, body.companyName);
     if (!company) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: `Company "${body.companyName}" not found` }));
@@ -768,9 +780,7 @@ const server = http.createServer(async (req, res) => {
     console.log(`[EMAIL] Raw body:`, JSON.stringify(body));
     body.salesPerson = canonicalisePersonName(body.salesPerson);
     const { companies } = loadCompanies();
-    const company = companies.find(c =>
-      c.name.toLowerCase() === (body.companyName || '').toLowerCase()
-    );
+    const company = findCompanyByName(companies, body.companyName);
     if (!company) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: `Company "${body.companyName}" not found` }));
@@ -853,7 +863,7 @@ const server = http.createServer(async (req, res) => {
     const { companies } = loadCompanies();
     const targetName = body.company;
     const targets = targetName
-      ? companies.filter(c => c.name.toLowerCase() === targetName.toLowerCase())
+      ? companies.filter(c => normaliseCompanyName(c.name) === normaliseCompanyName(targetName))
       : companies.filter(c => c.sheetId);
 
     if (targets.length === 0) {
@@ -903,7 +913,7 @@ const server = http.createServer(async (req, res) => {
     if (companySlug) {
       const companyName = decodeURIComponent(companySlug);
       const { companies } = loadCompanies();
-      const company = companies.find(c => c.name.toLowerCase() === companyName.toLowerCase());
+      const company = findCompanyByName(companies, companyName);
       if (!company) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `Company "${companyName}" not found` }));
