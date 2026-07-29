@@ -31,6 +31,10 @@ export type NewActivityItem = {
   ad_source?: string;
   quote_job_value?: string;
   appointment_at?: string; // "YYYY-MM-DDTHH:MM" from datetime-local
+  /** Job won only — used for Sales Exec Invoicing commission rows */
+  quote_number?: string;
+  /** Job won only — 50/50 split with the other roster exec on that company */
+  split_commission?: boolean;
 };
 
 export type SheetActivity = {
@@ -45,6 +49,8 @@ export type SheetActivity = {
   contactId: string;
   appointmentDateTime: string;
   appointmentDate: string;
+  quoteNumber?: string;
+  splitCommission?: boolean;
 };
 
 export function isIsoDate(v: string | null | undefined): boolean {
@@ -93,6 +99,12 @@ export function buildSheetActivities(
     contactId: it.contact_id?.trim() || "",
     appointmentDateTime: it.appointment_at?.trim() || "",
     appointmentDate: it.appointment_at ? it.appointment_at.slice(0, 10) : "",
+    ...(eventType === "job_won"
+      ? {
+          quoteNumber: (it.quote_number || "").trim(),
+          splitCommission: Boolean(it.split_commission),
+        }
+      : {}),
   }));
 }
 

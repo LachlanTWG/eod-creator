@@ -35,6 +35,8 @@ type Item = {
   ad_source: string;
   quote_job_value: string;
   appointment_at: string;
+  quote_number: string;
+  split_commission: boolean;
 };
 
 const emptyItem = (): Item => ({
@@ -44,6 +46,8 @@ const emptyItem = (): Item => ({
   ad_source: "",
   quote_job_value: "",
   appointment_at: "",
+  quote_number: "",
+  split_commission: false,
 });
 
 export function AddActivityDrawer({
@@ -95,6 +99,18 @@ export function AddActivityDrawer({
     e.preventDefault();
     setError(null);
     if (!companyId) { setError("Pick a client"); return; }
+    if (eventType === "job_won") {
+      for (const it of items) {
+        if (!it.quote_job_value.trim()) {
+          setError("Job value is required (incl. GST)");
+          return;
+        }
+        if (!it.quote_number.trim()) {
+          setError("Quote number is required for job won (commission sheet)");
+          return;
+        }
+      }
+    }
     startTransition(async () => {
       const payloadItems: NewActivityItem[] = items.map(it => ({
         contact_name: it.contact_name,
@@ -103,6 +119,8 @@ export function AddActivityDrawer({
         ad_source: it.ad_source,
         quote_job_value: it.quote_job_value,
         appointment_at: it.appointment_at,
+        quote_number: it.quote_number,
+        split_commission: it.split_commission,
       }));
       const res = await createManualActivities({
         company_id: companyId,
@@ -208,8 +226,8 @@ export function AddActivityDrawer({
 
                   {(eventType === "quote_sent" || eventType === "job_won") && (
                     <Field
-                      label={eventType === "quote_sent" ? "Quote value(s)" : "Job value"}
-                      hint={eventType === "quote_sent" ? "Dollars, no symbols. Tiers separated by | (e.g. 1200|3500)." : "Dollars, no symbols."}
+                      label={eventType === "quote_sent" ? "Quote value(s)" : "Job value (incl. GST)"}
+                      hint={eventType === "quote_sent" ? "Dollars, no symbols. Tiers separated by | (e.g. 1200|3500)." : "Dollars, no symbols. Used for commission calc."}
                     >
                       <input
                         type="text"
@@ -220,6 +238,32 @@ export function AddActivityDrawer({
                         placeholder={eventType === "quote_sent" ? "e.g. 4500 or 4500|6200" : "e.g. 12000"}
                       />
                     </Field>
+                  )}
+
+                  {eventType === "job_won" && (
+                    <>
+                      <Field
+                        label="Quote number"
+                        hint="Required for the commission / WHMCS description."
+                      >
+                        <input
+                          type="text"
+                          value={it.quote_number}
+                          onChange={e => patchItem(i, { quote_number: e.target.value })}
+                          className={inputClass}
+                          placeholder="e.g. 4521"
+                        />
+                      </Field>
+                      <label className="flex items-center gap-2 text-xs text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={it.split_commission}
+                          onChange={e => patchItem(i, { split_commission: e.target.checked })}
+                          className="rounded border-zinc-600 bg-zinc-900"
+                        />
+                        Split 50/50 with the other exec on this client
+                      </label>
+                    </>
                   )}
 
                   {eventType === "site_visit_booked" && (

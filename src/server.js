@@ -25,6 +25,7 @@ const {
 const { getSummarySheetId } = require('./config/companiesStore');
 const { previewEOD, previewEOW, previewEOM, previewEOQ, previewEOY } = require('./preview');
 const { syncHuddleBoard, createWeeklyHuddleTask } = require('./integrations/huddleBoard');
+const { reportJobWonsToCommission } = require('./integrations/commission');
 const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -480,9 +481,16 @@ const server = http.createServer(async (req, res) => {
           v.contactName || '', v.contactAddress || '', v.appointmentDateTime || '', v.salesPerson || '', '',
         ]));
       }
+      // Job Won → Sales Exec Invoicing (commission sheets). Best-effort.
+      const commissionResults = await reportJobWonsToCommission(company.name, activities);
       console.log(`[MANUAL] ${company.name} — ${activities.length} activit${activities.length === 1 ? 'y' : 'ies'}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'logged', company: company.name, count: activities.length }));
+      res.end(JSON.stringify({
+        status: 'logged',
+        company: company.name,
+        count: activities.length,
+        commissions: commissionResults.length,
+      }));
     } catch (e) {
       console.error(`[MANUAL] Error ${company.name}:`, e.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });

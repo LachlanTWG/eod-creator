@@ -31,6 +31,8 @@ type Item = {
   ad_source: string;
   quote_job_value: string;
   appointment_at: string;
+  quote_number: string;
+  split_commission: boolean;
 };
 
 const emptyItem = (contactName = ""): Item => ({
@@ -40,6 +42,8 @@ const emptyItem = (contactName = ""): Item => ({
   ad_source: "",
   quote_job_value: "",
   appointment_at: "",
+  quote_number: "",
+  split_commission: false,
 });
 
 const FALLBACK_OPTIONS: EodOptions = { stages: [], outcomes: [], sources: [] };
@@ -164,6 +168,19 @@ export function EodEntryForm({
         "eod_update",
       );
       return;
+    }
+
+    if (eventType === "job_won") {
+      for (const it of items) {
+        if (!it.quote_job_value.trim()) {
+          setError("Job value is required (incl. GST)");
+          return;
+        }
+        if (!it.quote_number.trim()) {
+          setError("Quote number is required — it goes on the commission sheet");
+          return;
+        }
+      }
     }
 
     const payloadItems: NewActivityItem[] = items.map(it => ({
@@ -308,8 +325,8 @@ export function EodEntryForm({
 
                       {(eventType === "quote_sent" || eventType === "job_won") && (
                         <Field
-                          label={eventType === "quote_sent" ? "Quote value(s)" : "Job value"}
-                          hint={eventType === "quote_sent" ? "Dollars, no symbols. Tiers separated by |." : "Dollars, no symbols."}
+                          label={eventType === "quote_sent" ? "Quote value(s)" : "Job value (incl. GST)"}
+                          hint={eventType === "quote_sent" ? "Dollars, no symbols. Tiers separated by |." : "Dollars, no symbols. Used for commission calc."}
                         >
                           <input
                             type="text"
@@ -320,6 +337,32 @@ export function EodEntryForm({
                             placeholder={eventType === "quote_sent" ? "e.g. 4500 or 4500|6200" : "e.g. 12000"}
                           />
                         </Field>
+                      )}
+
+                      {eventType === "job_won" && (
+                        <>
+                          <Field
+                            label="Quote number"
+                            hint="Required for the commission / WHMCS description."
+                          >
+                            <input
+                              type="text"
+                              value={it.quote_number}
+                              onChange={e => patchItem(i, { quote_number: e.target.value })}
+                              className={inputClass}
+                              placeholder="e.g. 4521"
+                            />
+                          </Field>
+                          <label className="flex items-center gap-2 text-xs text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={it.split_commission}
+                              onChange={e => patchItem(i, { split_commission: e.target.checked })}
+                              className="rounded border-zinc-600 bg-zinc-900"
+                            />
+                            Split 50/50 with the other exec on this client
+                          </label>
+                        </>
                       )}
 
                       {eventType === "site_visit_booked" && (

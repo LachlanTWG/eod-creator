@@ -41,6 +41,9 @@ import {
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
 
 const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET");
+// Sales Exec Invoicing — optional. When set, Job Won manual entries also
+// write commission sheet rows (no GHL custom fields required).
+const COMMISSION_WEBHOOK_URL = (Deno.env.get("COMMISSION_WEBHOOK_URL") || "").trim();
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -126,6 +129,47 @@ function json(status: number, body: unknown): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+/** Best-effort: push a Job Won to Sales Exec Invoicing. Never throws. */
+async function reportJobWonToCommission(
+  companyName: string,
+  entry: Record<string, unknown>,
+): Promise<{ ok: boolean; skipped?: boolean; status?: number; error?: string }> {
+  if (!COMMISSION_WEBHOOK_URL) return { ok: true, skipped: true };
+  const quoteRaw = String(entry.quoteJobValue ?? "");
+  const quoteValue = quoteRaw.split("|")[0].trim();
+  const payload = {
+    company_name: companyName,
+    exec_name: String(entry.salesPerson ?? ""),
+    full_name: String(entry.contactName ?? ""),
+    address: String(entry.contactAddress ?? ""),
+    quote_value_incl_gst: quoteValue,
+    quote_number: String(entry.quoteNumber ?? "").trim(),
+    split_commission: Boolean(entry.splitCommission),
+  };
+  try {
+    const res = await fetch(COMMISSION_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      console.error(
+        `[commission] ${companyName} / ${payload.exec_name} / ${payload.quote_number} → ${res.status}: ${text.slice(0, 300)}`,
+      );
+      return { ok: false, status: res.status, error: text.slice(0, 300) };
+    }
+    console.log(
+      `[commission] ${companyName} / ${payload.exec_name} / ${payload.full_name} / $${payload.quote_value_incl_gst} / #${payload.quote_number}`,
+    );
+    return { ok: true, status: res.status };
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    console.error(`[commission] request failed: ${msg}`);
+    return { ok: false, error: msg };
+  }
 }
 
 // Audit a /webhook/* request. body is persisted ONLY on failures so a lost
@@ -346,8 +390,22 @@ Deno.serve(async (req) => {
         console.error(`[MANUAL] insert error ${company.name}: ${error.message}`);
         return json(500, { error: `Insert failed: ${error.message}` });
       }
+
+      // Job Won → Sales Exec Invoicing commission sheets (best-effort).
+      const commissionResults = [];
+      for (const e of entries) {
+        if (e && e.eventType === "Job Won") {
+          commissionResults.push(await reportJobWonToCommission(company.name, e));
+        }
+      }
+
       console.log(`[MANUAL] ${company.name} — ${entries.length} activit${entries.length === 1 ? "y" : "ies"}`);
-      return json(200, { status: "logged", company: company.name, count: entries.length });
+      return json(200, {
+        status: "logged",
+        company: company.name,
+        count: entries.length,
+        commissions: commissionResults.length,
+      });
     }
 
     // Unknown path: audit /webhook/* misses (catches senders pointed at an
