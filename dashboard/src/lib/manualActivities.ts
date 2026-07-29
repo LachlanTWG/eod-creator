@@ -35,6 +35,11 @@ export type NewActivityItem = {
   quote_number?: string;
   /** Job won only — 50/50 split with the other roster exec on that company */
   split_commission?: boolean;
+  /**
+   * Job won only — full commission schedule then /2 client charge
+   * (Quotie / process win without a salesman). Independent of split.
+   */
+  half_commission_charge?: boolean;
 };
 
 export type SheetActivity = {
@@ -51,6 +56,7 @@ export type SheetActivity = {
   appointmentDate: string;
   quoteNumber?: string;
   splitCommission?: boolean;
+  halfCommissionCharge?: boolean;
 };
 
 export function isIsoDate(v: string | null | undefined): boolean {
@@ -103,6 +109,7 @@ export function buildSheetActivities(
       ? {
           quoteNumber: (it.quote_number || "").trim(),
           splitCommission: Boolean(it.split_commission),
+          halfCommissionCharge: Boolean(it.half_commission_charge),
         }
       : {}),
   }));

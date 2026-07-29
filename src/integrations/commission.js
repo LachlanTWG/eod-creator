@@ -9,7 +9,7 @@
  * @param {string} companyName  EOD company roster name (e.g. "Bolton EC")
  * @param {object} activity     Sheet-shaped activity: salesPerson, contactName,
  *                              contactAddress, quoteJobValue, quoteNumber?,
- *                              splitCommission?
+ *                              splitCommission?, halfCommissionCharge?
  * @returns {Promise<{ ok: boolean, skipped?: boolean, status?: number, body?: any, error?: string }>}
  */
 async function reportJobWonToCommission(companyName, activity) {
@@ -27,6 +27,7 @@ async function reportJobWonToCommission(companyName, activity) {
     quote_value_incl_gst: quoteValue,
     quote_number: String(activity.quoteNumber || '').trim(),
     split_commission: Boolean(activity.splitCommission),
+    half_commission_charge: Boolean(activity.halfCommissionCharge),
   };
 
   try {

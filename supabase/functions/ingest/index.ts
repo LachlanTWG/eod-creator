@@ -147,6 +147,7 @@ async function reportJobWonToCommission(
     quote_value_incl_gst: quoteValue,
     quote_number: String(entry.quoteNumber ?? "").trim(),
     split_commission: Boolean(entry.splitCommission),
+    half_commission_charge: Boolean(entry.halfCommissionCharge),
   };
   try {
     const res = await fetch(COMMISSION_WEBHOOK_URL, {

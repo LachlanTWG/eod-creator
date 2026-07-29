@@ -33,6 +33,7 @@ type Item = {
   appointment_at: string;
   quote_number: string;
   split_commission: boolean;
+  half_commission_charge: boolean;
 };
 
 const emptyItem = (contactName = ""): Item => ({
@@ -44,6 +45,7 @@ const emptyItem = (contactName = ""): Item => ({
   appointment_at: "",
   quote_number: "",
   split_commission: false,
+  half_commission_charge: false,
 });
 
 const FALLBACK_OPTIONS: EodOptions = { stages: [], outcomes: [], sources: [] };
@@ -353,15 +355,36 @@ export function EodEntryForm({
                               placeholder="e.g. 4521"
                             />
                           </Field>
-                          <label className="flex items-center gap-2 text-xs text-zinc-300">
-                            <input
-                              type="checkbox"
-                              checked={it.split_commission}
-                              onChange={e => patchItem(i, { split_commission: e.target.checked })}
-                              className="rounded border-zinc-600 bg-zinc-900"
-                            />
-                            Split 50/50 with the other exec on this client
-                          </label>
+                          <div className="space-y-2 rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+                            <label className="flex items-start gap-2 text-xs text-zinc-300">
+                              <input
+                                type="checkbox"
+                                checked={it.half_commission_charge}
+                                onChange={e => patchItem(i, { half_commission_charge: e.target.checked })}
+                                className="mt-0.5 rounded border-zinc-600 bg-zinc-900"
+                              />
+                              <span>
+                                <span className="font-medium text-zinc-200">50% commission charge</span>
+                                <span className="mt-0.5 block text-[11px] text-zinc-500">
+                                  Full schedule on job value, then charge half (no salesman / Quotie process win).
+                                </span>
+                              </span>
+                            </label>
+                            <label className="flex items-start gap-2 text-xs text-zinc-300">
+                              <input
+                                type="checkbox"
+                                checked={it.split_commission}
+                                onChange={e => patchItem(i, { split_commission: e.target.checked })}
+                                className="mt-0.5 rounded border-zinc-600 bg-zinc-900"
+                              />
+                              <span>
+                                <span className="font-medium text-zinc-200">50/50 exec split</span>
+                                <span className="mt-0.5 block text-[11px] text-zinc-500">
+                                  Split SE share with the other exec on this client. Can combine with 50% charge.
+                                </span>
+                              </span>
+                            </label>
+                          </div>
                         </>
                       )}
 
