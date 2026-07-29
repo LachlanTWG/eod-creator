@@ -36,11 +36,15 @@ type Item = {
   half_commission_charge: boolean;
 };
 
-const emptyItem = (contactName = ""): Item => ({
+const emptyItem = (
+  contactName = "",
+  contactAddress = "",
+  adSource = "",
+): Item => ({
   contact_name: contactName,
-  contact_address: "",
+  contact_address: contactAddress,
   outcome: "",
-  ad_source: "",
+  ad_source: adSource,
   quote_job_value: "",
   appointment_at: "",
   quote_number: "",
@@ -58,6 +62,8 @@ export function EodEntryForm({
   defaultDate,
   contactName = "",
   contactId = "",
+  contactAddress = "",
+  defaultLeadSource = "",
   options = FALLBACK_OPTIONS,
   history = null,
 }: {
@@ -68,6 +74,10 @@ export function EodEntryForm({
   defaultDate: string;
   contactName?: string;
   contactId?: string;
+  /** Prefill from GHL Street Address (or last logged address). */
+  contactAddress?: string;
+  /** Prefill from most recent EOD 5 / contact source for this contact. */
+  defaultLeadSource?: string;
   options?: EodOptions;
   history?: ContactHistory | null;
 }) {
@@ -105,15 +115,20 @@ export function EodEntryForm({
   const [answered, setAnswered] = useState("");
   const [stdOutcome, setStdOutcome] = useState("");
   const [customOutcome, setCustomOutcome] = useState("");
-  const [source, setSource] = useState(history?.topSource || "");
+  const [source, setSource] = useState(defaultLeadSource || history?.topSource || "");
 
-  // Multi-row items for the non-EOD event types.
-  const [items, setItems] = useState<Item[]>([emptyItem(contactName)]);
+  // Multi-row items for the non-EOD event types. Address + lead source are
+  // prefilled from GHL Street Address / EOD 5 when available.
+  const [items, setItems] = useState<Item[]>([
+    emptyItem(contactName, contactAddress, defaultLeadSource),
+  ]);
 
   function patchItem(i: number, patch: Partial<Item>) {
     setItems(list => list.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   }
-  function addItem() { setItems(list => [...list, emptyItem(contactName)]); }
+  function addItem() {
+    setItems(list => [...list, emptyItem(contactName, contactAddress, defaultLeadSource)]);
+  }
   function removeItem(i: number) { setItems(list => list.filter((_, idx) => idx !== i)); }
 
   function submit(payloadItems: NewActivityItem[], evType: EventType) {
@@ -142,7 +157,7 @@ export function EodEntryForm({
         setStdOutcome("");
         setCustomOutcome("");
       } else {
-        setItems([emptyItem(contactName)]);
+        setItems([emptyItem(contactName, contactAddress, defaultLeadSource)]);
       }
     });
   }
@@ -401,13 +416,19 @@ export function EodEntryForm({
                       )}
 
                       {(eventType === "quote_sent" || eventType === "job_won" || eventType === "site_visit_booked") && (
-                        <Field label="Address" hint="Optional.">
+                        <Field
+                          label="Address"
+                          hint={contactAddress ? "Prefill from GHL Street Address — edit if needed." : "Optional. Prefills from GHL when available."}
+                        >
                           <input type="text" value={it.contact_address} onChange={e => patchItem(i, { contact_address: e.target.value })} className={inputClass} />
                         </Field>
                       )}
 
                       {(eventType === "quote_sent" || eventType === "job_won") && (
-                        <Field label="Lead source" hint="Optional.">
+                        <Field
+                          label="Lead source"
+                          hint={defaultLeadSource ? "Prefill from EOD 5 — edit if needed." : "Optional. Prefills from EOD 5 when logged."}
+                        >
                           <input type="text" value={it.ad_source} onChange={e => patchItem(i, { ad_source: e.target.value })} className={inputClass} placeholder="e.g. Facebook Ad Form" />
                         </Field>
                       )}

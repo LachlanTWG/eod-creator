@@ -35,8 +35,23 @@ export type ContactHistory = {
   siteVisits: number;
   emails: number;
   jobsWon: number;
+  /** Most frequent ad_source on this contact (any activity type). */
   topSource: string;
+  /**
+   * Most recent EOD 5 / contact source for this contact (prefer eod_update
+   * outcome slot 5 or ad_source). Used to prefill Job Won lead source.
+   */
+  lastSource: string;
+  /** Most recent non-empty contact_address from prior activities. */
+  lastAddress: string;
   recent: HistoryEntry[];
+};
+
+/** GHL contact fields we pull for the EOD entry form. */
+export type GhlContact = {
+  name: string;
+  /** Street Address (address1), with city/state/postcode when present. */
+  address: string;
 };
 
 const DEFAULT_STAGES = ["New Leads", "Pre-Quote Follow Up", "Post Quote Follow Up"];
@@ -95,6 +110,7 @@ type ActivityRow = {
   appointment_at: string | null;
   contact_id: string | null;
   contact_name: string | null;
+  contact_address: string | null;
 };
 
 /** Mean of pipe-separated quote tiers (they're alternatives, never summed). */
@@ -145,41 +161,67 @@ export async function fetchEodOptions(companyId: string): Promise<EodOptions> {
 }
 
 // ─── GHL contact lookup ──────────────────────────────────────────────
-// The authoritative name source. GHL_LOCATION_TOKENS is a JSON map of
+// Authoritative name + Street Address. GHL_LOCATION_TOKENS is a JSON map of
 // { "<ghl location id>": "<private integration token>" } — each sub-account
 // issues its own token (Settings → Private Integrations, View Contacts
 // scope). DOM scraping in the extension is the fallback when a location has
 // no token; it's fragile (GHL headings, i18n keys), hence this.
 
-export async function fetchGhlContactName(
+/** Build a single-line address from GHL contact fields (Street Address first). */
+export function formatGhlAddress(c: {
+  address1?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+}): string {
+  const street = String(c.address1 || "").trim();
+  if (!street) return "";
+  const city = String(c.city || "").trim();
+  const state = String(c.state || "").trim();
+  const postal = String(c.postalCode || "").trim();
+  const region = [state, postal].filter(Boolean).join(" ");
+  const locality = [city, region].filter(Boolean).join(" ");
+  return locality ? `${street}, ${locality}` : street;
+}
+
+export async function fetchGhlContact(
   ghlLocationId: string,
   contactId: string,
-): Promise<string> {
-  if (!ghlLocationId || !contactId) return "";
+): Promise<GhlContact> {
+  const empty: GhlContact = { name: "", address: "" };
+  if (!ghlLocationId || !contactId) return empty;
   let tokens: Record<string, string>;
   try {
     tokens = JSON.parse(process.env.GHL_LOCATION_TOKENS || "{}");
   } catch {
-    return "";
+    return empty;
   }
   const token = tokens[ghlLocationId];
-  if (!token) return "";
+  if (!token) return empty;
 
   try {
     const res = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
       headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28" },
       cache: "no-store",
     });
-    if (!res.ok) return "";
+    if (!res.ok) return empty;
     const body = await res.json();
     const c = body?.contact ?? {};
     const name =
       [c.firstName, c.lastName].filter(Boolean).join(" ").trim() ||
       String(c.contactName || "").trim();
-    return name;
+    return { name, address: formatGhlAddress(c) };
   } catch {
-    return "";
+    return empty;
   }
+}
+
+/** @deprecated Prefer fetchGhlContact — kept for call-sites that only need name. */
+export async function fetchGhlContactName(
+  ghlLocationId: string,
+  contactId: string,
+): Promise<string> {
+  return (await fetchGhlContact(ghlLocationId, contactId)).name;
 }
 
 // Obvious non-names from GHL page furniture: section headings and raw i18n
@@ -341,7 +383,7 @@ export async function fetchContactHistory(
   const supabase = createAdminClient();
   let query = supabase
     .from("activities")
-    .select("occurred_on, event_type, outcome, quote_job_value, sales_person_name, ad_source, appointment_at, contact_id, contact_name")
+    .select("occurred_on, event_type, outcome, quote_job_value, sales_person_name, ad_source, appointment_at, contact_id, contact_name, contact_address")
     .eq("company_id", companyId)
     .order("occurred_on", { ascending: false })
     .limit(200);
@@ -382,18 +424,37 @@ export async function fetchContactHistory(
     emails: 0,
     jobsWon: 0,
     topSource: "",
+    lastSource: "",
+    lastAddress: "",
     recent: [],
   };
 
   const sourceCounts = new Map<string, number>();
+  // rows are newest-first — capture the first match of each kind.
+  let lastEod5 = "";
+  let lastAnySource = "";
   for (const row of rows) {
-    if (row.ad_source) sourceCounts.set(row.ad_source, (sourceCounts.get(row.ad_source) ?? 0) + 1);
+    const eodParts =
+      row.event_type === "eod_update"
+        ? String(row.outcome || "").split("|").map(p => p.trim())
+        : null;
+    const eod5 = (eodParts?.[4] || "").trim();
+    if (eod5 && !lastEod5) lastEod5 = eod5;
+
+    const source = (eod5 || row.ad_source || "").trim();
+    if (source) {
+      sourceCounts.set(source, (sourceCounts.get(source) ?? 0) + 1);
+      if (!lastAnySource) lastAnySource = source;
+    }
+    if (!h.lastAddress && row.contact_address?.trim()) {
+      h.lastAddress = row.contact_address.trim();
+    }
     switch (row.event_type) {
       case "eod_update": {
-        const parts = String(row.outcome || "").split("|").map(p => p.trim());
+        const parts = eodParts || [];
         if (parts[1] === "Answered") h.answered++;
         else if (parts[1]) h.didntAnswer++;
-        if (!h.lastStage && parts[0]) h.lastStage = parts[0]; // rows are newest-first
+        if (!h.lastStage && parts[0]) h.lastStage = parts[0];
         break;
       }
       case "quote_sent":
@@ -412,6 +473,8 @@ export async function fetchContactHistory(
     }
   }
   h.topSource = [...sourceCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  // Job Won lead source: EOD 5 if it exists, else most recent ad_source, else top.
+  h.lastSource = lastEod5 || lastAnySource || h.topSource;
 
   h.recent = rows.slice(0, 8).map(row => {
     let detail = "";

@@ -16,7 +16,7 @@ import {
   fetchCompanyToday,
   fetchContactHistory,
   fetchEodOptions,
-  fetchGhlContactName,
+  fetchGhlContact,
   fetchMyToday,
 } from "./data";
 import { MeView, TabBar, TodayView } from "./views";
@@ -99,7 +99,7 @@ export default async function EodEntryPage({
     content = <MeView exec={exec || ""} execNames={execNames} my={my} base={base} />;
   } else {
     const scraped = cleanScrapedName(cName);
-    const [{ data: people }, options, history, ghlName] = await Promise.all([
+    const [{ data: people }, options, history, ghl] = await Promise.all([
       supabase
         .from("sales_people")
         .select("name")
@@ -108,13 +108,17 @@ export default async function EodEntryPage({
         .order("name"),
       fetchEodOptions(company.id),
       fetchContactHistory(company.id, cId, scraped),
-      fetchGhlContactName(location || "", cId),
+      fetchGhlContact(location || "", cId),
     ]);
     // Name precedence: GHL API (authoritative, needs a location token) →
     // DB name for a known contact → the extension's DOM scrape (fragile,
     // junk-filtered). Junk can poison the DB via a bad submission, so the
     // API also outranks the DB.
-    const displayName = ghlName || cleanScrapedName(history?.canonicalName || "") || scraped;
+    const displayName = ghl.name || cleanScrapedName(history?.canonicalName || "") || scraped;
+    // Address: GHL Street Address first, then last address we logged for them.
+    const displayAddress = ghl.address || history?.lastAddress || "";
+    // Lead source: EOD 5 if it exists for this contact.
+    const displaySource = history?.lastSource || history?.topSource || "";
     content = (
       <EodEntryForm
         token={token}
@@ -124,6 +128,8 @@ export default async function EodEntryPage({
         defaultDate={today}
         contactName={displayName}
         contactId={cId}
+        contactAddress={displayAddress}
+        defaultLeadSource={displaySource}
         options={options}
         history={history}
       />
