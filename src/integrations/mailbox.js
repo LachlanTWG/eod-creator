@@ -142,15 +142,41 @@ function normaliseEmail(raw) {
   return s;
 }
 
+/** "Craig Bannister <x@y.com>" / '"Craig Bannister" <x@y.com>' / bare email → { email, name } */
+function parseOneAddress(raw) {
+  const part = String(raw || '').trim();
+  if (!part) return null;
+  const angle = part.match(/^(.*?)\s*<([^>]+)>\s*$/);
+  let email;
+  let name = null;
+  if (angle) {
+    email = normaliseEmail(angle[2]);
+    name = angle[1].replace(/^["']|["']$/g, '').trim() || null;
+  } else {
+    email = normaliseEmail(part);
+  }
+  if (!email) return null;
+  // Ignore "name" that's empty, same as email, or just the local-part
+  if (name) {
+    const n = name.toLowerCase();
+    if (!n || n === email || n === email.split('@')[0]) name = null;
+  }
+  return { email, name };
+}
+
 function parseAddressList(headerValue) {
   if (!headerValue) return [];
   const parts = String(headerValue).split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
   const out = [];
   for (const p of parts) {
-    const e = normaliseEmail(p);
-    if (e) out.push(e);
+    const parsed = parseOneAddress(p);
+    if (parsed) out.push(parsed);
   }
   return out;
+}
+
+function looksLikeEmail(s) {
+  return typeof s === 'string' && s.includes('@');
 }
 
 function headerMap(headers) {
@@ -396,6 +422,37 @@ async function resolveContactForCompany(recipientEmails, companyId) {
   }
 }
 
+/** Prefer DB name → header display name → email. */
+function bestContactName({ dbName, headerName, email }) {
+  const db = (dbName || '').trim();
+  if (db && !looksLikeEmail(db)) return db;
+  const hdr = (headerName || '').trim();
+  if (hdr && !looksLikeEmail(hdr)) return hdr;
+  if (db) return db;
+  return email || '';
+}
+
+async function upgradeActivityContactName(companyName, source, sourceRowId, contactName) {
+  if (!contactName || looksLikeEmail(contactName) || !db.isEnabled()) return;
+  const client = await db.getPool().connect();
+  try {
+    const companyId = await db.resolveCompanyId(client, companyName);
+    if (!companyId) return;
+    // Only upgrade rows that still show a bare email as the contact.
+    await client.query(
+      `update activities
+          set contact_name = $1
+        where company_id = $2
+          and source = $3
+          and source_row_id = $4
+          and (contact_name is null or contact_name = '' or contact_name like '%@%')`,
+      [contactName, companyId, source, sourceRowId],
+    );
+  } finally {
+    client.release();
+  }
+}
+
 async function recordUnmatched(accountId, messageId, { occurredAt, subject, recipients, reason, rawHeaders }) {
   const client = await db.getPool().connect();
   try {
@@ -430,9 +487,9 @@ function dateFromIso(iso, timezone) {
 
 /**
  * Shared: take a normalised sent message and log against the connection's client.
- * Company is fixed on mailbox_accounts. Every non-noise outbound email is logged
- * (all business mail counts). contact_emails only enriches name/id when known.
- * @param {{ messageId, recipients, subject, occurredAt, extra? }} msg
+ * Company is fixed on mailbox_accounts. Every non-noise outbound email is logged.
+ * Name priority: contact_emails → To/Cc display name (e.g. "Craig Bannister") → email.
+ * @param {{ messageId, recipients: {email,name}[], subject, occurredAt, extra? }} msg
  */
 async function ingestSentMessage(account, msg, teamEmails, stats) {
   const provider = account.provider || 'gmail';
@@ -443,9 +500,23 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
     return;
   }
 
-  const recipients = [...new Set(msg.recipients || [])].filter(
-    e => !isNoiseRecipient(e, account.email, teamEmails),
-  );
+  // Normalise: accept {email,name}[] or legacy string[]
+  const rawRecipients = (msg.recipients || []).map(r => {
+    if (r && typeof r === 'object' && r.email) {
+      return { email: normaliseEmail(r.email), name: r.name || null };
+    }
+    return parseOneAddress(r);
+  }).filter(r => r && r.email);
+
+  const recipients = [];
+  const seen = new Set();
+  for (const r of rawRecipients) {
+    if (isNoiseRecipient(r.email, account.email, teamEmails)) continue;
+    if (seen.has(r.email)) continue;
+    seen.add(r.email);
+    recipients.push(r);
+  }
+
   const subject = msg.subject || '';
   const occurredAt = msg.occurredAt || null;
   const messageId = msg.messageId;
@@ -456,14 +527,17 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
     return;
   }
 
-  // Optional enrichment — never required to count the email.
-  const contact = await resolveContactForCompany(recipients, companyId);
-  const contactName =
-    (contact && (contact.contactName || contact.matchedEmail)) ||
-    recipients[0] ||
-    '';
+  const emails = recipients.map(r => r.email);
+  const primary = recipients[0];
+  // Optional DB enrichment — never required to count the email.
+  const contact = await resolveContactForCompany(emails, companyId);
+  const contactName = bestContactName({
+    dbName: contact?.contactName,
+    headerName: primary?.name,
+    email: primary?.email,
+  });
   const contactId = (contact && contact.contactId) || null;
-  const matchedEmail = (contact && contact.matchedEmail) || recipients[0] || null;
+  const matchedEmail = (contact && contact.matchedEmail) || primary?.email || null;
 
   let sheetId = account.sheet_id;
   const { companies } = loadCompanies();
@@ -477,6 +551,7 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
   const tz = account.company_timezone || cfg?.timezone || 'Australia/Sydney';
   const date = dateFromIso(occurredAt, tz);
   const source = provider === 'outlook' ? 'outlook' : 'gmail';
+  const sourceRowId = `${provider}:${messageId}`;
 
   const dbResult = await db.insertActivity({
     companyName,
@@ -488,7 +563,7 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
     contactId,
     outcome: subject || null,
     source,
-    sourceRowId: `${provider}:${messageId}`,
+    sourceRowId,
     rawPayload: {
       provider,
       messageId,
@@ -505,6 +580,8 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
   });
 
   if (dbResult?.deduped) {
+    // Older rows may only have the bare email — upgrade to display name when we have it.
+    await upgradeActivityContactName(companyName, source, sourceRowId, contactName);
     stats.deduped++;
     return;
   }
@@ -682,7 +759,7 @@ async function syncGmailAccount(account, { forceBackfill = false } = {}) {
           account,
           {
             messageId: id,
-            recipients: [...to, ...cc],
+            recipients: [...to, ...cc], // [{ email, name }, ...]
             subject: headers.subject || '',
             occurredAt,
             extra: { headers },
@@ -853,7 +930,13 @@ function graphRecipients(list) {
   const out = [];
   for (const r of list || []) {
     const e = normaliseEmail(r?.emailAddress?.address);
-    if (e) out.push(e);
+    if (!e) continue;
+    let name = (r?.emailAddress?.name || '').trim() || null;
+    if (name) {
+      const n = name.toLowerCase();
+      if (n === e || n === e.split('@')[0]) name = null;
+    }
+    out.push({ email: e, name });
   }
   return out;
 }
