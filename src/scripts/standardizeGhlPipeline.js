@@ -52,4 +52,10 @@ const target = process.argv[2];
 (async () => {
   if (target === 'PPS' || target === 'all') await standardize('PPS', 'RjUJhmqGE4f8BKrOt6FF', '0Okw6EjmoT05b16sIPAu', 'Ben', apply);
   if (target === 'LRS' || target === 'all') await standardize('LRS', 'rr409mgd1KBtPTg95J5K', 'cAi9qB7ZsKoqApj3Z1II', 'Lewis', apply);
+  if (target === 'Enervia' || target === 'all') await standardize('Enervia', 'VclvarehVhFT6OQROeg8', 'swBqDL7ShBEsCOcXyfqC', 'Josh', apply);
+  if (target === 'Nexgen' || target === 'all') await standardize('Nexgen', 'Cb7szZQAjO0dMCzf7HdH', 'Ryc1dTuSyfC33QMUUuDn', 'Jaidon', apply);
+  if (!target) {
+    console.log('Usage: node src/scripts/standardizeGhlPipeline.js <PPS|LRS|Enervia|Nexgen|all> [--apply]');
+    console.log('Omit --apply for a dry-run.');
+  }
 })();
