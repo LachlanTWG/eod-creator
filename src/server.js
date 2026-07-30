@@ -262,11 +262,14 @@ function scheduleMailboxSync() {
     mailbox.isGmailConfigured() ? 'gmail' : null,
     mailbox.isOutlookConfigured() ? 'outlook' : null,
   ].filter(Boolean).join('+');
-  scheduledJobs.push(cron.schedule('*/3 * * * *', () => {
-    console.log(`[${new Date().toISOString()}] MAILBOX SYNC (${providers})`);
+  // Override with MAILBOX_SYNC_CRON for testing (e.g. "*/1 * * * *" = every minute).
+  // Default: every 3 minutes.
+  const expr = (process.env.MAILBOX_SYNC_CRON || '*/3 * * * *').trim();
+  scheduledJobs.push(cron.schedule(expr, () => {
+    console.log(`[${new Date().toISOString()}] MAILBOX SYNC (${providers}) cron=${expr}`);
     mailbox.syncAllAccounts().catch(e => console.error('Mailbox sync error:', e.message));
   }, { timezone: 'Australia/Sydney' }));
-  console.log(`  Mailbox sync: every 3 minutes (${providers})`);
+  console.log(`  Mailbox sync: cron "${expr}" (${providers})`);
 }
 
 /** Best-effort: stash contact email from a GHL payload so mailbox sync can attribute sends. */
