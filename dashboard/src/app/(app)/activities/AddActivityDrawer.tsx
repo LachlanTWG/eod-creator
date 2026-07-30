@@ -15,11 +15,13 @@ import { useRouter } from "next/navigation";
 import { createManualActivities } from "./actions";
 import type { NewActivityItem } from "@/lib/manualActivities";
 
+// Backfill-only surface. Day-to-day Email sent / Quote sent should come from
+// mailbox OAuth sync (Gmail/Outlook) and Quotie — these exist when automation misses.
 const EVENT_TYPES = [
-  { value: "quote_sent",        label: "Quote sent" },
+  { value: "quote_sent",        label: "Quote sent (backfill)" },
   { value: "job_won",           label: "Job won" },
   { value: "site_visit_booked", label: "Site visit booked" },
-  { value: "email_sent",        label: "Email sent" },
+  { value: "email_sent",        label: "Email sent (backfill)" },
   { value: "eod_update",        label: "EOD update" },
 ] as const;
 

@@ -6,8 +6,11 @@
 // custom fields (Stage / Answered? / Standard Outcome / Custom Outcome /
 // Contact Source), submitted as one eod_update with the outcome joined
 // " | "-style so it's byte-identical to what the /webhook/ghl/eod path
-// produces. Quotes / jobs / site visits / emails stay available behind the
-// event-type selector with the original multi-row UI.
+// produces.
+//
+// Popup types are intentionally human-only: EOD update, Job won, Site visit.
+// Quote sent / Email sent are automated (Quotie webhook + Gmail/Outlook OAuth sync)
+// and stay available for backfill from the dashboard Activities drawer only.
 
 import { useEffect, useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
@@ -15,11 +18,9 @@ import type { ContactHistory, EodOptions } from "./data";
 import { submitEodEntry, type EodEntryInput } from "./actions";
 
 const EVENT_TYPES = [
-  { value: "eod_update",        label: "EOD update (call log)" },
-  { value: "quote_sent",        label: "Quote sent" },
+  { value: "eod_update",        label: "EOD update" },
   { value: "job_won",           label: "Job won" },
-  { value: "site_visit_booked", label: "Site visit booked" },
-  { value: "email_sent",        label: "Email sent" },
+  { value: "site_visit_booked", label: "Site visit booking" },
 ] as const;
 
 type EventType = (typeof EVENT_TYPES)[number]["value"];
@@ -208,10 +209,9 @@ export function EodEntryForm({
     submit(payloadItems, eventType);
   }
 
-  const rowLabel = eventType === "quote_sent" ? "Quote"
-    : eventType === "job_won" ? "Job"
+  const rowLabel = eventType === "job_won" ? "Job"
     : eventType === "site_visit_booked" ? "Site visit"
-    : "Email";
+    : "Entry";
 
   return (
     <div>
@@ -314,13 +314,6 @@ export function EodEntryForm({
             </>
           ) : (
             <>
-              {eventType === "quote_sent" && (
-                <p className="rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
-                  Each row is one quote. Tiers of a single quote go in the Value box separated by{" "}
-                  <code className="text-zinc-300">|</code> — they&apos;re averaged.
-                </p>
-              )}
-
               <div className="space-y-3">
                 {items.map((it, i) => (
                   <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3">
@@ -340,24 +333,21 @@ export function EodEntryForm({
                         <input type="text" value={it.contact_name} onChange={e => patchItem(i, { contact_name: e.target.value })} className={inputClass} />
                       </Field>
 
-                      {(eventType === "quote_sent" || eventType === "job_won") && (
-                        <Field
-                          label={eventType === "quote_sent" ? "Quote value(s)" : "Job value (incl. GST)"}
-                          hint={eventType === "quote_sent" ? "Dollars, no symbols. Tiers separated by |." : "Dollars, no symbols. Used for commission calc."}
-                        >
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={it.quote_job_value}
-                            onChange={e => patchItem(i, { quote_job_value: e.target.value })}
-                            className={inputClass}
-                            placeholder={eventType === "quote_sent" ? "e.g. 4500 or 4500|6200" : "e.g. 12000"}
-                          />
-                        </Field>
-                      )}
-
                       {eventType === "job_won" && (
                         <>
+                          <Field
+                            label="Job value (incl. GST)"
+                            hint="Dollars, no symbols. Used for commission calc."
+                          >
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={it.quote_job_value}
+                              onChange={e => patchItem(i, { quote_job_value: e.target.value })}
+                              className={inputClass}
+                              placeholder="e.g. 12000"
+                            />
+                          </Field>
                           <Field
                             label="Quote number"
                             hint="Required for the commission / WHMCS description."
@@ -400,43 +390,36 @@ export function EodEntryForm({
                               </span>
                             </label>
                           </div>
+                          <Field
+                            label="Address"
+                            hint={contactAddress ? "Prefill from GHL Street Address — edit if needed." : "Optional. Prefills from GHL when available."}
+                          >
+                            <input type="text" value={it.contact_address} onChange={e => patchItem(i, { contact_address: e.target.value })} className={inputClass} />
+                          </Field>
+                          <Field
+                            label="Lead source"
+                            hint={defaultLeadSource ? "Prefill from EOD 5 — edit if needed." : "Optional. Prefills from EOD 5 when logged."}
+                          >
+                            <input type="text" value={it.ad_source} onChange={e => patchItem(i, { ad_source: e.target.value })} className={inputClass} placeholder="e.g. Facebook Ad Form" />
+                          </Field>
                         </>
                       )}
 
                       {eventType === "site_visit_booked" && (
-                        <Field label="Appointment date/time">
-                          <input type="datetime-local" value={it.appointment_at} onChange={e => patchItem(i, { appointment_at: e.target.value })} className={inputClass} />
-                        </Field>
-                      )}
-
-                      {eventType === "email_sent" && (
-                        <Field label="Subject">
-                          <input type="text" value={it.outcome} onChange={e => patchItem(i, { outcome: e.target.value })} className={inputClass} />
-                        </Field>
-                      )}
-
-                      {(eventType === "quote_sent" || eventType === "job_won" || eventType === "site_visit_booked") && (
-                        <Field
-                          label="Address"
-                          hint={contactAddress ? "Prefill from GHL Street Address — edit if needed." : "Optional. Prefills from GHL when available."}
-                        >
-                          <input type="text" value={it.contact_address} onChange={e => patchItem(i, { contact_address: e.target.value })} className={inputClass} />
-                        </Field>
-                      )}
-
-                      {(eventType === "quote_sent" || eventType === "job_won") && (
-                        <Field
-                          label="Lead source"
-                          hint={defaultLeadSource ? "Prefill from EOD 5 — edit if needed." : "Optional. Prefills from EOD 5 when logged."}
-                        >
-                          <input type="text" value={it.ad_source} onChange={e => patchItem(i, { ad_source: e.target.value })} className={inputClass} placeholder="e.g. Facebook Ad Form" />
-                        </Field>
-                      )}
-
-                      {eventType === "site_visit_booked" && (
-                        <Field label="Comment" hint="Optional.">
-                          <input type="text" value={it.outcome} onChange={e => patchItem(i, { outcome: e.target.value })} className={inputClass} />
-                        </Field>
+                        <>
+                          <Field label="Appointment date/time">
+                            <input type="datetime-local" value={it.appointment_at} onChange={e => patchItem(i, { appointment_at: e.target.value })} className={inputClass} />
+                          </Field>
+                          <Field
+                            label="Address"
+                            hint={contactAddress ? "Prefill from GHL Street Address — edit if needed." : "Optional. Prefills from GHL when available."}
+                          >
+                            <input type="text" value={it.contact_address} onChange={e => patchItem(i, { contact_address: e.target.value })} className={inputClass} />
+                          </Field>
+                          <Field label="Comment" hint="Optional.">
+                            <input type="text" value={it.outcome} onChange={e => patchItem(i, { outcome: e.target.value })} className={inputClass} />
+                          </Field>
+                        </>
                       )}
                     </div>
                   </div>

@@ -26,6 +26,7 @@ const { getSummarySheetId } = require('./config/companiesStore');
 const { previewEOD, previewEOW, previewEOM, previewEOQ, previewEOY } = require('./preview');
 const { syncHuddleBoard, createWeeklyHuddleTask } = require('./integrations/huddleBoard');
 const { reportJobWonsToCommission } = require('./integrations/commission');
+const mailbox = require('./integrations/mailbox');
 const db = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -250,6 +251,47 @@ function scheduleHuddleBoard() {
   console.log(`  Huddle Board: sync hourly at :05, meeting task Friday 8am AEST`);
 }
 
+// Mailbox sent-mail sync (Gmail + Outlook) — primary email_sent path.
+// Replaces per-exec×company Make watches. Every 3 minutes.
+function scheduleMailboxSync() {
+  if (!mailbox.isConfigured()) {
+    console.log('  Mailbox sync: skipped (configure Gmail and/or Outlook OAuth env)');
+    return;
+  }
+  const providers = [
+    mailbox.isGmailConfigured() ? 'gmail' : null,
+    mailbox.isOutlookConfigured() ? 'outlook' : null,
+  ].filter(Boolean).join('+');
+  scheduledJobs.push(cron.schedule('*/3 * * * *', () => {
+    console.log(`[${new Date().toISOString()}] MAILBOX SYNC (${providers})`);
+    mailbox.syncAllAccounts().catch(e => console.error('Mailbox sync error:', e.message));
+  }, { timezone: 'Australia/Sydney' }));
+  console.log(`  Mailbox sync: every 3 minutes (${providers})`);
+}
+
+/** Best-effort: stash contact email from a GHL payload so mailbox sync can attribute sends. */
+function captureGhlContactEmail(company, body, deepFindField) {
+  const email =
+    deepFindField(body, 'email') ||
+    body.email ||
+    body.Email ||
+    body.contact?.email ||
+    body.contact_email ||
+    null;
+  if (!email) return;
+  const contactName =
+    deepFindField(body, 'full_name') || body.contactName || body.contact_name || null;
+  const contactId =
+    deepFindField(body, 'contact_id') || body.id || body.contact?.id || null;
+  mailbox.upsertContactEmail({
+    companyName: company.name,
+    email,
+    contactName,
+    contactId,
+    source: 'ghl',
+  }).catch(e => console.error(`[contact_emails] ${company.name}:`, e.message));
+}
+
 // ─── Webhook Server ──────────────────────────────────────────────────
 
 // Escape literal newlines/control chars inside JSON string values so JSON.parse won't choke
@@ -346,6 +388,70 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ─── Mailbox OAuth (Gmail + Outlook) — above WEBHOOK_SECRET gate.
+  // Provider OAuth redirects have no Bearer token; state is HMAC-signed.
+  //
+  // GET  /oauth/mailbox/start?state=…  — redirect to provider consent (provider in state)
+  // GET  /oauth/mailbox/callback       — store tokens, backfill, bounce to dashboard
+  // POST /oauth/mailbox/sync           — manual sync (Bearer WEBHOOK_SECRET)
+  // POST /oauth/mailbox/disconnect     — { userId } (Bearer WEBHOOK_SECRET)
+  // Legacy /oauth/gmail/* aliases still work.
+  if (
+    (pathname === '/oauth/mailbox/start' || pathname === '/oauth/gmail/start') &&
+    req.method === 'GET'
+  ) {
+    try {
+      if (!mailbox.isConfigured()) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'No mailbox OAuth provider configured on this server' }));
+        return;
+      }
+      const state = url.searchParams.get('state');
+      if (!state) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing state' }));
+        return;
+      }
+      const urlToProvider = mailbox.authUrlForState(state);
+      res.writeHead(302, { Location: urlToProvider });
+      res.end();
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  if (
+    (pathname === '/oauth/mailbox/callback' || pathname === '/oauth/gmail/callback') &&
+    req.method === 'GET'
+  ) {
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const dashBase = (process.env.DASHBOARD_URL || 'https://eod-creator.vercel.app').replace(/\/+$/, '');
+    try {
+      if (!code || !state) throw new Error('Missing code or state');
+      // Microsoft can return error= on the query string
+      const oauthErr = url.searchParams.get('error_description') || url.searchParams.get('error');
+      if (oauthErr) throw new Error(oauthErr);
+      const result = await mailbox.handleOAuthCallback(code, state);
+      const dest = new URL(result.returnUrl || `${dashBase}/settings/email`);
+      dest.searchParams.set('connected', '1');
+      dest.searchParams.set('email', result.email || '');
+      dest.searchParams.set('provider', result.provider || '');
+      if (result.companyName) dest.searchParams.set('company', result.companyName);
+      res.writeHead(302, { Location: dest.toString() });
+      res.end();
+    } catch (e) {
+      console.error('[mailbox oauth callback]', e.message);
+      const dest = new URL(`${dashBase}/settings/email`);
+      dest.searchParams.set('error', e.message.slice(0, 200));
+      res.writeHead(302, { Location: dest.toString() });
+      res.end();
+    }
+    return;
+  }
+
   // Audit every /webhook/* request to webhook_events (fire-and-forget). Also
   // serves as a per-request signal that DB writes work in this environment.
   if (pathname.startsWith('/webhook') && !pathname.endsWith('-test')) {
@@ -420,6 +526,42 @@ const server = http.createServer(async (req, res) => {
   }
 
   const body = await parseBody(req);
+
+  // Manual mailbox sync / disconnect (protected by WEBHOOK_SECRET above)
+  if (
+    (pathname === '/oauth/mailbox/sync' || pathname === '/oauth/gmail/sync') &&
+    req.method === 'POST'
+  ) {
+    try {
+      const result = await mailbox.syncAllAccounts({ forceBackfill: !!body.forceBackfill });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  if (
+    (pathname === '/oauth/mailbox/disconnect' || pathname === '/oauth/gmail/disconnect') &&
+    req.method === 'POST'
+  ) {
+    try {
+      if (!body.userId || !body.companyId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'userId and companyId required' }));
+        return;
+      }
+      await mailbox.deleteMailboxAccount(body.userId, body.companyId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'disconnected' }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
 
   // Test endpoints — logs full payload for debugging
   if (pathname.startsWith('/webhook/ghl') && pathname.endsWith('-test')) {
@@ -656,6 +798,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'eod', company: company.name, salesPerson: salesPersonName }));
 
+    captureGhlContactEmail(company, body, deepFindField);
     logActivity(company.sheetId, activityData, {
       companyName: company.name, source: 'ghl', rawPayload: body,
     }).then(() => {
@@ -689,6 +832,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'job-won', company: company.name, salesPerson: salesPersonName, value }));
 
+    captureGhlContactEmail(company, body, deepFindField);
     logActivity(company.sheetId, activityData, {
       companyName: company.name, source: 'ghl', rawPayload: body,
     }).then(() => {
@@ -722,6 +866,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'site-visit', company: company.name, salesPerson: salesPersonName }));
 
+    captureGhlContactEmail(company, body, deepFindField);
     Promise.all([
       logActivity(company.sheetId, activityData, {
         companyName: company.name, source: 'ghl', rawPayload: body,
@@ -774,6 +919,17 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'quote', company: company.name, salesPerson: body.salesPerson }));
+
+    // Quotie sometimes includes contactEmail — stash for Gmail attribution.
+    if (body.contactEmail || body.email) {
+      mailbox.upsertContactEmail({
+        companyName: company.name,
+        email: body.contactEmail || body.email,
+        contactName: body.contactName || null,
+        contactId: body.contactId || null,
+        source: 'ghl',
+      }).catch(e => console.error(`[contact_emails] quote ${company.name}:`, e.message));
+    }
 
     logActivity(company.sheetId, activityData, {
       companyName: company.name, source: 'quotie', rawPayload: body,
@@ -989,6 +1145,7 @@ function start() {
   scheduleMonthlyDoc();
   scheduleSummaryArchive();
   scheduleHuddleBoard();
+  scheduleMailboxSync();
 
   console.log(`\nTotal cron jobs: ${scheduledJobs.length}`);
 
@@ -1006,7 +1163,10 @@ function start() {
     console.log(`  POST /webhook/ghl/job-won                  — GHL Job Won`);
     console.log(`  POST /webhook/ghl/site-visit               — GHL Site Visit Booked`);
     console.log(`  POST /webhook/quote                        — Make.com Quote Sent`);
-    console.log(`  POST /webhook/email                        — Make.com Email Sent`);
+    console.log(`  POST /webhook/email                        — Make.com Email Sent (legacy)`);
+    console.log(`  GET  /oauth/mailbox/start                  — Mailbox OAuth start (gmail|outlook)`);
+    console.log(`  GET  /oauth/mailbox/callback               — Mailbox OAuth callback`);
+    console.log(`  POST /oauth/mailbox/sync                   — Manual mailbox sync`);
     console.log(`  POST /webhook/eod/send/<company>           — Send EOD for one company`);
     console.log(`  POST /webhook/eod/archive/<company>        — Archive EOD for one company`);
     console.log(`  GET  /status                               — Status + schedules`);

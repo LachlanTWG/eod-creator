@@ -40,6 +40,16 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   const slug = verifyEodEntryToken(input.token || "");
   if (!slug) return { ok: false, error: "This entry link is no longer valid" };
 
+  // Popup is human-only. Quote/email automation uses other ingest paths;
+  // dashboard Activities drawer still accepts full ALLOWED_EVENT_TYPES.
+  const POPUP_EVENT_TYPES: EventType[] = [
+    "eod_update",
+    "job_won",
+    "site_visit_booked",
+  ];
+  if (!POPUP_EVENT_TYPES.includes(input.event_type)) {
+    return { ok: false, error: "Invalid event type for this form" };
+  }
   if (!ALLOWED_EVENT_TYPES.includes(input.event_type)) {
     return { ok: false, error: "Invalid event type" };
   }

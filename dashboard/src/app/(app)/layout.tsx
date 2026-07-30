@@ -22,11 +22,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                               navItems.push({ href: "/reports",    label: "Reports",                                   icon: "reports" });
                               navItems.push({ href: "/activities", label: "Activities",                                icon: "activities" });
   if (showExecsNav)           navItems.push({ href: "/visits",     label: seesAll ? "Site visits" : "My visits",       icon: "visits" });
-  if (showAdminNav)           navItems.push({ href: "/duplicates", label: "Duplicates",                                icon: "duplicates" });
+  // Duplicates: admins + roster execs (cleanup tool; delete still RLS-scoped to own rows for execs)
+  if (showAdminNav || !!viewer.salesPersonName)
+                              navItems.push({ href: "/duplicates", label: "Duplicates",                                icon: "duplicates" });
   if (showAdminNav)           navItems.push({ href: "/missing",     label: "Missing info",                              icon: "missing" });
                               navItems.push({ href: "/wins",       label: "Wins pipeline",                             icon: "wins" });
                               navItems.push({ href: "/backlog",    label: seesAll ? "Backlog" : "My backlog",          icon: "backlog" });
   if (showAdminNav)           navItems.push({ href: "/health",     label: "Health",                                    icon: "health" });
+  if (viewer.salesPersonName) navItems.push({ href: "/settings/email", label: "Email tracking",                         icon: "gmail" });
 
   return (
     <div className="min-h-screen flex bg-zinc-950 text-zinc-100">
