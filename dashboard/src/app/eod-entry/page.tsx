@@ -72,7 +72,7 @@ export default async function EodEntryPage({
   // team, with the client resolved per page view from the GHL location id in
   // the URL the exec is currently on.
   const supabase = createAdminClient();
-  let query = supabase.from("companies").select("id, name, timezone, active");
+  let query = supabase.from("companies").select("id, name, slug, timezone, active");
   if (slug === "agency") {
     if (!location) return <Notice>Open this from the EOD Logger extension inside GHL.</Notice>;
     query = query.eq("ghl_location_id", location);
@@ -110,7 +110,7 @@ export default async function EodEntryPage({
       fetchEodOptions(company.id),
       fetchContactHistory(company.id, cId, scraped),
       fetchGhlContact(location || "", cId),
-      fetchPendingSiteVisits(company.id),
+      fetchPendingSiteVisits(company.id, company.name, company.slug),
     ]);
     // Name precedence: GHL API (authoritative, needs a location token) →
     // DB name for a known contact → the extension's DOM scrape (fragile,

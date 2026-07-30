@@ -377,8 +377,13 @@ async function upsertPendingSiteVisit(params) {
     const appointmentRaw = params.appointmentRaw || null;
     const contactName = params.contactName || null;
     const contactAddress = oneLine(params.contactAddress);
+    const contactPhone = params.contactPhone || null;
+    const contactEmail = params.contactEmail || null;
     const salesPersonName = params.salesPersonName || null;
     const appointmentAt = params.appointmentAt || null;
+    const appointmentDisplay = params.appointmentDisplay || appointmentRaw || null;
+    const bookedOn = params.bookedOn || null; // YYYY-MM-DD
+    const roughJobValue = params.roughJobValue != null ? String(params.roughJobValue) : null;
     const source = params.source || 'ghl';
     const rawPayload = params.rawPayload ? JSON.stringify(params.rawPayload) : null;
 
@@ -398,11 +403,20 @@ async function upsertPendingSiteVisit(params) {
         `update pending_site_visits set
            contact_name = coalesce(nullif($2, ''), contact_name),
            contact_address = coalesce(nullif($3, ''), contact_address),
-           sales_person_name = coalesce(nullif($4, ''), sales_person_name),
-           appointment_at = coalesce($5::timestamptz, appointment_at),
-           raw_payload = coalesce($6::jsonb, raw_payload)
+           contact_phone = coalesce(nullif($4, ''), contact_phone),
+           contact_email = coalesce(nullif($5, ''), contact_email),
+           sales_person_name = coalesce(nullif($6, ''), sales_person_name),
+           appointment_at = coalesce($7::timestamptz, appointment_at),
+           appointment_display = coalesce(nullif($8, ''), appointment_display),
+           booked_on = coalesce($9::date, booked_on),
+           rough_job_value = coalesce(nullif($10, ''), rough_job_value),
+           raw_payload = coalesce($11::jsonb, raw_payload)
          where id = $1`,
-        [id, contactName, contactAddress, salesPersonName, appointmentAt, rawPayload]
+        [
+          id, contactName, contactAddress, contactPhone, contactEmail,
+          salesPersonName, appointmentAt, appointmentDisplay, bookedOn,
+          roughJobValue, rawPayload,
+        ]
       );
       return { id, deduped: true };
     }
@@ -410,13 +424,17 @@ async function upsertPendingSiteVisit(params) {
     const { rows } = await client.query(
       `insert into pending_site_visits (
          company_id, contact_id, contact_name, contact_address,
-         sales_person_name, appointment_raw, appointment_at,
+         contact_phone, contact_email,
+         sales_person_name, appointment_raw, appointment_at, appointment_display,
+         booked_on, rough_job_value,
          source, raw_payload
-       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        returning id`,
       [
         companyId, contactId, contactName, contactAddress,
-        salesPersonName, appointmentRaw, appointmentAt,
+        contactPhone, contactEmail,
+        salesPersonName, appointmentRaw, appointmentAt, appointmentDisplay,
+        bookedOn, roughJobValue,
         source, rawPayload,
       ]
     );
@@ -433,12 +451,25 @@ async function resolvePendingSiteVisit(params) {
     const { rows } = await client.query(
       `update pending_site_visits
           set resolved_at = now(),
-              resolved_activity_id = $2
+              resolved_activity_id = $2,
+              rough_job_value = coalesce($3, rough_job_value),
+              ideal_start_date = coalesce($4, ideal_start_date),
+              details_comment = coalesce($5, details_comment),
+              vertical = coalesce($6, vertical),
+              summary_sent_at = case when $7::boolean then now() else summary_sent_at end
         where id = $1
           and resolved_at is null
           and dismissed_at is null
       returning id`,
-      [params.id, params.activityId || null]
+      [
+        params.id,
+        params.activityId || null,
+        params.roughJobValue || null,
+        params.idealStartDate || null,
+        params.detailsComment || null,
+        params.vertical || null,
+        params.summarySent === true,
+      ]
     );
     return { id: rows[0]?.id || null };
   } finally {

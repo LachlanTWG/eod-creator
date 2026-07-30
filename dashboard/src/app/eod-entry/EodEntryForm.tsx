@@ -15,7 +15,11 @@
 import { useEffect, useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
 import type { ContactHistory, EodOptions, PendingSiteVisit } from "./data";
-import { submitEodEntry, type EodEntryInput } from "./actions";
+import {
+  completePendingSiteVisit,
+  submitEodEntry,
+  type EodEntryInput,
+} from "./actions";
 
 const EVENT_TYPES = [
   { value: "eod_update",        label: "EOD update" },
@@ -93,7 +97,10 @@ export function EodEntryForm({
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [pipelineOk, setPipelineOk] = useState<boolean>(false);
   const [openPendings, setOpenPendings] = useState<PendingSiteVisit[]>(pendingSiteVisits);
-  const [activePendingId, setActivePendingId] = useState<string | null>(null);
+  const [activePending, setActivePending] = useState<PendingSiteVisit | null>(null);
+  const [svRough, setSvRough] = useState("");
+  const [svIdealStart, setSvIdealStart] = useState("");
+  const [svComment, setSvComment] = useState("");
 
   const [salesPerson, setSalesPerson] = useState(people[0] ?? "");
 
@@ -140,22 +147,73 @@ export function EodEntryForm({
   function removeItem(i: number) { setItems(list => list.filter((_, idx) => idx !== i)); }
 
   function applyPending(p: PendingSiteVisit) {
-    setActivePendingId(p.id);
-    setEventType("site_visit_booked");
+    setActivePending(p);
     if (p.salesPersonName && people.includes(p.salesPersonName)) {
       chooseSalesPerson(p.salesPersonName);
+    } else if (p.salesPersonName) {
+      setSalesPerson(p.salesPersonName);
     }
-    setItems([{
-      ...emptyItem(
-        p.contactName || contactName,
-        p.contactAddress || contactAddress,
-        defaultLeadSource,
-        p.contactId || contactId,
-      ),
-      appointment_at: p.appointmentLocal || "",
-    }]);
+    setSvRough(p.roughJobValue || "");
+    setSvIdealStart("");
+    setSvComment("");
     setError(null);
     setSavedCount(null);
+    setPipelineNote(null);
+  }
+
+  function cancelPendingLog() {
+    setActivePending(null);
+    setSvRough("");
+    setSvIdealStart("");
+    setSvComment("");
+  }
+
+  function submitPendingSiteVisit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!activePending) return;
+    setError(null);
+    setSavedCount(null);
+    setPipelineNote(null);
+    setPipelineOk(false);
+
+    if (activePending.vertical === "roofing") {
+      if (!svRough.trim()) {
+        setError("Rough job value is required for roofing site visits");
+        return;
+      }
+    }
+
+    startTransition(async () => {
+      const res = await completePendingSiteVisit({
+        token,
+        ghl_location_id: ghlLocationId,
+        pending_id: activePending.id,
+        sales_person: salesPerson,
+        occurred_on: activePending.bookedOn || defaultDate,
+        contact_name: activePending.contactName,
+        contact_id: activePending.contactId,
+        contact_phone: activePending.contactPhone,
+        contact_email: activePending.contactEmail,
+        contact_address: activePending.contactAddress,
+        appointment_display: activePending.appointmentDisplay || activePending.appointmentRaw,
+        appointment_at: activePending.appointmentLocal,
+        booked_on: activePending.bookedOn || defaultDate,
+        vertical: activePending.vertical,
+        rough_job_value: svRough,
+        ideal_start_date: svIdealStart,
+        details_comment: svComment,
+        previous_quotes: activePending.previousQuotes,
+      });
+      if (!res.ok) { setError(res.error); return; }
+      setSavedCount(res.count);
+      setPipelineNote(res.pipeline ?? null);
+      setPipelineOk(res.pipelineOk ?? false);
+      setOpenPendings(list => list.filter(x => x.id !== activePending.id));
+      setActivePending(null);
+      setSvRough("");
+      setSvIdealStart("");
+      setSvComment("");
+    });
   }
 
   function submit(payloadItems: NewActivityItem[], evType: EventType) {
@@ -169,10 +227,6 @@ export function EodEntryForm({
       eod_fields:
         evType === "eod_update"
           ? { stage, answered, std_outcome: stdOutcome }
-          : undefined,
-      pending_site_visit_id:
-        evType === "site_visit_booked" && activePendingId
-          ? activePendingId
           : undefined,
     };
     startTransition(async () => {
@@ -189,10 +243,6 @@ export function EodEntryForm({
         setCustomOutcome("");
       } else {
         setItems([emptyItem(contactName, contactAddress, defaultLeadSource, contactId)]);
-        if (evType === "site_visit_booked" && activePendingId) {
-          setOpenPendings(list => list.filter(p => p.id !== activePendingId));
-          setActivePendingId(null);
-        }
       }
     });
   }
@@ -265,13 +315,125 @@ export function EodEntryForm({
 
         {(contactName || contactId) && <HistoryCard history={history} />}
 
-        {openPendings.length > 0 && (
+        {openPendings.length > 0 && !activePending && (
           <PendingVisitsBanner
             pendings={openPendings}
             contactId={contactId}
-            activeId={activePendingId}
+            activeId={null}
             onLog={applyPending}
           />
+        )}
+
+        {activePending && (
+          <form className="mb-4 space-y-3.5 rounded-lg border border-amber-800/60 bg-amber-950/20 p-3" onSubmit={submitPendingSiteVisit}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-amber-300/90">
+                Log site visit · {activePending.vertical === "roofing" ? "Roofing" : "Solar"}
+              </div>
+              <button type="button" onClick={cancelPendingLog} className="text-[11px] text-zinc-500 hover:text-zinc-300">
+                Cancel
+              </button>
+            </div>
+
+            <div className="space-y-1.5 rounded border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-[12px] text-zinc-300">
+              <AutoRow label="Lead" value={activePending.contactName || "—"} />
+              <AutoRow label="Phone" value={activePending.contactPhone || "—"} />
+              <AutoRow label="Email" value={activePending.contactEmail || "—"} />
+              <AutoRow label="Location" value={activePending.contactAddress || "—"} />
+              <AutoRow
+                label="Visit time"
+                value={activePending.appointmentDisplay || activePending.appointmentRaw || "—"}
+              />
+              <AutoRow label="Booked on" value={activePending.bookedOn || "—"} />
+            </div>
+
+            <Field label="Sales person">
+              <select value={salesPerson} onChange={e => chooseSalesPerson(e.target.value)} className={inputClass}>
+                {people.map(p => <option key={p} value={p}>{p}</option>)}
+                {salesPerson && !people.includes(salesPerson) && (
+                  <option value={salesPerson}>{salesPerson}</option>
+                )}
+                <option value="">— team —</option>
+              </select>
+            </Field>
+
+            {activePending.vertical === "roofing" ? (
+              <>
+                <Field label="Rough job value (incl. GST)" hint="Dollars, no symbols.">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    required
+                    value={svRough}
+                    onChange={e => setSvRough(e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. 12000"
+                  />
+                </Field>
+                <Field label="Ideal start date">
+                  <input
+                    type="date"
+                    value={svIdealStart}
+                    onChange={e => setSvIdealStart(e.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="Details / comment" hint="Single line.">
+                  <input
+                    type="text"
+                    value={svComment}
+                    onChange={e => setSvComment(e.target.value)}
+                    className={inputClass}
+                    placeholder="Anything the crew should know"
+                  />
+                </Field>
+              </>
+            ) : (
+              <>
+                <div className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                    Previous quotes
+                  </div>
+                  {activePending.previousQuotes.length === 0 ? (
+                    <p className="mt-1 text-[12px] text-zinc-500">None on record for this contact.</p>
+                  ) : (
+                    <ul className="mt-1.5 space-y-1">
+                      {activePending.previousQuotes.map((q, i) => (
+                        <li key={i} className="text-[12px] text-zinc-300">
+                          ${String(q.value).replace(/[$,]/g, "")}
+                          {q.date ? ` · ${q.date}` : ""}
+                          {q.person ? ` · ${q.person}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <Field label="Comment" hint="Optional — solar-specific notes for the Slack summary.">
+                  <input
+                    type="text"
+                    value={svComment}
+                    onChange={e => setSvComment(e.target.value)}
+                    className={inputClass}
+                    placeholder="Anything worth noting"
+                  />
+                </Field>
+              </>
+            )}
+
+            {error && (
+              <div className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={pending}
+              className="w-full rounded bg-emerald-600/90 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+            >
+              {pending ? "Sending…" : "Log site visit → Slack"}
+            </button>
+          </form>
         )}
 
         {/* ── New Submission ─────────────────────────────────────── */}
@@ -527,6 +689,15 @@ export function EodEntryForm({
   );
 }
 
+function AutoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-20 shrink-0 text-[10px] font-medium uppercase tracking-wider text-zinc-500">{label}</span>
+      <span className="min-w-0 break-words text-zinc-200">{value}</span>
+    </div>
+  );
+}
+
 function PendingVisitsBanner({
   pendings,
   contactId,
@@ -554,7 +725,7 @@ function PendingVisitsBanner({
           : `${pendings.length} site visits waiting for details`}
       </div>
       <p className="mt-1 text-[11px] leading-relaxed text-amber-200/70">
-        Booked in GHL calendar — fill address / notes here and Log once. Stays until you do.
+        Booked in GHL — confirm auto fields, add {pendings[0]?.vertical === "roofing" ? "rough value / start / notes" : "comment"}, then Log to Slack.
       </p>
       <ul className="mt-2 space-y-2">
         {ordered.map(p => {
@@ -578,22 +749,16 @@ function PendingVisitsBanner({
                     )}
                   </div>
                   <div className="mt-0.5 text-[11px] text-zinc-400">
-                    {p.appointmentLocal
-                      ? p.appointmentLocal.replace("T", " ")
-                      : p.appointmentRaw || "Time TBC"}
+                    {p.appointmentDisplay || p.appointmentRaw || "Time TBC"}
                     {p.salesPersonName ? ` · ${p.salesPersonName}` : ""}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => onLog(p)}
-                  className={
-                    isActive
-                      ? "shrink-0 rounded border border-emerald-600 bg-emerald-600/20 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
-                      : "shrink-0 rounded border border-amber-700/60 bg-amber-900/40 px-2.5 py-1 text-[11px] font-medium text-amber-200 hover:border-amber-500"
-                  }
+                  className="shrink-0 rounded border border-amber-700/60 bg-amber-900/40 px-2.5 py-1 text-[11px] font-medium text-amber-200 hover:border-amber-500"
                 >
-                  {isActive ? "Logging…" : "Log details"}
+                  Log details
                 </button>
               </div>
             </li>

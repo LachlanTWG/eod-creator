@@ -47,18 +47,43 @@ export type ContactHistory = {
   recent: HistoryEntry[];
 };
 
+/** Roofing clients get roofing fields; everyone else gets solar fields. */
+export type SiteVisitVertical = "roofing" | "solar";
+
+export type PreviousQuote = {
+  date: string;
+  value: string;
+  person: string;
+};
+
 /** Open calendar bookings waiting for the exec to log details in the popup. */
 export type PendingSiteVisit = {
   id: string;
   contactId: string;
   contactName: string;
+  contactPhone: string;
+  contactEmail: string;
   contactAddress: string;
   salesPersonName: string;
+  /** Human visit time from GHL (e.g. "Friday, July 31, 2026 10:00 AM"). */
+  appointmentDisplay: string;
   appointmentRaw: string;
   /** For datetime-local: YYYY-MM-DDTHH:MM when parseable. */
   appointmentLocal: string;
+  /** Date the booking was made (YYYY-MM-DD). */
+  bookedOn: string;
+  /** Prefill for roofing rough value from GHL when present. */
+  roughJobValue: string;
+  vertical: SiteVisitVertical;
+  previousQuotes: PreviousQuote[];
   createdAt: string;
 };
+
+export function companyVertical(companyName: string, slug?: string): SiteVisitVertical {
+  const s = `${companyName} ${slug || ""}`.toLowerCase();
+  if (s.includes("roof")) return "roofing";
+  return "solar";
+}
 
 /** Convert GHL appointment strings / timestamptz into datetime-local value. */
 export function toDatetimeLocalValue(
@@ -87,14 +112,35 @@ export function toDatetimeLocalValue(
   return "";
 }
 
+function pickFromRaw(raw: Record<string, unknown> | null, ...keys: string[]): string {
+  if (!raw) return "";
+  for (const k of keys) {
+    const v = raw[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  const cal = raw.calendar as Record<string, unknown> | undefined;
+  if (cal) {
+    for (const k of keys) {
+      const v = cal[k];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+  }
+  return "";
+}
+
 export async function fetchPendingSiteVisits(
   companyId: string,
+  companyName: string,
+  companySlug?: string,
 ): Promise<PendingSiteVisit[]> {
   const supabase = createAdminClient();
+  const vertical = companyVertical(companyName, companySlug);
   const { data, error } = await supabase
     .from("pending_site_visits")
     .select(
-      "id, contact_id, contact_name, contact_address, sales_person_name, appointment_raw, appointment_at, created_at",
+      "id, contact_id, contact_name, contact_address, contact_phone, contact_email, " +
+      "sales_person_name, appointment_raw, appointment_at, appointment_display, " +
+      "booked_on, rough_job_value, raw_payload, created_at",
     )
     .eq("company_id", companyId)
     .is("resolved_at", null)
@@ -105,19 +151,106 @@ export async function fetchPendingSiteVisits(
     console.error("[eod-entry] fetchPendingSiteVisits:", error.message);
     return [];
   }
-  return (data ?? []).map(r => ({
-    id: r.id as string,
-    contactId: (r.contact_id as string) || "",
-    contactName: (r.contact_name as string) || "",
-    contactAddress: (r.contact_address as string) || "",
-    salesPersonName: (r.sales_person_name as string) || "",
-    appointmentRaw: (r.appointment_raw as string) || "",
-    appointmentLocal: toDatetimeLocalValue(
+
+  const rows = data ?? [];
+  const out: PendingSiteVisit[] = [];
+  for (const r of rows) {
+    const raw = (r.raw_payload || null) as Record<string, unknown> | null;
+    const contactId = (r.contact_id as string) || pickFromRaw(raw, "contact_id") || "";
+    const contactName =
+      (r.contact_name as string) ||
+      pickFromRaw(raw, "full_name", "contact_name") ||
+      "";
+    const contactPhone =
+      (r.contact_phone as string) || pickFromRaw(raw, "phone") || "";
+    const contactEmail =
+      (r.contact_email as string) || pickFromRaw(raw, "email") || "";
+    const contactAddress =
+      (r.contact_address as string) ||
+      pickFromRaw(raw, "address1", "full_address") ||
+      "";
+    const appointmentDisplay =
+      (r.appointment_display as string) ||
+      (r.appointment_raw as string) ||
+      pickFromRaw(raw, "Appointment Date Time", "startTime") ||
+      "";
+    const appointmentLocal = toDatetimeLocalValue(
       r.appointment_at as string | null,
-      r.appointment_raw as string | null,
-    ),
-    createdAt: (r.created_at as string) || "",
-  }));
+      appointmentDisplay || (r.appointment_raw as string | null),
+    );
+    let bookedOn = "";
+    if (r.booked_on) bookedOn = String(r.booked_on).slice(0, 10);
+    else {
+      const br = pickFromRaw(raw, "Date Appointment Booked - Automated", "date_created");
+      const m = br.match(/^(\d{4}-\d{2}-\d{2})/);
+      bookedOn = m ? m[1] : (r.created_at ? String(r.created_at).slice(0, 10) : "");
+    }
+    const roughJobValue =
+      (r.rough_job_value as string) ||
+      pickFromRaw(raw, "Rough Lead Value incl GST") ||
+      "";
+
+    let previousQuotes: PreviousQuote[] = [];
+    if (vertical === "solar" && (contactId || contactName)) {
+      previousQuotes = await fetchPreviousQuotes(companyId, contactId, contactName);
+    }
+
+    out.push({
+      id: r.id as string,
+      contactId,
+      contactName,
+      contactPhone,
+      contactEmail,
+      contactAddress,
+      salesPersonName: (r.sales_person_name as string) || "",
+      appointmentDisplay,
+      appointmentRaw: (r.appointment_raw as string) || appointmentDisplay,
+      appointmentLocal,
+      bookedOn,
+      roughJobValue: roughJobValue ? String(roughJobValue) : "",
+      vertical,
+      previousQuotes,
+      createdAt: (r.created_at as string) || "",
+    });
+  }
+  return out;
+}
+
+async function fetchPreviousQuotes(
+  companyId: string,
+  contactId: string,
+  contactName: string,
+): Promise<PreviousQuote[]> {
+  const supabase = createAdminClient();
+  let q = supabase
+    .from("activities")
+    .select("occurred_on, quote_job_value, sales_person_name, contact_id, contact_name")
+    .eq("company_id", companyId)
+    .eq("event_type", "quote_sent")
+    .order("occurred_on", { ascending: false })
+    .limit(20);
+  if (contactId) {
+    q = q.or(
+      `contact_id.eq.${contactId},contact_name.ilike."${contactName.replace(/["\\]/g, "").trim()}"`,
+    );
+  } else if (contactName) {
+    q = q.ilike("contact_name", contactName.trim());
+  } else {
+    return [];
+  }
+  const { data, error } = await q;
+  if (error) {
+    console.error("[eod-entry] fetchPreviousQuotes:", error.message);
+    return [];
+  }
+  return (data ?? [])
+    .filter(r => r.quote_job_value)
+    .slice(0, 8)
+    .map(r => ({
+      date: String(r.occurred_on || "").slice(0, 10),
+      value: String(r.quote_job_value || ""),
+      person: String(r.sales_person_name || ""),
+    }));
 }
 
 /** GHL contact fields we pull for the EOD entry form. */

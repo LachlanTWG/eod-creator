@@ -38,6 +38,162 @@ export type EodEntryResult =
   | { ok: true; count: number; pipeline?: string; pipelineOk?: boolean } // pipeline: what happened ("moved to X") or a skip/fail reason
   | { ok: false; error: string };
 
+export type CompleteSiteVisitInput = {
+  token: string;
+  ghl_location_id?: string;
+  pending_id: string;
+  sales_person: string;
+  occurred_on: string; // booking-set date YYYY-MM-DD
+  contact_name: string;
+  contact_id?: string;
+  contact_phone?: string;
+  contact_email?: string;
+  contact_address?: string;
+  appointment_display?: string;
+  appointment_at?: string; // datetime-local if any
+  booked_on?: string;
+  vertical: "roofing" | "solar";
+  rough_job_value?: string;
+  ideal_start_date?: string;
+  details_comment?: string;
+  previous_quotes?: { date: string; value: string; person: string }[];
+};
+
+/** Log a pending calendar booking: dual-write activity + Slack summary. */
+export async function completePendingSiteVisit(
+  input: CompleteSiteVisitInput,
+): Promise<EodEntryResult> {
+  const slug = verifyEodEntryToken(input.token || "");
+  if (!slug) return { ok: false, error: "This entry link is no longer valid" };
+  if (!input.pending_id?.trim()) return { ok: false, error: "Missing pending visit" };
+  if (!isIsoDate(input.occurred_on)) return { ok: false, error: "Date must be YYYY-MM-DD" };
+
+  const supabase = createAdminClient();
+  let query = supabase.from("companies").select("id, name, slug, active");
+  if (slug === "agency") {
+    if (!input.ghl_location_id) return { ok: false, error: "Missing GHL location" };
+    query = query.eq("ghl_location_id", input.ghl_location_id);
+  } else {
+    query = query.eq("slug", slug);
+  }
+  const { data: company } = await query.single();
+  if (!company || !company.active) return { ok: false, error: "Client not found" };
+
+  let salesPersonName = "Team";
+  if (input.sales_person) {
+    const { data: person } = await supabase
+      .from("sales_people")
+      .select("name")
+      .eq("company_id", company.id)
+      .eq("name", input.sales_person)
+      .eq("active", true)
+      .maybeSingle();
+    if (!person) return { ok: false, error: "That sales person isn't on this client's roster" };
+    salesPersonName = person.name;
+  }
+
+  // Compact outcome for the activity log / EOD reports (Slack gets the full summary).
+  const outcomeBits =
+    input.vertical === "roofing"
+      ? [
+          input.rough_job_value ? `Rough $${String(input.rough_job_value).replace(/[$,\s]/g, "")}` : "",
+          input.ideal_start_date ? `Start ${input.ideal_start_date}` : "",
+          input.details_comment?.trim() || "",
+        ]
+      : [input.details_comment?.trim() || ""];
+  const outcome = outcomeBits.filter(Boolean).join(" · ");
+
+  const items: NewActivityItem[] = [
+    {
+      contact_name: input.contact_name,
+      contact_id: input.contact_id,
+      contact_address: input.contact_address,
+      appointment_at: input.appointment_at || "",
+      outcome,
+      ad_source: "",
+    },
+  ];
+  if (!isMeaningful(items[0])) {
+    return { ok: false, error: "Contact name is required" };
+  }
+
+  const activities = buildSheetActivities(
+    input.occurred_on,
+    "site_visit_booked",
+    salesPersonName,
+    items,
+  );
+  // Prefer human appointment display in the sheet when we have it.
+  if (input.appointment_display) {
+    activities[0].appointmentDateTime = input.appointment_display;
+  }
+  const posted = await postManualActivities(company.name, activities);
+  if (!posted.ok) return posted;
+
+  // Slack booking summary on the client's EOD channel.
+  let slackOk = false;
+  const base = process.env.NODE_SERVICE_URL;
+  const secret = process.env.WEBHOOK_SECRET;
+  if (base) {
+    try {
+      const res = await fetch(new URL("/api/site-visit-summary", base).toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
+        },
+        body: JSON.stringify({
+          companyName: company.name,
+          salesPerson: salesPersonName,
+          contactName: input.contact_name,
+          contactPhone: input.contact_phone || "",
+          contactEmail: input.contact_email || "",
+          contactAddress: input.contact_address || "",
+          appointmentDisplay: input.appointment_display || input.appointment_at || "",
+          appointmentAt: input.appointment_at || "",
+          bookedOn: input.booked_on || input.occurred_on,
+          vertical: input.vertical,
+          roughJobValue: input.rough_job_value || "",
+          idealStartDate: input.ideal_start_date || "",
+          detailsComment: input.details_comment || "",
+          previousQuotes: input.previous_quotes || [],
+        }),
+        cache: "no-store",
+      });
+      slackOk = res.ok;
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        console.error("[completePendingSiteVisit] slack", res.status, t.slice(0, 200));
+      }
+    } catch (e) {
+      console.error("[completePendingSiteVisit] slack", (e as Error).message);
+    }
+  }
+
+  const { error: resolveErr } = await supabase
+    .from("pending_site_visits")
+    .update({
+      resolved_at: new Date().toISOString(),
+      rough_job_value: input.rough_job_value || null,
+      ideal_start_date: input.ideal_start_date || null,
+      details_comment: input.details_comment || null,
+      vertical: input.vertical,
+      summary_sent_at: slackOk ? new Date().toISOString() : null,
+    })
+    .eq("id", input.pending_id.trim())
+    .eq("company_id", company.id)
+    .is("resolved_at", null);
+  if (resolveErr) {
+    console.error("[completePendingSiteVisit] resolve:", resolveErr.message);
+  }
+
+  return {
+    ...posted,
+    pipeline: slackOk ? "Slack summary sent" : "Logged (Slack summary not sent)",
+    pipelineOk: slackOk,
+  };
+}
+
 export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResult> {
   const slug = verifyEodEntryToken(input.token || "");
   if (!slug) return { ok: false, error: "This entry link is no longer valid" };

@@ -66,6 +66,67 @@ function findCompanyByName(companies, name) {
   return companies.find(c => normaliseCompanyName(c.name) === target);
 }
 
+function oneLineAddress(s) {
+  return String(s || '').replace(/\s*\n+\s*/g, ', ').replace(/\s+/g, ' ').trim();
+}
+
+/** Best-effort YYYY-MM-DD from ISO / GHL date strings (incl. d/m/y). */
+function toIsoDateOnly(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) {
+    // GHL NZ/AU custom fields are day/month/year
+    const day = m[1].padStart(2, "0");
+    const month = m[2].padStart(2, "0");
+    return `${m[3]}-${month}-${day}`;
+  }
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function formatMoney(v) {
+  if (v == null || v === '') return '—';
+  const n = Number(String(v).replace(/[$,\s]/g, ''));
+  if (Number.isFinite(n)) return `$${Math.round(n).toLocaleString('en-AU')}`;
+  return String(v);
+}
+
+/** Slack message for a popup-completed site visit booking summary. */
+function formatSiteVisitSummary(b) {
+  const lines = [
+    `*Site Visit Booked* — ${b.companyName || 'Client'}`,
+    `*Exec:* ${b.salesPerson || '—'}`,
+    `*Lead:* ${b.contactName || '—'}`,
+    `*Phone:* ${b.contactPhone || '—'}`,
+    `*Email:* ${b.contactEmail || '—'}`,
+    `*Location:* ${b.contactAddress || '—'}`,
+    `*Visit time:* ${b.appointmentDisplay || b.appointmentAt || '—'}`,
+    `*Booked on:* ${b.bookedOn || '—'}`,
+  ];
+  if (b.vertical === 'roofing') {
+    lines.push(`*Rough job value:* ${formatMoney(b.roughJobValue)}`);
+    lines.push(`*Ideal start date:* ${b.idealStartDate || '—'}`);
+    if (b.detailsComment) lines.push(`*Details:* ${b.detailsComment}`);
+  } else {
+    if (Array.isArray(b.previousQuotes) && b.previousQuotes.length > 0) {
+      lines.push('*Previous quotes:*');
+      for (const q of b.previousQuotes) {
+        const when = q.date || '—';
+        const who = q.person ? ` (${q.person})` : '';
+        lines.push(`• ${formatMoney(q.value)} — ${when}${who}`);
+      }
+    } else {
+      lines.push('*Previous quotes:* none on record');
+    }
+    if (b.detailsComment) lines.push(`*Comment:* ${b.detailsComment}`);
+  }
+  return lines.join('\n');
+}
+
 // ─── Per-Company Timezone Scheduling ─────────────────────────────────
 //
 // Each company has its own timezone. We schedule cron jobs per-company
@@ -866,20 +927,22 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Site Visit Booked — from GHL calendar.
-  // Does NOT write a full site_visit_booked activity anymore: creates a
-  // pending_site_visits row the EOD popup surfaces until the exec logs
-  // address/comment/etc once. That single Log is what feeds reports + Slack.
+  // Creates a pending_site_visits row the EOD popup surfaces until the exec
+  // fills vertical-specific fields and Logs once → activity + Slack summary.
   if (pathname === '/webhook/ghl/site-visit') {
     const company = resolveGHLCompany(body, res);
     if (!company) return;
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
-    const appointmentDT =
+    const cal = body.calendar || {};
+    const appointmentDisplay =
       deepFindField(body, 'Appointment Date Time') ||
       deepFindField(body, 'Appointment Date Time - Automated') ||
-      deepFindField(body, 'startTime') ||
-      deepFindField(body, 'appointment_start_time') ||
-      body.startTime ||
+      cal.startTime ||
+      '';
+    const appointmentStart =
+      cal.startTime ||
+      deepFindField(body, 'Appointment Start Time - Automated') ||
       '';
     const contactName =
       deepFindField(body, 'full_name') ||
@@ -894,10 +957,24 @@ const server = http.createServer(async (req, res) => {
       body.contactId ||
       body.id ||
       '';
-    const contactAddress =
+    const contactAddress = oneLineAddress(
       deepFindField(body, 'address1') ||
       body.address1 ||
+      body.full_address ||
+      cal.address ||
       body.address ||
+      ''
+    );
+    const contactPhone = String(body.phone || deepFindField(body, 'phone') || '').trim();
+    const contactEmail = String(body.email || deepFindField(body, 'email') || '').trim();
+    const bookedRaw =
+      deepFindField(body, 'Date Appointment Booked - Automated') ||
+      cal.date_created ||
+      '';
+    const bookedOn = toIsoDateOnly(bookedRaw) || companyToday(company);
+    const roughVal =
+      deepFindField(body, 'Rough Lead Value incl GST') ||
+      body['Rough Lead Value incl GST'] ||
       '';
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -913,10 +990,15 @@ const server = http.createServer(async (req, res) => {
       companyName: company.name,
       contactId: String(contactId || '').trim() || null,
       contactName: String(contactName || '').trim() || null,
-      contactAddress: String(contactAddress || '').trim() || null,
+      contactAddress: contactAddress || null,
+      contactPhone: contactPhone || null,
+      contactEmail: contactEmail || null,
       salesPersonName: salesPersonName || null,
-      appointmentRaw: String(appointmentDT || '').trim() || null,
-      appointmentAt: null, // wall-clock parsing happens in the popup/read layer
+      appointmentRaw: String(appointmentDisplay || appointmentStart || '').trim() || null,
+      appointmentDisplay: String(appointmentDisplay || appointmentStart || '').trim() || null,
+      appointmentAt: appointmentStart ? String(appointmentStart) : null,
+      bookedOn,
+      roughJobValue: roughVal !== '' && roughVal != null ? String(roughVal) : null,
       source: 'ghl',
       rawPayload: body,
     }).then((r) => {
@@ -925,6 +1007,33 @@ const server = http.createServer(async (req, res) => {
         `(id=${r.id || '?'}${r.deduped ? ' deduped' : ''})`
       );
     }).catch(e => console.error(`[GHL SITE VISIT → pending] Error ${company.name}:`, e.message));
+    return;
+  }
+
+  // Popup completed a pending site visit → Slack booking summary on the
+  // client's EOD channel (same slack config as daily reports).
+  if (pathname === '/api/site-visit-summary' && req.method === 'POST') {
+    try {
+      const { companies } = loadCompanies();
+      const company = findCompanyByName(companies, body.companyName);
+      if (!company) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Company "${body.companyName}" not found` }));
+        return;
+      }
+      const message = formatSiteVisitSummary(body);
+      const { sendReportToSlack } = require('./integrations/slack');
+      await sendReportToSlack(company, 'site-visit-summary', message, {
+        username: 'Site Visit Booked',
+        icon_emoji: ':round_pushpin:',
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'sent' }));
+    } catch (e) {
+      console.error('[site-visit-summary]', e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
