@@ -148,6 +148,14 @@ function syncPanel() {
   const panel = root.querySelector("#eod-logger-panel");
   const frame = root.querySelector("#eod-logger-frame");
   if (panelOpen) {
+    // Re-read context on open: GHL name inputs often mount after first paint,
+    // so a stale empty scrape would leave the form without contact_name.
+    const fresh = getContext();
+    if (fresh) {
+      root.dataset.ctx = JSON.stringify(fresh);
+      const title = root.querySelector("#eod-logger-panel-title");
+      title.textContent = fresh.contactName ? `EOD entry — ${fresh.contactName}` : "EOD entry";
+    }
     const ctx = JSON.parse(root.dataset.ctx || "null");
     const url = ctx ? formUrl(ctx) : "";
     // Only (re)load when the context changed, so an open form isn't wiped
