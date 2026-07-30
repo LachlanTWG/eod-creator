@@ -14,7 +14,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
-import type { ContactHistory, EodOptions } from "./data";
+import type { ContactHistory, EodOptions, PendingSiteVisit } from "./data";
 import { submitEodEntry, type EodEntryInput } from "./actions";
 
 const EVENT_TYPES = [
@@ -27,6 +27,7 @@ type EventType = (typeof EVENT_TYPES)[number]["value"];
 
 type Item = {
   contact_name: string;
+  contact_id: string;
   contact_address: string;
   outcome: string;
   ad_source: string;
@@ -41,8 +42,10 @@ const emptyItem = (
   contactName = "",
   contactAddress = "",
   adSource = "",
+  contactId = "",
 ): Item => ({
   contact_name: contactName,
+  contact_id: contactId,
   contact_address: contactAddress,
   outcome: "",
   ad_source: adSource,
@@ -67,6 +70,7 @@ export function EodEntryForm({
   defaultLeadSource = "",
   options = FALLBACK_OPTIONS,
   history = null,
+  pendingSiteVisits = [],
 }: {
   token: string;
   ghlLocationId?: string;
@@ -81,12 +85,15 @@ export function EodEntryForm({
   defaultLeadSource?: string;
   options?: EodOptions;
   history?: ContactHistory | null;
+  pendingSiteVisits?: PendingSiteVisit[];
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [pipelineOk, setPipelineOk] = useState<boolean>(false);
+  const [openPendings, setOpenPendings] = useState<PendingSiteVisit[]>(pendingSiteVisits);
+  const [activePendingId, setActivePendingId] = useState<string | null>(null);
 
   const [salesPerson, setSalesPerson] = useState(people[0] ?? "");
 
@@ -121,16 +128,35 @@ export function EodEntryForm({
   // Multi-row items for the non-EOD event types. Address + lead source are
   // prefilled from GHL Street Address / EOD 5 when available.
   const [items, setItems] = useState<Item[]>([
-    emptyItem(contactName, contactAddress, defaultLeadSource),
+    emptyItem(contactName, contactAddress, defaultLeadSource, contactId),
   ]);
 
   function patchItem(i: number, patch: Partial<Item>) {
     setItems(list => list.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   }
   function addItem() {
-    setItems(list => [...list, emptyItem(contactName, contactAddress, defaultLeadSource)]);
+    setItems(list => [...list, emptyItem(contactName, contactAddress, defaultLeadSource, contactId)]);
   }
   function removeItem(i: number) { setItems(list => list.filter((_, idx) => idx !== i)); }
+
+  function applyPending(p: PendingSiteVisit) {
+    setActivePendingId(p.id);
+    setEventType("site_visit_booked");
+    if (p.salesPersonName && people.includes(p.salesPersonName)) {
+      chooseSalesPerson(p.salesPersonName);
+    }
+    setItems([{
+      ...emptyItem(
+        p.contactName || contactName,
+        p.contactAddress || contactAddress,
+        defaultLeadSource,
+        p.contactId || contactId,
+      ),
+      appointment_at: p.appointmentLocal || "",
+    }]);
+    setError(null);
+    setSavedCount(null);
+  }
 
   function submit(payloadItems: NewActivityItem[], evType: EventType) {
     const input: EodEntryInput = {
@@ -143,6 +169,10 @@ export function EodEntryForm({
       eod_fields:
         evType === "eod_update"
           ? { stage, answered, std_outcome: stdOutcome }
+          : undefined,
+      pending_site_visit_id:
+        evType === "site_visit_booked" && activePendingId
+          ? activePendingId
           : undefined,
     };
     startTransition(async () => {
@@ -158,7 +188,11 @@ export function EodEntryForm({
         setStdOutcome("");
         setCustomOutcome("");
       } else {
-        setItems([emptyItem(contactName, contactAddress, defaultLeadSource)]);
+        setItems([emptyItem(contactName, contactAddress, defaultLeadSource, contactId)]);
+        if (evType === "site_visit_booked" && activePendingId) {
+          setOpenPendings(list => list.filter(p => p.id !== activePendingId));
+          setActivePendingId(null);
+        }
       }
     });
   }
@@ -204,7 +238,8 @@ export function EodEntryForm({
     const payloadItems: NewActivityItem[] = items.map(it => ({
       ...it,
       contact_id:
-        contactId && it.contact_name.trim() === contactName.trim() ? contactId : "",
+        it.contact_id?.trim() ||
+        (contactId && it.contact_name.trim() === contactName.trim() ? contactId : ""),
     }));
     submit(payloadItems, eventType);
   }
@@ -229,6 +264,15 @@ export function EodEntryForm({
         </div>
 
         {(contactName || contactId) && <HistoryCard history={history} />}
+
+        {openPendings.length > 0 && (
+          <PendingVisitsBanner
+            pendings={openPendings}
+            contactId={contactId}
+            activeId={activePendingId}
+            onLog={applyPending}
+          />
+        )}
 
         {/* ── New Submission ─────────────────────────────────────── */}
         <form className="space-y-3.5" onSubmit={handleSubmit}>
@@ -479,6 +523,83 @@ export function EodEntryForm({
             </button>
           </div>
         </form>
+    </div>
+  );
+}
+
+function PendingVisitsBanner({
+  pendings,
+  contactId,
+  activeId,
+  onLog,
+}: {
+  pendings: PendingSiteVisit[];
+  contactId: string;
+  activeId: string | null;
+  onLog: (p: PendingSiteVisit) => void;
+}) {
+  // Prefer the contact we're looking at, then newest.
+  const ordered = [...pendings].sort((a, b) => {
+    const aMatch = contactId && a.contactId === contactId ? 0 : 1;
+    const bMatch = contactId && b.contactId === contactId ? 0 : 1;
+    if (aMatch !== bMatch) return aMatch - bMatch;
+    return (b.createdAt || "").localeCompare(a.createdAt || "");
+  });
+
+  return (
+    <div className="mb-4 rounded-lg border border-amber-800/60 bg-amber-950/30 p-3">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-amber-300/90">
+        {pendings.length === 1
+          ? "1 site visit waiting for details"
+          : `${pendings.length} site visits waiting for details`}
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-amber-200/70">
+        Booked in GHL calendar — fill address / notes here and Log once. Stays until you do.
+      </p>
+      <ul className="mt-2 space-y-2">
+        {ordered.map(p => {
+          const isActive = activeId === p.id;
+          const forThisContact = contactId && p.contactId === contactId;
+          return (
+            <li
+              key={p.id}
+              className={
+                isActive
+                  ? "rounded border border-amber-600/70 bg-amber-900/30 px-2.5 py-2"
+                  : "rounded border border-zinc-800 bg-zinc-950/40 px-2.5 py-2"
+              }
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-zinc-100">
+                    {p.contactName || "Unknown contact"}
+                    {forThisContact && (
+                      <span className="ml-1.5 text-[10px] font-normal text-sky-400">this contact</span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-zinc-400">
+                    {p.appointmentLocal
+                      ? p.appointmentLocal.replace("T", " ")
+                      : p.appointmentRaw || "Time TBC"}
+                    {p.salesPersonName ? ` · ${p.salesPersonName}` : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onLog(p)}
+                  className={
+                    isActive
+                      ? "shrink-0 rounded border border-emerald-600 bg-emerald-600/20 px-2.5 py-1 text-[11px] font-medium text-emerald-300"
+                      : "shrink-0 rounded border border-amber-700/60 bg-amber-900/40 px-2.5 py-1 text-[11px] font-medium text-amber-200 hover:border-amber-500"
+                  }
+                >
+                  {isActive ? "Logging…" : "Log details"}
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

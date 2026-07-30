@@ -18,6 +18,7 @@ import {
   fetchEodOptions,
   fetchGhlContact,
   fetchMyToday,
+  fetchPendingSiteVisits,
 } from "./data";
 import { MeView, TabBar, TodayView } from "./views";
 import { EodEntryForm } from "./EodEntryForm";
@@ -99,7 +100,7 @@ export default async function EodEntryPage({
     content = <MeView exec={exec || ""} execNames={execNames} my={my} base={base} />;
   } else {
     const scraped = cleanScrapedName(cName);
-    const [{ data: people }, options, history, ghl] = await Promise.all([
+    const [{ data: people }, options, history, ghl, pendingVisits] = await Promise.all([
       supabase
         .from("sales_people")
         .select("name")
@@ -109,6 +110,7 @@ export default async function EodEntryPage({
       fetchEodOptions(company.id),
       fetchContactHistory(company.id, cId, scraped),
       fetchGhlContact(location || "", cId),
+      fetchPendingSiteVisits(company.id),
     ]);
     // Name precedence: GHL API (authoritative, needs a location token) →
     // DB name for a known contact → the extension's DOM scrape (fragile,
@@ -132,6 +134,7 @@ export default async function EodEntryPage({
         defaultLeadSource={displaySource}
         options={options}
         history={history}
+        pendingSiteVisits={pendingVisits}
       />
     );
   }

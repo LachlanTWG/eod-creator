@@ -30,6 +30,8 @@ export type EodEntryInput = {
   // EOD call-log values, discrete — used to mirror onto the GHL contact's
   // custom fields so the location's pipeline workflow fires.
   eod_fields?: { stage: string; answered: string; std_outcome: string };
+  /** When logging a site visit that came from a GHL calendar pending row. */
+  pending_site_visit_id?: string;
 };
 
 export type EodEntryResult =
@@ -89,6 +91,22 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   const activities = buildSheetActivities(input.occurred_on, input.event_type, salesPersonName, items);
   const posted = await postManualActivities(company.name, activities);
   if (!posted.ok) return posted;
+
+  // Clear the calendar "to-log" card once the exec has submitted details.
+  if (input.event_type === "site_visit_booked" && input.pending_site_visit_id) {
+    const pendingId = input.pending_site_visit_id.trim();
+    if (pendingId) {
+      const { error: resolveErr } = await supabase
+        .from("pending_site_visits")
+        .update({ resolved_at: new Date().toISOString() })
+        .eq("id", pendingId)
+        .eq("company_id", company.id)
+        .is("resolved_at", null);
+      if (resolveErr) {
+        console.error("[eod-entry] resolve pending site visit:", resolveErr.message);
+      }
+    }
+  }
 
   // Activity is logged; now move the contact's opportunity in the GHL EOD
   // pipeline directly (the EOD fields + "Contact Changed" workflows are

@@ -473,15 +473,36 @@ const server = http.createServer(async (req, res) => {
     };
   }
 
-  // Auth check
+  // Auth check — accept several shapes GHL / Make custom webhooks use:
+  //   Authorization: Bearer <secret>
+  //   Authorization: <secret>
+  //   X-Webhook-Secret / X-Api-Key: <secret>
+  //   ?token=<secret> or ?secret=<secret>
   const webhookSecret = process.env.WEBHOOK_SECRET;
   if (webhookSecret) {
-    const authHeader = req.headers['authorization'];
-    const queryToken = url.searchParams.get('token');
-    if (authHeader !== `Bearer ${webhookSecret}` && queryToken !== webhookSecret) {
+    const authHeader = (req.headers['authorization'] || '').trim();
+    const bearer = authHeader.toLowerCase().startsWith('bearer ')
+      ? authHeader.slice(7).trim()
+      : '';
+    const headerToken = bearer || authHeader;
+    const altHeader = (
+      req.headers['x-webhook-secret'] ||
+      req.headers['x-api-key'] ||
+      ''
+    ).toString().trim();
+    const queryToken = (
+      url.searchParams.get('token') ||
+      url.searchParams.get('secret') ||
+      ''
+    ).trim();
+    const candidates = [headerToken, altHeader, queryToken].filter(Boolean);
+    const ok = candidates.some(c => c === webhookSecret);
+    if (!ok) {
       const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '?';
-      const reason = !authHeader && !queryToken ? 'no credential'
-        : authHeader ? 'header mismatch' : 'query token mismatch';
+      const reason = candidates.length === 0 ? 'no credential'
+        : authHeader ? 'header mismatch'
+        : queryToken ? 'query token mismatch'
+        : 'credential mismatch';
       console.warn(`[401] ${req.method} ${pathname} from ${ip} (${reason})`);
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
@@ -844,46 +865,66 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Site Visit Booked — from GHL
+  // Site Visit Booked — from GHL calendar.
+  // Does NOT write a full site_visit_booked activity anymore: creates a
+  // pending_site_visits row the EOD popup surfaces until the exec logs
+  // address/comment/etc once. That single Log is what feeds reports + Slack.
   if (pathname === '/webhook/ghl/site-visit') {
     const company = resolveGHLCompany(body, res);
     if (!company) return;
 
     const salesPersonName = resolveGHLSalesPerson(body, company);
-    const comment = deepFindField(body, 'Site Visit Booked - Comment') || '';
-    const appointmentDT = deepFindField(body, 'Appointment Date Time') || deepFindField(body, 'Appointment Date Time - Automated') || '';
-    const dateBooked = deepFindField(body, 'Date Booked - Automated') || '';
-
-    const activityData = {
-      date: companyToday(company),
-      salesPerson: salesPersonName,
-      contactName: deepFindField(body, 'full_name') || '',
-      eventType: 'Site Visit Booked',
-      outcome: comment,
-      contactAddress: deepFindField(body, 'address1') || '',
-      contactId: deepFindField(body, 'contact_id') || body.id || '',
-      appointmentDateTime: appointmentDT,
-      appointmentDate: dateBooked,
-    };
+    const appointmentDT =
+      deepFindField(body, 'Appointment Date Time') ||
+      deepFindField(body, 'Appointment Date Time - Automated') ||
+      deepFindField(body, 'startTime') ||
+      deepFindField(body, 'appointment_start_time') ||
+      body.startTime ||
+      '';
+    const contactName =
+      deepFindField(body, 'full_name') ||
+      body.full_name ||
+      body.contactName ||
+      body.contact_name ||
+      [body.firstName || body.first_name, body.lastName || body.last_name].filter(Boolean).join(' ') ||
+      '';
+    const contactId =
+      deepFindField(body, 'contact_id') ||
+      body.contact_id ||
+      body.contactId ||
+      body.id ||
+      '';
+    const contactAddress =
+      deepFindField(body, 'address1') ||
+      body.address1 ||
+      body.address ||
+      '';
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'logged', type: 'site-visit', company: company.name, salesPerson: salesPersonName }));
+    res.end(JSON.stringify({
+      status: 'pending',
+      type: 'site-visit',
+      company: company.name,
+      salesPerson: salesPersonName,
+    }));
 
     captureGhlContactEmail(company, body, deepFindField);
-    Promise.all([
-      logActivity(company.sheetId, activityData, {
-        companyName: company.name, source: 'ghl', rawPayload: body,
-      }),
-      appendRows(company.sheetId, 'Site Visits', [[
-        deepFindField(body, 'full_name') || '',
-        deepFindField(body, 'address1') || '',
-        appointmentDT || '',
-        salesPersonName,
-        '',
-      ]]),
-    ]).then(() => {
-      console.log(`[GHL SITE VISIT] ${company.name} / ${salesPersonName} / ${body.full_name || '?'}`);
-    }).catch(e => console.error(`[GHL SITE VISIT] Error ${company.name}:`, e.message));
+    db.upsertPendingSiteVisit({
+      companyName: company.name,
+      contactId: String(contactId || '').trim() || null,
+      contactName: String(contactName || '').trim() || null,
+      contactAddress: String(contactAddress || '').trim() || null,
+      salesPersonName: salesPersonName || null,
+      appointmentRaw: String(appointmentDT || '').trim() || null,
+      appointmentAt: null, // wall-clock parsing happens in the popup/read layer
+      source: 'ghl',
+      rawPayload: body,
+    }).then((r) => {
+      console.log(
+        `[GHL SITE VISIT → pending] ${company.name} / ${salesPersonName} / ${contactName || '?'} ` +
+        `(id=${r.id || '?'}${r.deduped ? ' deduped' : ''})`
+      );
+    }).catch(e => console.error(`[GHL SITE VISIT → pending] Error ${company.name}:`, e.message));
     return;
   }
 

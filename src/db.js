@@ -362,6 +362,90 @@ async function insertWebhookEvent(params) {
   }
 }
 
+/**
+ * Upsert an open pending site visit (GHL calendar book → popup to-log queue).
+ * Dedupes on (company, contact_id, appointment_raw) while still open.
+ */
+async function upsertPendingSiteVisit(params) {
+  if (!isEnabled()) return { skipped: true };
+  const client = await getPool().connect();
+  try {
+    const companyId = await resolveCompanyId(client, params.companyName);
+    if (!companyId) throw new Error(`Unknown company: ${params.companyName}`);
+
+    const contactId = params.contactId || null;
+    const appointmentRaw = params.appointmentRaw || null;
+    const contactName = params.contactName || null;
+    const contactAddress = oneLine(params.contactAddress);
+    const salesPersonName = params.salesPersonName || null;
+    const appointmentAt = params.appointmentAt || null;
+    const source = params.source || 'ghl';
+    const rawPayload = params.rawPayload ? JSON.stringify(params.rawPayload) : null;
+
+    const existing = await client.query(
+      `select id from pending_site_visits
+        where company_id = $1
+          and coalesce(contact_id, '') = coalesce($2, '')
+          and coalesce(appointment_raw, '') = coalesce($3, '')
+          and resolved_at is null and dismissed_at is null
+        limit 1`,
+      [companyId, contactId, appointmentRaw]
+    );
+
+    if (existing.rows[0]) {
+      const id = existing.rows[0].id;
+      await client.query(
+        `update pending_site_visits set
+           contact_name = coalesce(nullif($2, ''), contact_name),
+           contact_address = coalesce(nullif($3, ''), contact_address),
+           sales_person_name = coalesce(nullif($4, ''), sales_person_name),
+           appointment_at = coalesce($5::timestamptz, appointment_at),
+           raw_payload = coalesce($6::jsonb, raw_payload)
+         where id = $1`,
+        [id, contactName, contactAddress, salesPersonName, appointmentAt, rawPayload]
+      );
+      return { id, deduped: true };
+    }
+
+    const { rows } = await client.query(
+      `insert into pending_site_visits (
+         company_id, contact_id, contact_name, contact_address,
+         sales_person_name, appointment_raw, appointment_at,
+         source, raw_payload
+       ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       returning id`,
+      [
+        companyId, contactId, contactName, contactAddress,
+        salesPersonName, appointmentRaw, appointmentAt,
+        source, rawPayload,
+      ]
+    );
+    return { id: rows[0]?.id || null, deduped: false };
+  } finally {
+    client.release();
+  }
+}
+
+async function resolvePendingSiteVisit(params) {
+  if (!isEnabled()) return { skipped: true };
+  const client = await getPool().connect();
+  try {
+    const { rows } = await client.query(
+      `update pending_site_visits
+          set resolved_at = now(),
+              resolved_activity_id = $2
+        where id = $1
+          and resolved_at is null
+          and dismissed_at is null
+      returning id`,
+      [params.id, params.activityId || null]
+    );
+    return { id: rows[0]?.id || null };
+  } finally {
+    client.release();
+  }
+}
+
 async function close() {
   if (pool) {
     await pool.end();
@@ -382,6 +466,8 @@ module.exports = {
   insertActivity,
   insertReport,
   insertWebhookEvent,
+  upsertPendingSiteVisit,
+  resolvePendingSiteVisit,
   resolveCompanyId,
   resolveSalesPersonId,
   clearCaches,

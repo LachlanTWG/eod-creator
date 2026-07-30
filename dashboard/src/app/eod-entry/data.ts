@@ -47,6 +47,79 @@ export type ContactHistory = {
   recent: HistoryEntry[];
 };
 
+/** Open calendar bookings waiting for the exec to log details in the popup. */
+export type PendingSiteVisit = {
+  id: string;
+  contactId: string;
+  contactName: string;
+  contactAddress: string;
+  salesPersonName: string;
+  appointmentRaw: string;
+  /** For datetime-local: YYYY-MM-DDTHH:MM when parseable. */
+  appointmentLocal: string;
+  createdAt: string;
+};
+
+/** Convert GHL appointment strings / timestamptz into datetime-local value. */
+export function toDatetimeLocalValue(
+  appointmentAt: string | null | undefined,
+  appointmentRaw: string | null | undefined,
+): string {
+  const tryParse = (s: string): string => {
+    const m = s.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/);
+    if (m) return `${m[1]}T${m[2]}`;
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      // Use the stored wall-clock digits (site visits are wall-clock-as-UTC).
+      const iso = d.toISOString();
+      return iso.slice(0, 16);
+    }
+    return "";
+  };
+  if (appointmentAt) {
+    const v = tryParse(appointmentAt);
+    if (v) return v;
+  }
+  if (appointmentRaw) {
+    const v = tryParse(appointmentRaw);
+    if (v) return v;
+  }
+  return "";
+}
+
+export async function fetchPendingSiteVisits(
+  companyId: string,
+): Promise<PendingSiteVisit[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("pending_site_visits")
+    .select(
+      "id, contact_id, contact_name, contact_address, sales_person_name, appointment_raw, appointment_at, created_at",
+    )
+    .eq("company_id", companyId)
+    .is("resolved_at", null)
+    .is("dismissed_at", null)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) {
+    console.error("[eod-entry] fetchPendingSiteVisits:", error.message);
+    return [];
+  }
+  return (data ?? []).map(r => ({
+    id: r.id as string,
+    contactId: (r.contact_id as string) || "",
+    contactName: (r.contact_name as string) || "",
+    contactAddress: (r.contact_address as string) || "",
+    salesPersonName: (r.sales_person_name as string) || "",
+    appointmentRaw: (r.appointment_raw as string) || "",
+    appointmentLocal: toDatetimeLocalValue(
+      r.appointment_at as string | null,
+      r.appointment_raw as string | null,
+    ),
+    createdAt: (r.created_at as string) || "",
+  }));
+}
+
 /** GHL contact fields we pull for the EOD entry form. */
 export type GhlContact = {
   name: string;
