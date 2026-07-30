@@ -50,9 +50,8 @@ export default async function EmailSettingsPage({
           Primary path for <span className="text-zinc-300">Email sent</span>.
           One mailbox per <span className="text-zinc-300">client</span> you sell
           for.{" "}
-          <span className="text-zinc-300">Bolton</span> &amp;{" "}
-          <span className="text-zinc-300">Phased</span> → Outlook; all other
-          clients → Gmail.
+          <span className="text-zinc-300">HDK / LRS / Hughes / ECE</span> →
+          Gmail; all other clients (incl. Bolton, Phased, Sunbridge) → Outlook.
         </p>
       </div>
 
@@ -88,12 +87,12 @@ export default async function EmailSettingsPage({
         <ol className="list-decimal space-y-2 pl-5">
           <li>
             For each client, pick that client → connect with the recommended
-            provider (Outlook for Bolton/Phased, Gmail otherwise).
+            provider (Gmail for HDK/LRS/Hughes/ECE, Outlook otherwise).
           </li>
           <li>
             Sent mail from that mailbox is attributed to{" "}
-            <span className="text-zinc-300">that client only</span>, when the
-            recipient is a known contact for them.
+            <span className="text-zinc-300">that client only</span>. Every
+            outbound email counts (self/noreply filtered only).
           </li>
           <li>
             Repeat for every client you work. Different clients can use different

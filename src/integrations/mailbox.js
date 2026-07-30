@@ -430,7 +430,8 @@ function dateFromIso(iso, timezone) {
 
 /**
  * Shared: take a normalised sent message and log against the connection's client.
- * Company is fixed on mailbox_accounts — we only match contacts within that client.
+ * Company is fixed on mailbox_accounts. Every non-noise outbound email is logged
+ * (all business mail counts). contact_emails only enriches name/id when known.
  * @param {{ messageId, recipients, subject, occurredAt, extra? }} msg
  */
 async function ingestSentMessage(account, msg, teamEmails, stats) {
@@ -449,24 +450,20 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
   const occurredAt = msg.occurredAt || null;
   const messageId = msg.messageId;
 
+  // Pure noise only: self-sends, other connected mailboxes, noreply, etc.
   if (!recipients.length) {
     stats.skippedNoise++;
     return;
   }
 
-  // Only count mail to known contacts for THIS client (keeps personal mail out).
+  // Optional enrichment — never required to count the email.
   const contact = await resolveContactForCompany(recipients, companyId);
-  if (!contact) {
-    await recordUnmatched(account.id, messageId, {
-      occurredAt,
-      subject,
-      recipients,
-      reason: 'no_contact_match',
-      rawHeaders: msg.extra || null,
-    });
-    stats.unmatched++;
-    return;
-  }
+  const contactName =
+    (contact && (contact.contactName || contact.matchedEmail)) ||
+    recipients[0] ||
+    '';
+  const contactId = (contact && contact.contactId) || null;
+  const matchedEmail = (contact && contact.matchedEmail) || recipients[0] || null;
 
   let sheetId = account.sheet_id;
   const { companies } = loadCompanies();
@@ -487,8 +484,8 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
     occurredOn: date,
     occurredAt: occurredAt || null,
     eventType: 'email_sent',
-    contactName: contact.contactName || contact.matchedEmail,
-    contactId: contact.contactId || null,
+    contactName,
+    contactId,
     outcome: subject || null,
     source,
     sourceRowId: `${provider}:${messageId}`,
@@ -497,7 +494,8 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
       messageId,
       recipients,
       subject,
-      matchedEmail: contact.matchedEmail,
+      matchedEmail,
+      contactMatched: Boolean(contact),
       mailbox: account.email,
       companyId,
       companyName,
@@ -522,13 +520,13 @@ async function ingestSentMessage(account, msg, teamEmails, stats) {
       [[
         date,
         account.sales_person_name,
-        contact.contactName || contact.matchedEmail,
+        contactName,
         'Email Sent',
         subject || '',
         '',
         '',
         '',
-        contact.contactId || '',
+        contactId || '',
         '',
         '',
       ]],

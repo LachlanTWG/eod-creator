@@ -96,7 +96,7 @@ export function MailboxConnectPanel({
         <div className="border-b border-zinc-800 px-4 py-3">
           <div className="text-sm font-medium text-zinc-100">Your mailboxes</div>
           <p className="mt-0.5 text-xs text-zinc-500">
-            One connection per client. Defaults: Bolton &amp; Phased → Outlook; all other clients → Gmail.
+            One connection per client. Defaults: HDK, LRS, Hughes, ECE → Gmail; all other clients → Outlook.
           </p>
         </div>
 
@@ -255,13 +255,13 @@ export function MailboxConnectPanel({
         </div>
       )}
 
-      {connections.length > 0 && (
+      {connections.length > 0 && unmatchedLast7d > 0 && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-          <div className="font-medium text-zinc-200">Last 7 days (all your mailboxes)</div>
+          <div className="font-medium text-zinc-200">Legacy unmatched (pre all-mail tracking)</div>
           <p className="mt-1">
-            <span className="tabular-nums text-zinc-100">{unmatchedLast7d}</span> sent
-            message{unmatchedLast7d === 1 ? "" : "s"} with no matching contact email for
-            that client — left out of EODs.
+            <span className="tabular-nums text-zinc-100">{unmatchedLast7d}</span> older
+            skip{unmatchedLast7d === 1 ? "" : "s"} still on record. New sends count every
+            external recipient — self/noreply only are filtered.
           </p>
         </div>
       )}
