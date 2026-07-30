@@ -82,11 +82,15 @@ export type QuotieBreakdown = {
 
 // Explicit mapping: our DB client name → Quotie company name. Hardcoded
 // because fuzzy matching is fragile (e.g. "Lachlan Williams" at Coastal
-// Cleans is not our Lachlan).
+// Cleans is not our Lachlan). Keep in sync with active rows in companies.json.
 const QUOTIE_COMPANY_BY_OURS: Record<string, string> = {
-  "Bolton EC":            "Bolton EC - Solar",
-  "HDK Long Run Roofing": "HDK Longrun Roofing",
-  "Hughes Electrical":    "Hughes Electrical Group",
+  "Bolton EC":               "Bolton EC - Solar",
+  "HDK Long Run Roofing":    "HDK Longrun Roofing",
+  "Hughes Electrical":       "Hughes Electrical Group",
+  "East Coast Electrical":   "East Coast Electrical & Solar",
+  "Sunbridge Energy":        "Sunbridge Energy",
+  "Phased Power Solutions":  "Phased Power Solutions",
+  "LRS Electrical & Solar":  "LRS Electrical & Solar",
 };
 
 // Our sales roster → Quotie's full_name. Full-name match (not first name)
@@ -96,6 +100,8 @@ const QUOTIE_FULLNAME_BY_OURS: Record<string, string> = {
   "Lachlan": "Lachlan Boys",
   "Buzz":    "Buzz Brady",
   "Zac":     "Zac Russell",
+  "Benji":   "Benji Boys",
+  "Max":     "Max Brady",
 };
 
 const OUR_EXEC_BY_QUOTIE_FULLNAME = Object.fromEntries(

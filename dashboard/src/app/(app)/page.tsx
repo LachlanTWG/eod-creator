@@ -11,6 +11,7 @@ import {
 } from "@/lib/queries";
 import {
   loadQuotieBreakdown,
+  quotieByClient,
   quotieByClientExecOnly,
   quotieByExec,
   quotieOurExecSlice,
@@ -380,6 +381,7 @@ async function QuotieSection({
 
   const quotieSlice = quotieOurExecSlice(quotie);
   const quotieByClientMap = quotieByClientExecOnly(quotie);
+  const quotieMappedClients = quotieByClient(quotie);
   const quotieByExecMap = quotieByExec(quotie);
 
   return (
@@ -417,7 +419,8 @@ async function QuotieSection({
               <tbody>
                 {perClient.map(c => {
                   const q = quotieByClientMap[c.name];
-                  if (!q) {
+                  const mapped = !!quotieMappedClients[c.name];
+                  if (!mapped) {
                     return (
                       <tr key={c.id} className="border-t border-zinc-800">
                         <td className="px-3 py-1.5 font-medium text-zinc-100">{c.name}</td>
@@ -425,19 +428,23 @@ async function QuotieSection({
                       </tr>
                     );
                   }
+                  // Mapped but no sales-exec-attributed activity yet (e.g. new
+                  // client where our execs aren't lead owners yet).
+                  const groups = q?.groups ?? { pipeline_value: 0, won_value: 0, won: 0, pending: 0, lost: 0, expired: 0 };
+                  const quotes = q?.quotes ?? { sent: 0, sent_this_month: 0 };
                   return (
                     <tr key={c.id} className="border-t border-zinc-800">
                       <td className="px-3 py-1.5 font-medium text-zinc-100">{c.name}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">{formatCurrency(q.groups.pipeline_value)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">{formatCurrency(groups.pipeline_value)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-emerald-400">
-                        {formatCurrency(q.groups.won_value)}
-                        <div className="text-[9px] text-zinc-500">{q.groups.won} wins</div>
+                        {formatCurrency(groups.won_value)}
+                        <div className="text-[9px] text-zinc-500">{groups.won} wins</div>
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">{q.groups.pending}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">{q.groups.lost} / {q.groups.expired}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">{groups.pending}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">{groups.lost} / {groups.expired}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-zinc-300">
-                        {q.quotes.sent}
-                        <div className="text-[9px] text-zinc-500">{q.quotes.sent_this_month} mo</div>
+                        {quotes.sent}
+                        <div className="text-[9px] text-zinc-500">{quotes.sent_this_month} mo</div>
                       </td>
                     </tr>
                   );
