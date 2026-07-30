@@ -249,9 +249,24 @@ export function EodEntryForm({
           </div>
 
           <Field label="Type">
-            <select value={eventType} onChange={e => setEventType(e.target.value as EventType)} className={inputClass}>
-              {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Type">
+              {EVENT_TYPES.map(t => (
+                <button
+                  key={t.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={eventType === t.value}
+                  onClick={() => setEventType(t.value)}
+                  className={
+                    eventType === t.value
+                      ? "rounded border border-emerald-600 bg-emerald-600/20 px-2 py-2 text-center text-xs font-medium text-emerald-300 sm:text-sm"
+                      : "rounded border border-zinc-800 bg-zinc-900 px-2 py-2 text-center text-xs text-zinc-400 hover:border-zinc-600 sm:text-sm"
+                  }
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </Field>
 
           {eventType === "eod_update" ? (
