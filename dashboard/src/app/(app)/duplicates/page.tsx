@@ -1,10 +1,11 @@
-// /duplicates — admin-only cleanup tool. Scans the whole activities table for
-// suspected duplicates (rules live in @/lib/duplicates), groups them into
-// clusters, and lets you delete the redundant copies. Read-only until you hit
-// delete; nothing is auto-removed.
+// /duplicates — cleanup tool for admins and roster executives. Scans the
+// whole activities table for suspected duplicates (rules live in
+// @/lib/duplicates), groups them into clusters, and lets you delete the
+// redundant copies. Read-only until you hit delete; nothing is auto-removed.
+// Execs can only delete rows RLS allows (their own sales_person_id).
 
 import { createClient } from "@/lib/supabase/server";
-import { getViewer, requireAdmin } from "@/lib/viewer";
+import { getViewer } from "@/lib/viewer";
 import { listCompanies } from "@/lib/queries";
 import { EVENT_LABELS } from "@/lib/format";
 import {
@@ -13,6 +14,7 @@ import {
   type DupActivity,
 } from "@/lib/duplicates";
 import { DuplicateCluster } from "./DuplicateCluster";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +28,8 @@ export default async function DuplicatesPage({
   searchParams: Promise<SearchParams>;
 }) {
   const viewer = await getViewer();
-  requireAdmin(viewer);
+  // Admins and roster execs only — not pure read-only viewers.
+  if (!viewer.isAdmin && !viewer.salesPersonName) redirect("/me");
 
   const sp = await searchParams;
   const supabase = await createClient();

@@ -2,8 +2,8 @@
 
 // Server action for the Duplicates review page. Batch-deletes activity rows
 // straight from Postgres (RLS still applies). Mirrors deleteActivity() in
-// ../activities/actions.ts but takes a list. Admin-only surface — checked here
-// as defence in depth on top of RLS.
+// ../activities/actions.ts but takes a list. Open to admins + roster execs;
+// RLS enforces that execs can only delete their own rows.
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
@@ -17,7 +17,9 @@ export async function deleteActivities(ids: string[]): Promise<DeleteResult> {
 
   const supabase = await createClient();
   const viewer = await getViewer();
-  if (!viewer.isAdmin) return { ok: false, error: "Admins only" };
+  if (!viewer.isAdmin && !viewer.salesPersonName) {
+    return { ok: false, error: "Not allowed" };
+  }
 
   // .select() returns the rows actually deleted, so we report a true count
   // (RLS would silently skip any the caller can't touch).

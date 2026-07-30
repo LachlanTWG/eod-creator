@@ -64,9 +64,11 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
 });
 
 /**
- * Strictly admin-only. Use for pages that mutate data (duplicates) or expose
- * ops internals (health). Read-only viewers are NOT admitted here. Everyone
- * else lands on /me.
+ * Strictly admin-only. Use for pages that expose ops internals (health) or
+ * other admin-only tools (missing info). Read-only viewers are NOT admitted
+ * here. Everyone else lands on /me.
+ *
+ * Note: /duplicates is open to roster execs as well (gated in that page).
  */
 export function requireAdmin(viewer: Viewer): void {
   if (!viewer.isAdmin) redirect("/me");
