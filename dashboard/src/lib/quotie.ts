@@ -91,6 +91,8 @@ const QUOTIE_COMPANY_BY_OURS: Record<string, string> = {
   "Sunbridge Energy":        "Sunbridge Energy",
   "Phased Power Solutions":  "Phased Power Solutions",
   "LRS Electrical & Solar":  "LRS Electrical & Solar",
+  "Enervia Energy Group":    "Enervia Energy Group",
+  "Nexgen Solar Solutions":  "Nexgen Solar Solutions",
 };
 
 // Our sales roster → Quotie's full_name. Full-name match (not first name)
