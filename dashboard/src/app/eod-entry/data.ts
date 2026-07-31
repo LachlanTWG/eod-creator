@@ -93,11 +93,12 @@ export function toDatetimeLocalValue(
   appointmentRaw: string | null | undefined,
 ): string {
   const tryParse = (s: string): string => {
+    // "2026-08-11 10:30:00" or "2026-08-11T10:30:00"
     const m = s.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/);
     if (m) return `${m[1]}T${m[2]}`;
     const d = new Date(s);
     if (!Number.isNaN(d.getTime())) {
-      // Use the stored wall-clock digits (site visits are wall-clock-as-UTC).
+      // Prefer wall-clock digits from the string when present
       const iso = d.toISOString();
       return iso.slice(0, 16);
     }
@@ -208,20 +209,15 @@ export async function fetchPendingSiteVisits(
     // Prefer real street address over our test placeholders.
     if (/^12 example st$/i.test(contactAddress.trim())) contactAddress = "";
 
-    const rawApptDisplay =
+    let rawApptDisplay =
       r.appointment_display ||
       r.appointment_raw ||
       pickFromRaw(raw, "Appointment Date Time", "startTime") ||
       "";
-    const appointmentLocal = toDatetimeLocalValue(
-      r.appointment_at || pickFromRaw(raw, "startTime"),
-      rawApptDisplay || r.appointment_raw,
-    );
-    const appointmentDisplay = formatVisitDisplay(
-      rawApptDisplay,
-      appointmentLocal,
-      r.appointment_raw || "",
-    );
+    // Ignore known test placeholders so live calendar data can win.
+    if (/^2026-08-01T11:00/.test(rawApptDisplay) || rawApptDisplay === "2026-08-01T11:00:00") {
+      rawApptDisplay = "";
+    }
 
     let bookedOn = "";
     if (r.booked_on) bookedOn = String(r.booked_on).slice(0, 10);
@@ -235,7 +231,6 @@ export async function fetchPendingSiteVisits(
         else bookedOn = r.created_at ? String(r.created_at).slice(0, 10) : "";
       }
     }
-    const bookedOnDisplay = formatAuNzDate(bookedOn) || bookedOn;
 
     const roughJobValue =
       r.rough_job_value ||
@@ -252,19 +247,53 @@ export async function fetchPendingSiteVisits(
       salesPersonName = matchRosterName(String(fromRaw), people) || salesPersonName;
     }
 
-    // Fill gaps from GHL Contacts API (phone / email / address / owner).
+    // Fill gaps from GHL Contacts API + live calendar appointments.
     const lookupId = contactId || opts?.pageContactId || "";
-    if (opts?.ghlLocationId && lookupId && (!contactPhone || !contactEmail || !contactAddress || !salesPersonName || /^unknown$/i.test(salesPersonName))) {
-      const ghl = await fetchGhlContact(opts.ghlLocationId, lookupId, people);
-      if (!contactName && ghl.name) contactName = ghl.name;
-      if (!contactPhone && ghl.phone) contactPhone = ghl.phone;
-      if (!contactEmail && ghl.email) contactEmail = ghl.email;
-      if (!contactAddress && ghl.address) contactAddress = ghl.address;
-      if ((!salesPersonName || /^unknown$/i.test(salesPersonName)) && ghl.ownerName) {
-        salesPersonName = matchRosterName(ghl.ownerName, people) || ghl.ownerName;
+    if (opts?.ghlLocationId && lookupId) {
+      const needContact =
+        !contactPhone || !contactEmail || !contactAddress ||
+        !salesPersonName || /^unknown$/i.test(salesPersonName) || !contactName;
+      if (needContact) {
+        const ghl = await fetchGhlContact(opts.ghlLocationId, lookupId, people);
+        if (!contactName && ghl.name) contactName = ghl.name;
+        if (!contactPhone && ghl.phone) contactPhone = ghl.phone;
+        if (!contactEmail && ghl.email) contactEmail = ghl.email;
+        if (!contactAddress && ghl.address) contactAddress = ghl.address;
+        if ((!salesPersonName || /^unknown$/i.test(salesPersonName)) && ghl.ownerName) {
+          salesPersonName = matchRosterName(ghl.ownerName, people) || ghl.ownerName;
+        }
       }
       if (!contactId && lookupId) contactId = lookupId;
+
+      // Authoritative visit time: GHL contact appointments (not stale webhook test data).
+      const appt = await fetchGhlContactAppointment(opts.ghlLocationId, lookupId);
+      if (appt?.startTime) {
+        rawApptDisplay = appt.startTime;
+        if (appt.address && (!contactAddress || /^12 example st$/i.test(contactAddress))) {
+          contactAddress = appt.address.trim();
+        }
+        // dateAdded is when the booking was created in GHL
+        if (appt.dateAdded) {
+          const dm = String(appt.dateAdded).match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (dm) bookedOn = `${dm[1]}-${dm[2]}-${dm[3]}`;
+          else {
+            const sp = String(appt.dateAdded).match(/^(\d{4})-(\d{2})-(\d{2})[ T]/);
+            if (sp) bookedOn = `${sp[1]}-${sp[2]}-${sp[3]}`;
+          }
+        }
+      }
     }
+
+    const appointmentLocal = toDatetimeLocalValue(
+      rawApptDisplay,
+      r.appointment_at || r.appointment_raw || "",
+    );
+    const appointmentDisplay = formatVisitDisplay(
+      rawApptDisplay,
+      appointmentLocal,
+      r.appointment_raw || "",
+    );
+    const bookedOnDisplay = formatAuNzDate(bookedOn) || bookedOn;
 
     // Quotes for every vertical — roofing + solar (empty → "no previous quote").
     const previousQuotes =
@@ -560,6 +589,80 @@ export async function fetchGhlContact(
     return { name, address, phone, email, ownerName };
   } catch {
     return empty;
+  }
+}
+
+export type GhlAppointment = {
+  startTime: string;   // "2026-08-11 10:30:00" wall clock from GHL
+  endTime: string;
+  address: string;
+  title: string;
+  dateAdded: string;   // when the booking was made
+  id: string;
+};
+
+/**
+ * Upcoming / latest confirmed appointment for a contact.
+ * Uses GET /contacts/{id}/appointments (works with View Contacts PITs).
+ */
+export async function fetchGhlContactAppointment(
+  ghlLocationId: string,
+  contactId: string,
+): Promise<GhlAppointment | null> {
+  if (!ghlLocationId || !contactId || contactId.startsWith("pending-")) return null;
+  const tokens = loadGhlTokens();
+  const token = tokens[ghlLocationId];
+  if (!token) return null;
+
+  try {
+    const res = await fetch(
+      `https://services.leadconnectorhq.com/contacts/${contactId}/appointments`,
+      { headers: ghlHeaders(token), cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const body = await res.json();
+    const events = (body?.events || body?.appointments || []) as Record<string, unknown>[];
+    if (!Array.isArray(events) || events.length === 0) return null;
+
+    const now = Date.now();
+    const parsed = events
+      .filter(e => !e.deleted)
+      .map(e => {
+        const startTime = String(e.startTime || e.start_time || "").trim();
+        const endTime = String(e.endTime || e.end_time || "").trim();
+        const dateAdded = String(e.dateAdded || e.date_added || e.createdAt || "").trim();
+        // Parse "2026-08-11 10:30:00" as local wall-clock sort key
+        const sortMs = Date.parse(startTime.replace(" ", "T") + "Z") || 0;
+        return {
+          startTime,
+          endTime,
+          address: String(e.address || "").trim(),
+          title: String(e.title || "").trim(),
+          dateAdded,
+          id: String(e.id || ""),
+          sortMs,
+          status: String(e.appointmentStatus || e.appoinmentStatus || e.status || "").toLowerCase(),
+        };
+      })
+      .filter(e => e.startTime);
+
+    if (parsed.length === 0) return null;
+
+    // Prefer next upcoming confirmed, else latest by start time.
+    const upcoming = parsed
+      .filter(e => e.sortMs >= now - 60 * 60 * 1000) // allow 1h grace
+      .sort((a, b) => a.sortMs - b.sortMs);
+    const pick = upcoming[0] || parsed.sort((a, b) => b.sortMs - a.sortMs)[0];
+    return {
+      startTime: pick.startTime,
+      endTime: pick.endTime,
+      address: pick.address,
+      title: pick.title,
+      dateAdded: pick.dateAdded,
+      id: pick.id,
+    };
+  } catch {
+    return null;
   }
 }
 
