@@ -355,11 +355,21 @@ async function fetchPreviousQuotes(
   return (data ?? [])
     .filter(r => r.quote_job_value)
     .slice(0, 8)
-    .map(r => ({
-      date: String(r.occurred_on || "").slice(0, 10),
-      value: String(r.quote_job_value || ""),
-      person: String(r.sales_person_name || ""),
-    }));
+    .map(r => {
+      const rawDate = r.occurred_on as string | Date | null;
+      const dateIso =
+        typeof rawDate === "string"
+          ? String(rawDate).slice(0, 10)
+          : rawDate instanceof Date
+            ? rawDate.toISOString().slice(0, 10)
+            : String(rawDate || "").slice(0, 10);
+      // Keep ISO in `date`; UI formats with formatAuNzDate (DD/MM/YYYY).
+      return {
+        date: dateIso,
+        value: String(r.quote_job_value || ""),
+        person: String(r.sales_person_name || ""),
+      };
+    });
 }
 
 /** GHL contact fields we pull for the EOD entry form / pending site visits. */
@@ -666,20 +676,32 @@ export async function fetchGhlContactAppointment(
   }
 }
 
-/** AU/NZ friendly date: DD/MM/YYYY. Accepts ISO date or Date-parseable strings. */
-export function formatAuNzDate(raw: string | null | undefined): string {
-  if (!raw) return "";
-  const s = String(raw).trim();
+/** AU/NZ friendly date: DD/MM/YYYY. Accepts ISO date, Date objects, or Date-parseable strings. */
+export function formatAuNzDate(raw: string | Date | null | undefined): string {
+  if (raw == null || raw === "") return "";
+  // Already DD/MM/YYYY
+  if (typeof raw === "string" && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw.trim())) {
+    const [dd, mm, yyyy] = raw.trim().split("/");
+    return `${dd.padStart(2, "0")}/${mm.padStart(2, "0")}/${yyyy}`;
+  }
   let y: number, m: number, d: number;
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    y = +iso[1]; m = +iso[2]; d = +iso[3];
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    // Calendar dates from Postgres often arrive as UTC midnight — use UTC parts.
+    y = raw.getUTCFullYear();
+    m = raw.getUTCMonth() + 1;
+    d = raw.getUTCDate();
   } else {
-    const dt = new Date(s);
-    if (Number.isNaN(dt.getTime())) return s; // already human text — leave it
-    y = dt.getUTCFullYear();
-    m = dt.getUTCMonth() + 1;
-    d = dt.getUTCDate();
+    const s = String(raw).trim();
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) {
+      y = +iso[1]; m = +iso[2]; d = +iso[3];
+    } else {
+      const dt = new Date(s);
+      if (Number.isNaN(dt.getTime())) return s; // already human text — leave it
+      y = dt.getUTCFullYear();
+      m = dt.getUTCMonth() + 1;
+      d = dt.getUTCDate();
+    }
   }
   return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
 }

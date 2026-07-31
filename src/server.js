@@ -95,6 +95,21 @@ function formatMoney(v) {
   return String(v);
 }
 
+/** DD/MM/YYYY for Slack / AU-NZ display. */
+function formatAuNzDateForSlack(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) return s;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = d.getUTCFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
 /** Slack message for a popup-completed site visit booking summary. */
 function formatSiteVisitSummary(b) {
   const lines = [
@@ -105,12 +120,12 @@ function formatSiteVisitSummary(b) {
     `*Email:* ${b.contactEmail || '—'}`,
     `*Location:* ${b.contactAddress || '—'}`,
     `*Visit time:* ${b.appointmentDisplay || b.appointmentAt || '—'}`,
-    `*Booked on:* ${b.bookedOn || '—'}`,
+    `*Booked on:* ${formatAuNzDateForSlack(b.bookedOn) || b.bookedOn || '—'}`,
   ];
   if (Array.isArray(b.previousQuotes) && b.previousQuotes.length > 0) {
     lines.push('*Previous quotes:*');
     for (const q of b.previousQuotes) {
-      const when = q.date || '—';
+      const when = formatAuNzDateForSlack(q.date) || q.date || '—';
       const who = q.person ? ` (${q.person})` : '';
       lines.push(`• ${formatMoney(q.value)} — ${when}${who}`);
     }

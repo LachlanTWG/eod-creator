@@ -15,6 +15,7 @@
 import { useEffect, useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
 import type { ContactHistory, EodOptions, PendingSiteVisit } from "./data";
+import { formatAuNzDate } from "./data";
 import {
   completePendingSiteVisit,
   submitEodEntry,
@@ -397,7 +398,12 @@ export function EodEntryForm({
               />
               <AutoRow
                 label="Booked on"
-                value={activePending.bookedOnDisplay || activePending.bookedOn || "—"}
+                value={
+                  activePending.bookedOnDisplay ||
+                  formatAuNzDate(activePending.bookedOn) ||
+                  activePending.bookedOn ||
+                  "—"
+                }
               />
             </div>
 
@@ -425,7 +431,7 @@ export function EodEntryForm({
                   {activePending.previousQuotes.map((q, i) => (
                     <li key={i} className="text-[12px] text-zinc-300">
                       ${String(q.value).replace(/[$,]/g, "")}
-                      {q.date ? ` · ${q.date}` : ""}
+                      {q.date ? ` · ${formatAuNzDate(q.date) || q.date}` : ""}
                       {q.person ? ` · ${q.person}` : ""}
                     </li>
                   ))}
