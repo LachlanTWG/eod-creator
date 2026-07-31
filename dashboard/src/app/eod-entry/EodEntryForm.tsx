@@ -447,12 +447,18 @@ export function EodEntryForm({
                   />
                 </Field>
                 <Field label="Ideal start date">
-                  <input
-                    type="date"
+                  <select
                     value={svIdealStart}
                     onChange={e => setSvIdealStart(e.target.value)}
                     className={inputClass}
-                  />
+                  >
+                    <option value="">— select —</option>
+                    <option value="ASAP">ASAP</option>
+                    <option value="0-30 days">0-30 days</option>
+                    <option value="30-90 days">30-90 days</option>
+                    <option value="90 days+">90 days+</option>
+                    <option value="Not sure">Not sure</option>
+                  </select>
                 </Field>
                 <Field label="Details / comment" hint="Single line.">
                   <input
