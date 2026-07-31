@@ -107,22 +107,23 @@ function formatSiteVisitSummary(b) {
     `*Visit time:* ${b.appointmentDisplay || b.appointmentAt || '—'}`,
     `*Booked on:* ${b.bookedOn || '—'}`,
   ];
+  if (Array.isArray(b.previousQuotes) && b.previousQuotes.length > 0) {
+    lines.push('*Previous quotes:*');
+    for (const q of b.previousQuotes) {
+      const when = q.date || '—';
+      const who = q.person ? ` (${q.person})` : '';
+      lines.push(`• ${formatMoney(q.value)} — ${when}${who}`);
+    }
+  } else {
+    lines.push('*Previous quotes:* No previous quote has been sent.');
+  }
+
   if (b.vertical === 'roofing') {
     lines.push(`*Rough job value:* ${formatMoney(b.roughJobValue)}`);
     lines.push(`*Ideal start date:* ${b.idealStartDate || '—'}`);
     if (b.detailsComment) lines.push(`*Details:* ${b.detailsComment}`);
-  } else {
-    if (Array.isArray(b.previousQuotes) && b.previousQuotes.length > 0) {
-      lines.push('*Previous quotes:*');
-      for (const q of b.previousQuotes) {
-        const when = q.date || '—';
-        const who = q.person ? ` (${q.person})` : '';
-        lines.push(`• ${formatMoney(q.value)} — ${when}${who}`);
-      }
-    } else {
-      lines.push('*Previous quotes:* none on record');
-    }
-    if (b.detailsComment) lines.push(`*Comment:* ${b.detailsComment}`);
+  } else if (b.detailsComment) {
+    lines.push(`*Comment:* ${b.detailsComment}`);
   }
   return lines.join('\n');
 }

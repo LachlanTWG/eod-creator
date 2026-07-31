@@ -128,6 +128,23 @@ function pickFromRaw(raw: Record<string, unknown> | null, ...keys: string[]): st
   return "";
 }
 
+type PendingRow = {
+  id: string;
+  contact_id: string | null;
+  contact_name: string | null;
+  contact_address: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  sales_person_name: string | null;
+  appointment_raw: string | null;
+  appointment_at: string | null;
+  appointment_display: string | null;
+  booked_on: string | null;
+  rough_job_value: string | null;
+  raw_payload: Record<string, unknown> | null;
+  created_at: string | null;
+};
+
 export async function fetchPendingSiteVisits(
   companyId: string,
   companyName: string,
@@ -152,31 +169,31 @@ export async function fetchPendingSiteVisits(
     return [];
   }
 
-  const rows = data ?? [];
+  const rows = (data ?? []) as unknown as PendingRow[];
   const out: PendingSiteVisit[] = [];
   for (const r of rows) {
     const raw = (r.raw_payload || null) as Record<string, unknown> | null;
-    const contactId = (r.contact_id as string) || pickFromRaw(raw, "contact_id") || "";
+    const contactId = r.contact_id || pickFromRaw(raw, "contact_id") || "";
     const contactName =
-      (r.contact_name as string) ||
+      r.contact_name ||
       pickFromRaw(raw, "full_name", "contact_name") ||
       "";
     const contactPhone =
-      (r.contact_phone as string) || pickFromRaw(raw, "phone") || "";
+      r.contact_phone || pickFromRaw(raw, "phone") || "";
     const contactEmail =
-      (r.contact_email as string) || pickFromRaw(raw, "email") || "";
+      r.contact_email || pickFromRaw(raw, "email") || "";
     const contactAddress =
-      (r.contact_address as string) ||
+      r.contact_address ||
       pickFromRaw(raw, "address1", "full_address") ||
       "";
     const appointmentDisplay =
-      (r.appointment_display as string) ||
-      (r.appointment_raw as string) ||
+      r.appointment_display ||
+      r.appointment_raw ||
       pickFromRaw(raw, "Appointment Date Time", "startTime") ||
       "";
     const appointmentLocal = toDatetimeLocalValue(
-      r.appointment_at as string | null,
-      appointmentDisplay || (r.appointment_raw as string | null),
+      r.appointment_at,
+      appointmentDisplay || r.appointment_raw,
     );
     let bookedOn = "";
     if (r.booked_on) bookedOn = String(r.booked_on).slice(0, 10);
@@ -186,31 +203,32 @@ export async function fetchPendingSiteVisits(
       bookedOn = m ? m[1] : (r.created_at ? String(r.created_at).slice(0, 10) : "");
     }
     const roughJobValue =
-      (r.rough_job_value as string) ||
+      r.rough_job_value ||
       pickFromRaw(raw, "Rough Lead Value incl GST") ||
       "";
 
-    let previousQuotes: PreviousQuote[] = [];
-    if (vertical === "solar" && (contactId || contactName)) {
-      previousQuotes = await fetchPreviousQuotes(companyId, contactId, contactName);
-    }
+    // Quotes for every vertical — roofing + solar (empty → "no previous quote").
+    const previousQuotes =
+      contactId || contactName
+        ? await fetchPreviousQuotes(companyId, contactId, contactName)
+        : [];
 
     out.push({
-      id: r.id as string,
+      id: r.id,
       contactId,
       contactName,
       contactPhone,
       contactEmail,
       contactAddress,
-      salesPersonName: (r.sales_person_name as string) || "",
+      salesPersonName: r.sales_person_name || "",
       appointmentDisplay,
-      appointmentRaw: (r.appointment_raw as string) || appointmentDisplay,
+      appointmentRaw: r.appointment_raw || appointmentDisplay,
       appointmentLocal,
       bookedOn,
       roughJobValue: roughJobValue ? String(roughJobValue) : "",
       vertical,
       previousQuotes,
-      createdAt: (r.created_at as string) || "",
+      createdAt: r.created_at || "",
     });
   }
   return out;

@@ -115,6 +115,17 @@ export function EodEntryForm({
     } catch { /* storage unavailable (rare iframe modes) — keep default */ }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-open the site-visit log form when this contact has a pending booking.
+  useEffect(() => {
+    if (activePending || openPendings.length === 0) return;
+    const match = contactId
+      ? openPendings.find(p => p.contactId && p.contactId === contactId)
+      : null;
+    const first = match || (openPendings.length === 1 ? openPendings[0] : null);
+    if (first) applyPending(first);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactId, openPendings.length]);
+
   function chooseSalesPerson(name: string) {
     setSalesPerson(name);
     try {
@@ -357,9 +368,31 @@ export function EodEntryForm({
               </select>
             </Field>
 
+            {/* Previous quotes — always shown (roofing + solar) */}
+            <div className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+                Previous quotes
+              </div>
+              {activePending.previousQuotes.length === 0 ? (
+                <p className="mt-1 text-[12px] text-zinc-500">
+                  No previous quote has been sent.
+                </p>
+              ) : (
+                <ul className="mt-1.5 space-y-1">
+                  {activePending.previousQuotes.map((q, i) => (
+                    <li key={i} className="text-[12px] text-zinc-300">
+                      ${String(q.value).replace(/[$,]/g, "")}
+                      {q.date ? ` · ${q.date}` : ""}
+                      {q.person ? ` · ${q.person}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             {activePending.vertical === "roofing" ? (
               <>
-                <Field label="Rough job value (incl. GST)" hint="Dollars, no symbols.">
+                <Field label="Rough job value (incl. GST)" hint="Required — dollars, no symbols.">
                   <input
                     type="text"
                     inputMode="decimal"
@@ -389,35 +422,15 @@ export function EodEntryForm({
                 </Field>
               </>
             ) : (
-              <>
-                <div className="rounded border border-zinc-800 bg-zinc-950/40 px-3 py-2">
-                  <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-                    Previous quotes
-                  </div>
-                  {activePending.previousQuotes.length === 0 ? (
-                    <p className="mt-1 text-[12px] text-zinc-500">None on record for this contact.</p>
-                  ) : (
-                    <ul className="mt-1.5 space-y-1">
-                      {activePending.previousQuotes.map((q, i) => (
-                        <li key={i} className="text-[12px] text-zinc-300">
-                          ${String(q.value).replace(/[$,]/g, "")}
-                          {q.date ? ` · ${q.date}` : ""}
-                          {q.person ? ` · ${q.person}` : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                <Field label="Comment" hint="Optional — solar-specific notes for the Slack summary.">
-                  <input
-                    type="text"
-                    value={svComment}
-                    onChange={e => setSvComment(e.target.value)}
-                    className={inputClass}
-                    placeholder="Anything worth noting"
-                  />
-                </Field>
-              </>
+              <Field label="Comment" hint="Optional — notes for the Slack summary.">
+                <input
+                  type="text"
+                  value={svComment}
+                  onChange={e => setSvComment(e.target.value)}
+                  className={inputClass}
+                  placeholder="Anything worth noting"
+                />
+              </Field>
             )}
 
             {error && (
