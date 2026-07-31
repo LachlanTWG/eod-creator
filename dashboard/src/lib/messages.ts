@@ -367,10 +367,20 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
   }
 }
 
+/** Case-insensitive alphabetical sort for contact name lists on week cards. */
+function sortNamesAlpha(names: string[]): string[] {
+  return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+// Personal week: list contact names (A–Z) for these pipeline outcomes so execs
+// can scan coverage without leaving the card. Other formula-11 outcomes stay
+// count-only so the card doesn't explode.
+const EOW_NAMED_OUTCOMES = new Set(["Requires Quoting", "Verbal Confirmation"]);
+
 /**
- * Personal week (EOW) cards list contact names for Requires Quoting and Quotes
- * Sent so execs can confirm every RQ this week got a quote out. Team cards stay
- * count-only (same as Slack/ClickUp EOW) to keep the aggregate view compact.
+ * Personal week (EOW) cards list contact names for Requires Quoting, Verbal
+ * Confirmation, and Quotes Sent so execs can confirm coverage. Names are
+ * alphabetical. Team cards stay count-only (same as Slack/ClickUp EOW).
  */
 function formatEOWLine(
   outcomeName: string,
@@ -385,10 +395,8 @@ function formatEOWLine(
     case 11: {
       const c = counts[outcomeName] || 0;
       if (c === 0) return null;
-      // Personal week: list names on Requires Quoting (coverage check). Other
-      // formula-11 outcomes stay count-only so the card doesn't explode.
-      if (!isTeam && outcomeName === "Requires Quoting") {
-        const unique = [...new Set((names[outcomeName] || []).filter(Boolean))];
+      if (!isTeam && EOW_NAMED_OUTCOMES.has(outcomeName)) {
+        const unique = sortNamesAlpha([...new Set((names[outcomeName] || []).filter(Boolean))]);
         if (unique.length === 0) return `${label}: ${c}`;
         return `${label}: ${c}\n${unique.map(n => `- ${n}`).join("\n")}`;
       }
@@ -402,12 +410,15 @@ function formatEOWLine(
       return `Total Calls: ${total} (${rate}% Answered)`;
     }
     case 6: {
-      // Personal week: per-contact quote lines (same shape as EOD). Team: total only.
+      // Personal week: per-contact quote lines (same shape as EOD), A–Z. Team: total only.
       const valid = quoteDetails.filter(q => q.contactName || q.values.length > 0);
       if (valid.length === 0) return null;
       if (isTeam) return `Total Contacts Quoted: ${valid.length}`;
-      const lines = [`Total Contacts Quoted: ${valid.length}`];
-      for (const q of valid) {
+      const sorted = [...valid].sort((a, b) =>
+        (a.contactName || "").localeCompare(b.contactName || "", undefined, { sensitivity: "base" }),
+      );
+      const lines = [`Total Contacts Quoted: ${sorted.length}`];
+      for (const q of sorted) {
         const valStr = q.values.map(v => formatDollar(v)).join(", ");
         lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
       }
@@ -441,12 +452,12 @@ function formatEOWLine(
   }
 }
 
-/** Unique contact names logged as Requires Quoting this period. */
+/** Unique contact names logged as Requires Quoting this period (A–Z). */
 function uniqueRequiresQuoting(data: CountedData): string[] {
-  return [...new Set((data.names["Requires Quoting"] || []).filter(Boolean))];
+  return sortNamesAlpha([...new Set((data.names["Requires Quoting"] || []).filter(Boolean))]);
 }
 
-/** Unique Requires Quoting contacts this period with no matching Quote Sent. */
+/** Unique Requires Quoting contacts this period with no matching Quote Sent (A–Z). */
 function requiresQuotingStillOpen(data: CountedData): string[] {
   const rq = uniqueRequiresQuoting(data);
   if (rq.length === 0) return [];
@@ -455,7 +466,7 @@ function requiresQuotingStillOpen(data: CountedData): string[] {
       .map(q => normalizeName(q.contactName))
       .filter(n => n.length > 0),
   );
-  return rq.filter(name => !quoted.has(normalizeName(name)));
+  return sortNamesAlpha(rq.filter(name => !quoted.has(normalizeName(name))));
 }
 
 // ─── Message builders ────────────────────────────────────────────────
