@@ -72,6 +72,8 @@ export type PendingSiteVisit = {
   appointmentLocal: string;
   /** Date the booking was made (YYYY-MM-DD). */
   bookedOn: string;
+  /** AU/NZ display of bookedOn (DD/MM/YYYY). */
+  bookedOnDisplay: string;
   /** Prefill for roofing rough value from GHL when present. */
   roughJobValue: string;
   vertical: SiteVisitVertical;
@@ -149,9 +151,17 @@ export async function fetchPendingSiteVisits(
   companyId: string,
   companyName: string,
   companySlug?: string,
+  opts?: {
+    ghlLocationId?: string;
+    /** Contact currently open in the popup — used when pending row is sparse/stale. */
+    pageContactId?: string;
+    pageContactName?: string;
+    people?: string[];
+  },
 ): Promise<PendingSiteVisit[]> {
   const supabase = createAdminClient();
   const vertical = companyVertical(companyName, companySlug);
+  const people = opts?.people || [];
   const { data, error } = await supabase
     .from("pending_site_visits")
     .select(
@@ -173,39 +183,88 @@ export async function fetchPendingSiteVisits(
   const out: PendingSiteVisit[] = [];
   for (const r of rows) {
     const raw = (r.raw_payload || null) as Record<string, unknown> | null;
-    const contactId = r.contact_id || pickFromRaw(raw, "contact_id") || "";
-    const contactName =
+    let contactId = r.contact_id || pickFromRaw(raw, "contact_id") || "";
+    // Test/stale ids like "pending-jd-test" — fall back to the open contact.
+    if (!contactId || contactId.startsWith("pending-")) {
+      const pageName = (opts?.pageContactName || "").toLowerCase();
+      const rowName = (r.contact_name || pickFromRaw(raw, "full_name") || "").toLowerCase();
+      if (opts?.pageContactId && pageName && rowName && (pageName === rowName || rowName.includes(pageName.split(" ")[0]))) {
+        contactId = opts.pageContactId;
+      }
+    }
+    let contactName =
       r.contact_name ||
       pickFromRaw(raw, "full_name", "contact_name") ||
+      opts?.pageContactName ||
       "";
-    const contactPhone =
+    let contactPhone =
       r.contact_phone || pickFromRaw(raw, "phone") || "";
-    const contactEmail =
+    let contactEmail =
       r.contact_email || pickFromRaw(raw, "email") || "";
-    const contactAddress =
+    let contactAddress =
       r.contact_address ||
       pickFromRaw(raw, "address1", "full_address") ||
       "";
-    const appointmentDisplay =
+    // Prefer real street address over our test placeholders.
+    if (/^12 example st$/i.test(contactAddress.trim())) contactAddress = "";
+
+    const rawApptDisplay =
       r.appointment_display ||
       r.appointment_raw ||
       pickFromRaw(raw, "Appointment Date Time", "startTime") ||
       "";
     const appointmentLocal = toDatetimeLocalValue(
-      r.appointment_at,
-      appointmentDisplay || r.appointment_raw,
+      r.appointment_at || pickFromRaw(raw, "startTime"),
+      rawApptDisplay || r.appointment_raw,
     );
+    const appointmentDisplay = formatVisitDisplay(
+      rawApptDisplay,
+      appointmentLocal,
+      r.appointment_raw || "",
+    );
+
     let bookedOn = "";
     if (r.booked_on) bookedOn = String(r.booked_on).slice(0, 10);
     else {
       const br = pickFromRaw(raw, "Date Appointment Booked - Automated", "date_created");
       const m = br.match(/^(\d{4}-\d{2}-\d{2})/);
-      bookedOn = m ? m[1] : (r.created_at ? String(r.created_at).slice(0, 10) : "");
+      if (m) bookedOn = m[1];
+      else {
+        const dmy = br.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (dmy) bookedOn = `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+        else bookedOn = r.created_at ? String(r.created_at).slice(0, 10) : "";
+      }
     }
+    const bookedOnDisplay = formatAuNzDate(bookedOn) || bookedOn;
+
     const roughJobValue =
       r.rough_job_value ||
       pickFromRaw(raw, "Rough Lead Value incl GST") ||
       "";
+
+    let salesPersonName = r.sales_person_name || "";
+    if (!salesPersonName || /^unknown$/i.test(salesPersonName)) {
+      const fromRaw =
+        pickFromRaw(raw, "assigned_to") ||
+        (raw?.customData as { assigned_to?: string } | undefined)?.assigned_to ||
+        pickFromRaw(raw, "owner") ||
+        "";
+      salesPersonName = matchRosterName(String(fromRaw), people) || salesPersonName;
+    }
+
+    // Fill gaps from GHL Contacts API (phone / email / address / owner).
+    const lookupId = contactId || opts?.pageContactId || "";
+    if (opts?.ghlLocationId && lookupId && (!contactPhone || !contactEmail || !contactAddress || !salesPersonName || /^unknown$/i.test(salesPersonName))) {
+      const ghl = await fetchGhlContact(opts.ghlLocationId, lookupId, people);
+      if (!contactName && ghl.name) contactName = ghl.name;
+      if (!contactPhone && ghl.phone) contactPhone = ghl.phone;
+      if (!contactEmail && ghl.email) contactEmail = ghl.email;
+      if (!contactAddress && ghl.address) contactAddress = ghl.address;
+      if ((!salesPersonName || /^unknown$/i.test(salesPersonName)) && ghl.ownerName) {
+        salesPersonName = matchRosterName(ghl.ownerName, people) || ghl.ownerName;
+      }
+      if (!contactId && lookupId) contactId = lookupId;
+    }
 
     // Quotes for every vertical — roofing + solar (empty → "no previous quote").
     const previousQuotes =
@@ -220,15 +279,18 @@ export async function fetchPendingSiteVisits(
       contactPhone,
       contactEmail,
       contactAddress,
-      salesPersonName: r.sales_person_name || "",
+      salesPersonName: salesPersonName || "",
       appointmentDisplay,
-      appointmentRaw: r.appointment_raw || appointmentDisplay,
+      appointmentRaw: r.appointment_raw || rawApptDisplay,
       appointmentLocal,
       bookedOn,
+      // Display-ready booked date for the auto panel
+      // (stored ISO still in bookedOn for submit)
       roughJobValue: roughJobValue ? String(roughJobValue) : "",
       vertical,
       previousQuotes,
       createdAt: r.created_at || "",
+      bookedOnDisplay,
     });
   }
   return out;
@@ -271,11 +333,15 @@ async function fetchPreviousQuotes(
     }));
 }
 
-/** GHL contact fields we pull for the EOD entry form. */
+/** GHL contact fields we pull for the EOD entry form / pending site visits. */
 export type GhlContact = {
   name: string;
   /** Street Address (address1), with city/state/postcode when present. */
   address: string;
+  phone: string;
+  email: string;
+  /** Roster-friendly owner/assignee name when we can resolve it. */
+  ownerName: string;
 };
 
 const DEFAULT_STAGES = ["New Leads", "Pre-Quote Follow Up", "Post Quote Follow Up"];
@@ -408,24 +474,70 @@ export function formatGhlAddress(c: {
   return locality ? `${street}, ${locality}` : street;
 }
 
+function ghlHeaders(token: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${token}`,
+    Version: "2021-07-28",
+    Accept: "application/json",
+    "User-Agent": "EOD-Creator/1.0 (contact lookup)",
+  };
+}
+
+function loadGhlTokens(): Record<string, string> {
+  try {
+    return JSON.parse(process.env.GHL_LOCATION_TOKENS || "{}");
+  } catch {
+    return {};
+  }
+}
+
+/** Resolve a GHL user id → display name (for contact assignedTo / owner). */
+async function fetchGhlUserName(token: string, userId: string): Promise<string> {
+  if (!userId || userId.length < 8) return "";
+  try {
+    const res = await fetch(`https://services.leadconnectorhq.com/users/${userId}`, {
+      headers: ghlHeaders(token),
+      cache: "no-store",
+    });
+    if (!res.ok) return "";
+    const body = await res.json();
+    const u = body?.user ?? body ?? {};
+    return (
+      [u.firstName, u.lastName].filter(Boolean).join(" ").trim() ||
+      String(u.name || u.email || "").trim()
+    );
+  } catch {
+    return "";
+  }
+}
+
+/** Map a free-text or full name onto a roster short name (e.g. "Lachlan Boys" → "Lachlan"). */
+export function matchRosterName(raw: string, people: string[]): string {
+  const t = (raw || "").trim();
+  if (!t || people.length === 0) return "";
+  if (people.includes(t)) return t;
+  const lower = t.toLowerCase();
+  const exact = people.find(p => p.toLowerCase() === lower);
+  if (exact) return exact;
+  const first = lower.split(/\s+/)[0];
+  const byFirst = people.find(p => p.toLowerCase() === first || p.toLowerCase().startsWith(first));
+  return byFirst || "";
+}
+
 export async function fetchGhlContact(
   ghlLocationId: string,
   contactId: string,
+  people: string[] = [],
 ): Promise<GhlContact> {
-  const empty: GhlContact = { name: "", address: "" };
-  if (!ghlLocationId || !contactId) return empty;
-  let tokens: Record<string, string>;
-  try {
-    tokens = JSON.parse(process.env.GHL_LOCATION_TOKENS || "{}");
-  } catch {
-    return empty;
-  }
+  const empty: GhlContact = { name: "", address: "", phone: "", email: "", ownerName: "" };
+  if (!ghlLocationId || !contactId || contactId.startsWith("pending-")) return empty;
+  const tokens = loadGhlTokens();
   const token = tokens[ghlLocationId];
   if (!token) return empty;
 
   try {
     const res = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
-      headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28" },
+      headers: ghlHeaders(token),
       cache: "no-store",
     });
     if (!res.ok) return empty;
@@ -434,10 +546,75 @@ export async function fetchGhlContact(
     const name =
       [c.firstName, c.lastName].filter(Boolean).join(" ").trim() ||
       String(c.contactName || "").trim();
-    return { name, address: formatGhlAddress(c) };
+    const phone = String(c.phone || c.phoneLabel || "").trim();
+    const email = String(c.email || "").trim();
+    const address = formatGhlAddress(c) || String(c.address1 || "").trim();
+
+    let ownerName = "";
+    const assignedId = String(c.assignedTo || c.assigned_to || "").trim();
+    if (assignedId) {
+      const userName = await fetchGhlUserName(token, assignedId);
+      ownerName = matchRosterName(userName, people) || matchRosterName(userName.split(/\s+/)[0] || "", people) || userName;
+    }
+
+    return { name, address, phone, email, ownerName };
   } catch {
     return empty;
   }
+}
+
+/** AU/NZ friendly date: DD/MM/YYYY. Accepts ISO date or Date-parseable strings. */
+export function formatAuNzDate(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const s = String(raw).trim();
+  let y: number, m: number, d: number;
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    y = +iso[1]; m = +iso[2]; d = +iso[3];
+  } else {
+    const dt = new Date(s);
+    if (Number.isNaN(dt.getTime())) return s; // already human text — leave it
+    y = dt.getUTCFullYear();
+    m = dt.getUTCMonth() + 1;
+    d = dt.getUTCDate();
+  }
+  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+}
+
+/** AU/NZ friendly time: h:mm AM/PM from ISO or datetime-local. */
+export function formatAuNzTime(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const s = String(raw).trim();
+  const m = s.match(/(?:T|\s)(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!m) {
+    // Already human? e.g. "Friday, July 31, 2026 10:00 AM"
+    if (/\b(am|pm)\b/i.test(s)) return s;
+    return s;
+  }
+  let h = parseInt(m[1], 10);
+  const min = m[2];
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${min} ${ampm}`;
+}
+
+/** Visit time display for popup/Slack: "11/08/2026 10:30 AM" or keep human GHL string with date reformatted when possible. */
+export function formatVisitDisplay(
+  appointmentDisplay: string,
+  appointmentLocal: string,
+  appointmentRaw: string,
+): string {
+  const local = appointmentLocal || "";
+  if (local && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(local)) {
+    return `${formatAuNzDate(local)} ${formatAuNzTime(local)}`.trim();
+  }
+  const raw = appointmentDisplay || appointmentRaw || "";
+  // ISO-ish
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return `${formatAuNzDate(raw)} ${formatAuNzTime(raw)}`.trim();
+  }
+  return raw;
 }
 
 /** @deprecated Prefer fetchGhlContact — kept for call-sites that only need name. */

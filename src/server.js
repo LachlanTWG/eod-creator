@@ -748,20 +748,35 @@ const server = http.createServer(async (req, res) => {
     return company;
   }
 
-  // Shared: resolve sales person from GHL payload
+  // Shared: resolve sales person from GHL payload (owner / assignee / user).
   function resolveGHLSalesPerson(body, company) {
-    console.log(`[GHL DEBUG] assigned_to fields: customData.assigned_to=${body.customData?.assigned_to}, body.assigned_to=${body.assigned_to}, owner=${body.owner}, user.firstName=${body.user?.firstName}`);
-    console.log(`[GHL DEBUG] customData: ${JSON.stringify(body.customData)}`);
-    console.log(`[GHL DEBUG] triggerData: ${JSON.stringify(body.triggerData)}`);
-    console.log(`[GHL DEBUG] workflow: ${JSON.stringify(body.workflow)}`);
-    console.log(`[GHL DEBUG] location: ${JSON.stringify(body.location)}`);
-    const assignedTo = body.customData?.assigned_to || body.assigned_to || body.owner || body.user?.firstName || '';
-    const assignedFirst = assignedTo.split(' ')[0].toLowerCase();
+    const candidates = [
+      body.customData?.assigned_to,
+      body.assigned_to,
+      body.assignedTo,
+      body.owner,
+      body.contact?.assignedTo,
+      body.user ? [body.user.firstName, body.user.lastName].filter(Boolean).join(' ') : '',
+      body.user?.firstName,
+      body.calendar?.created_by,
+    ].map(v => String(v || '').trim()).filter(Boolean);
+
     const activePeople = (company.salesPeople || []).filter(p => p.active);
-    const match = activePeople.find(p =>
-      p.name.split(' ')[0].toLowerCase() === assignedFirst
-    );
-    return match?.name || assignedTo || 'Unknown';
+    for (const raw of candidates) {
+      // Skip raw GHL user ids (look like long alphanumerics without spaces)
+      if (/^[A-Za-z0-9]{15,}$/.test(raw) && !raw.includes(' ')) continue;
+      const lower = raw.toLowerCase();
+      const exact = activePeople.find(p => p.name.toLowerCase() === lower);
+      if (exact) return exact.name;
+      const first = lower.split(/\s+/)[0];
+      const byFirst = activePeople.find(p =>
+        p.name.toLowerCase() === first || p.name.toLowerCase().startsWith(first)
+      );
+      if (byFirst) return byFirst.name;
+    }
+    // Last resort: first non-id candidate as free text
+    const free = candidates.find(c => !/^[A-Za-z0-9]{15,}$/.test(c));
+    return free || 'Unknown';
   }
 
   // Shared: today in company timezone

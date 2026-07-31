@@ -100,17 +100,24 @@ export default async function EodEntryPage({
     content = <MeView exec={exec || ""} execNames={execNames} my={my} base={base} />;
   } else {
     const scraped = cleanScrapedName(cName);
-    const [{ data: people }, options, history, ghl, pendingVisits] = await Promise.all([
-      supabase
-        .from("sales_people")
-        .select("name")
-        .eq("company_id", company.id)
-        .eq("active", true)
-        .order("name"),
+    const { data: peopleRows } = await supabase
+      .from("sales_people")
+      .select("name")
+      .eq("company_id", company.id)
+      .eq("active", true)
+      .order("name");
+    const people = (peopleRows ?? []).map(p => p.name);
+
+    const [options, history, ghl, pendingVisits] = await Promise.all([
       fetchEodOptions(company.id),
       fetchContactHistory(company.id, cId, scraped),
-      fetchGhlContact(location || "", cId),
-      fetchPendingSiteVisits(company.id, company.name, company.slug),
+      fetchGhlContact(location || "", cId, people),
+      fetchPendingSiteVisits(company.id, company.name, company.slug, {
+        ghlLocationId: location || "",
+        pageContactId: cId,
+        pageContactName: scraped || undefined,
+        people,
+      }),
     ]);
     // Name precedence: GHL API (authoritative, needs a location token) →
     // DB name for a known contact → the extension's DOM scrape (fragile,
@@ -121,17 +128,22 @@ export default async function EodEntryPage({
     const displayAddress = ghl.address || history?.lastAddress || "";
     // Lead source: EOD 5 if it exists for this contact.
     const displaySource = history?.lastSource || history?.topSource || "";
+    // Owner from GHL contact assignment → roster match.
+    const defaultExec = ghl.ownerName || "";
     content = (
       <EodEntryForm
         token={token}
         ghlLocationId={location || ""}
         companyName={company.name}
-        people={(people ?? []).map(p => p.name)}
+        people={people}
         defaultDate={today}
         contactName={displayName}
         contactId={cId}
         contactAddress={displayAddress}
+        contactPhone={ghl.phone}
+        contactEmail={ghl.email}
         defaultLeadSource={displaySource}
+        defaultSalesPerson={defaultExec}
         options={options}
         history={history}
         pendingSiteVisits={pendingVisits}

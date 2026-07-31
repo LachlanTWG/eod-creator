@@ -21,10 +21,10 @@ import {
   type EodEntryInput,
 } from "./actions";
 
+// Site visits are logged via the pending calendar banner (not this Type selector).
 const EVENT_TYPES = [
-  { value: "eod_update",        label: "EOD update" },
-  { value: "job_won",           label: "Job won" },
-  { value: "site_visit_booked", label: "Site visit booking" },
+  { value: "eod_update", label: "EOD update" },
+  { value: "job_won",    label: "Job won" },
 ] as const;
 
 type EventType = (typeof EVENT_TYPES)[number]["value"];
@@ -71,7 +71,10 @@ export function EodEntryForm({
   contactName = "",
   contactId = "",
   contactAddress = "",
+  contactPhone = "",
+  contactEmail = "",
   defaultLeadSource = "",
+  defaultSalesPerson = "",
   options = FALLBACK_OPTIONS,
   history = null,
   pendingSiteVisits = [],
@@ -85,8 +88,12 @@ export function EodEntryForm({
   contactId?: string;
   /** Prefill from GHL Street Address (or last logged address). */
   contactAddress?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   /** Prefill from most recent EOD 5 / contact source for this contact. */
   defaultLeadSource?: string;
+  /** GHL contact owner / assignee matched to roster. */
+  defaultSalesPerson?: string;
   options?: EodOptions;
   history?: ContactHistory | null;
   pendingSiteVisits?: PendingSiteVisit[];
@@ -102,29 +109,43 @@ export function EodEntryForm({
   const [svIdealStart, setSvIdealStart] = useState("");
   const [svComment, setSvComment] = useState("");
 
-  const [salesPerson, setSalesPerson] = useState(people[0] ?? "");
+  const initialSales =
+    (defaultSalesPerson && people.includes(defaultSalesPerson) ? defaultSalesPerson : "") ||
+    people[0] ||
+    "";
+  const [salesPerson, setSalesPerson] = useState(initialSales);
 
   // Each exec's browser remembers who they are: pick your name once and every
   // popup on this device defaults to you, across all clients (as long as
   // you're on that client's roster). Read after hydration — localStorage
   // isn't available during SSR.
   useEffect(() => {
+    // Prefer contact owner from GHL; else last-used exec on this device.
+    if (defaultSalesPerson && people.includes(defaultSalesPerson)) {
+      setSalesPerson(defaultSalesPerson); // eslint-disable-line react-hooks/set-state-in-effect
+      return;
+    }
     try {
       const stored = localStorage.getItem("eod-exec");
-      if (stored && people.includes(stored)) setSalesPerson(stored); // eslint-disable-line react-hooks/set-state-in-effect
+      if (stored && people.includes(stored)) setSalesPerson(stored);
     } catch { /* storage unavailable (rare iframe modes) — keep default */ }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [defaultSalesPerson, people]);
 
   // Auto-open the site-visit log form when this contact has a pending booking.
   useEffect(() => {
     if (activePending || openPendings.length === 0) return;
-    const match = contactId
+    const matchById = contactId
       ? openPendings.find(p => p.contactId && p.contactId === contactId)
       : null;
-    const first = match || (openPendings.length === 1 ? openPendings[0] : null);
+    const matchByName = contactName
+      ? openPendings.find(
+          p => p.contactName && p.contactName.toLowerCase() === contactName.toLowerCase(),
+        )
+      : null;
+    const first = matchById || matchByName || (openPendings.length === 1 ? openPendings[0] : null);
     if (first) applyPending(first);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contactId, openPendings.length]);
+  }, [contactId, contactName, openPendings.length]);
 
   function chooseSalesPerson(name: string) {
     setSalesPerson(name);
@@ -158,13 +179,34 @@ export function EodEntryForm({
   function removeItem(i: number) { setItems(list => list.filter((_, idx) => idx !== i)); }
 
   function applyPending(p: PendingSiteVisit) {
-    setActivePending(p);
-    if (p.salesPersonName && people.includes(p.salesPersonName)) {
-      chooseSalesPerson(p.salesPersonName);
-    } else if (p.salesPersonName) {
-      setSalesPerson(p.salesPersonName);
+    // Fill sparse pending rows from the open contact / GHL page context.
+    const enriched: PendingSiteVisit = {
+      ...p,
+      contactId: p.contactId || contactId || "",
+      contactName: p.contactName || contactName || "",
+      contactPhone: p.contactPhone || contactPhone || "",
+      contactEmail: p.contactEmail || contactEmail || "",
+      contactAddress:
+        (!p.contactAddress || /^12 example st$/i.test(p.contactAddress)
+          ? contactAddress
+          : p.contactAddress) || "",
+      salesPersonName:
+        (p.salesPersonName && !/^unknown$/i.test(p.salesPersonName)
+          ? p.salesPersonName
+          : "") ||
+        defaultSalesPerson ||
+        p.salesPersonName ||
+        "",
+    };
+    setActivePending(enriched);
+    if (enriched.salesPersonName && people.includes(enriched.salesPersonName)) {
+      chooseSalesPerson(enriched.salesPersonName);
+    } else if (enriched.salesPersonName && !/^unknown$/i.test(enriched.salesPersonName)) {
+      setSalesPerson(enriched.salesPersonName);
+    } else if (defaultSalesPerson && people.includes(defaultSalesPerson)) {
+      chooseSalesPerson(defaultSalesPerson);
     }
-    setSvRough(p.roughJobValue || "");
+    setSvRough(enriched.roughJobValue || "");
     setSvIdealStart("");
     setSvComment("");
     setError(null);
@@ -305,9 +347,7 @@ export function EodEntryForm({
     submit(payloadItems, eventType);
   }
 
-  const rowLabel = eventType === "job_won" ? "Job"
-    : eventType === "site_visit_booked" ? "Site visit"
-    : "Entry";
+  const rowLabel = eventType === "job_won" ? "Job" : "Entry";
 
   return (
     <div>
@@ -355,7 +395,10 @@ export function EodEntryForm({
                 label="Visit time"
                 value={activePending.appointmentDisplay || activePending.appointmentRaw || "—"}
               />
-              <AutoRow label="Booked on" value={activePending.bookedOn || "—"} />
+              <AutoRow
+                label="Booked on"
+                value={activePending.bookedOnDisplay || activePending.bookedOn || "—"}
+              />
             </div>
 
             <Field label="Sales person">
@@ -468,7 +511,7 @@ export function EodEntryForm({
           </div>
 
           <Field label="Type">
-            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Type">
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Type">
               {EVENT_TYPES.map(t => (
                 <button
                   key={t.value}
@@ -639,22 +682,6 @@ export function EodEntryForm({
                         </>
                       )}
 
-                      {eventType === "site_visit_booked" && (
-                        <>
-                          <Field label="Appointment date/time">
-                            <input type="datetime-local" value={it.appointment_at} onChange={e => patchItem(i, { appointment_at: e.target.value })} className={inputClass} />
-                          </Field>
-                          <Field
-                            label="Address"
-                            hint={contactAddress ? "Prefill from GHL Street Address — edit if needed." : "Optional. Prefills from GHL when available."}
-                          >
-                            <input type="text" value={it.contact_address} onChange={e => patchItem(i, { contact_address: e.target.value })} className={inputClass} />
-                          </Field>
-                          <Field label="Comment" hint="Optional.">
-                            <input type="text" value={it.outcome} onChange={e => patchItem(i, { outcome: e.target.value })} className={inputClass} />
-                          </Field>
-                        </>
-                      )}
                     </div>
                   </div>
                 ))}
