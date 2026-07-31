@@ -154,6 +154,8 @@ export async function fetchPendingSiteVisits(
   companySlug?: string,
   opts?: {
     ghlLocationId?: string;
+    /** Company IANA timezone for "next future appointment" selection. */
+    timeZone?: string;
     /** Contact currently open in the popup — used when pending row is sparse/stale. */
     pageContactId?: string;
     pageContactName?: string;
@@ -265,21 +267,22 @@ export async function fetchPendingSiteVisits(
       }
       if (!contactId && lookupId) contactId = lookupId;
 
-      // Authoritative visit time: GHL contact appointments (not stale webhook test data).
-      const appt = await fetchGhlContactAppointment(opts.ghlLocationId, lookupId);
+      // Authoritative visit time: NEXT future non-cancelled site-visit booking
+      // from GHL (never trust stale webhook / cancelled slots).
+      const appt = await fetchGhlContactAppointment(
+        opts.ghlLocationId,
+        lookupId,
+        opts.timeZone || "Australia/Sydney",
+      );
       if (appt?.startTime) {
         rawApptDisplay = appt.startTime;
-        if (appt.address && (!contactAddress || /^12 example st$/i.test(contactAddress))) {
-          contactAddress = appt.address.trim();
+        if (appt.address) {
+          contactAddress = appt.address.trim() || contactAddress;
         }
         // dateAdded is when the booking was created in GHL
         if (appt.dateAdded) {
           const dm = String(appt.dateAdded).match(/^(\d{4})-(\d{2})-(\d{2})/);
           if (dm) bookedOn = `${dm[1]}-${dm[2]}-${dm[3]}`;
-          else {
-            const sp = String(appt.dateAdded).match(/^(\d{4})-(\d{2})-(\d{2})[ T]/);
-            if (sp) bookedOn = `${sp[1]}-${sp[2]}-${sp[3]}`;
-          }
         }
       }
     }
@@ -603,7 +606,7 @@ export async function fetchGhlContact(
 }
 
 export type GhlAppointment = {
-  startTime: string;   // "2026-08-11 10:30:00" wall clock from GHL
+  startTime: string;   // "2026-08-11 10:30:00" wall clock from GHL (location local)
   endTime: string;
   address: string;
   title: string;
@@ -611,13 +614,54 @@ export type GhlAppointment = {
   id: string;
 };
 
+const DEAD_APPT_STATUSES = new Set([
+  "cancelled", "canceled", "noshow", "no_show", "invalid", "abandoned",
+]);
+
+/** Current wall-clock in a location timezone as "YYYY-MM-DD HH:mm:ss" (sortable). */
+export function wallClockNow(timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date());
+    const g = (t: string) => parts.find(p => p.type === t)?.value || "00";
+    return `${g("year")}-${g("month")}-${g("day")} ${g("hour")}:${g("minute")}:${g("second")}`;
+  } catch {
+    return new Date().toISOString().slice(0, 19).replace("T", " ");
+  }
+}
+
+/** Normalise GHL start strings to "YYYY-MM-DD HH:mm:ss" for comparison. */
+function normaliseWallStart(raw: string): string {
+  const m = String(raw).trim().match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})(?::(\d{2}))?/);
+  if (!m) return String(raw).trim();
+  return `${m[1]} ${m[2]}:${m[3] || "00"}`;
+}
+
 /**
- * Upcoming / latest confirmed appointment for a contact.
+ * Pick the next future site-visit booking for a contact from GHL.
+ *
+ * Rules (in order):
+ *  1. Ignore deleted + cancelled / no-show
+ *  2. Prefer titles that look like a site visit
+ *  3. Among those, take the earliest start still in the future
+ *     (2h grace so an in-progress visit still counts)
+ *  4. If nothing is future, take the most recent non-cancelled
+ *
  * Uses GET /contacts/{id}/appointments (works with View Contacts PITs).
+ * `timeZone` is the client company timezone (e.g. Pacific/Auckland).
  */
 export async function fetchGhlContactAppointment(
   ghlLocationId: string,
   contactId: string,
+  timeZone = "Australia/Sydney",
 ): Promise<GhlAppointment | null> {
   if (!ghlLocationId || !contactId || contactId.startsWith("pending-")) return null;
   const tokens = loadGhlTokens();
@@ -643,34 +687,49 @@ export async function fetchGhlContactAppointment(
         const status = String(
           e.appointmentStatus || e.appoinmentStatus || e.status || "",
         ).toLowerCase();
+        const title = String(e.title || "").trim();
         return {
           startTime,
+          startNorm: normaliseWallStart(startTime),
           endTime,
           address: String(e.address || "").trim(),
-          title: String(e.title || "").trim(),
+          title,
           dateAdded,
           id: String(e.id || ""),
           status,
+          isSiteVisit: /site\s*visit/i.test(title),
         };
       })
-      .filter(e => e.startTime);
+      .filter(e => e.startTime && !DEAD_APPT_STATUSES.has(e.status));
 
     if (parsed.length === 0) return null;
 
-    // Drop cancelled / no-show — they pollute contacts with old test slots.
-    const active = parsed.filter(
-      e => !["cancelled", "canceled", "noshow", "no_show", "invalid"].includes(e.status),
-    );
-    const pool = active.length > 0 ? active : parsed;
+    // Prefer site-visit-titled bookings when any exist.
+    const sitePool = parsed.filter(e => e.isSiteVisit);
+    const pool = sitePool.length > 0 ? sitePool : parsed;
 
-    // Prefer confirmed; among those, latest start (handles reschedules).
-    const confirmed = pool.filter(e =>
-      ["confirmed", "showed", "booked", "new"].includes(e.status) || e.status === "",
-    );
-    const ranked = (confirmed.length > 0 ? confirmed : pool)
-      .slice()
-      .sort((a, b) => b.startTime.localeCompare(a.startTime));
-    const pick = ranked[0];
+    const nowLocal = wallClockNow(timeZone);
+    // 2h grace: allow an appointment that started recently (still "this visit").
+    const grace = (() => {
+      const [datePart, timePart] = nowLocal.split(" ");
+      const [y, mo, d] = datePart.split("-").map(Number);
+      const [h, mi, s] = timePart.split(":").map(Number);
+      const ms = Date.UTC(y, mo - 1, d, h, mi, s) - 2 * 60 * 60 * 1000;
+      const dt = new Date(ms);
+      const pad = (n: number) => String(n).padStart(2, "0");
+      // Reconstruct as wall-clock string in the same numeric space we subtracted
+      return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())} ${pad(dt.getUTCHours())}:${pad(dt.getUTCMinutes())}:${pad(dt.getUTCSeconds())}`;
+    })();
+
+    const future = pool
+      .filter(e => e.startNorm >= grace)
+      .sort((a, b) => a.startNorm.localeCompare(b.startNorm));
+
+    // Next upcoming (or in-progress). Else most recent past non-cancelled.
+    const pick =
+      future[0] ||
+      pool.slice().sort((a, b) => b.startNorm.localeCompare(a.startNorm))[0];
+
     return {
       startTime: pick.startTime,
       endTime: pick.endTime,

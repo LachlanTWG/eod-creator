@@ -114,6 +114,7 @@ export default async function EodEntryPage({
       fetchGhlContact(location || "", cId, people),
       fetchPendingSiteVisits(company.id, company.name, company.slug, {
         ghlLocationId: location || "",
+        timeZone: company.timezone || "Australia/Sydney",
         pageContactId: cId,
         pageContactName: scraped || undefined,
         people,
