@@ -249,8 +249,14 @@ export function EodEntryForm({
         contact_phone: activePending.contactPhone,
         contact_email: activePending.contactEmail,
         contact_address: activePending.contactAddress,
+        // Display (AU) for Slack only; machine ISO for DB insert.
         appointment_display: activePending.appointmentDisplay || activePending.appointmentRaw,
-        appointment_at: activePending.appointmentLocal,
+        appointment_at:
+          activePending.appointmentLocal ||
+          // Prefer raw machine wall-clock from GHL ("2026-07-31 15:30:00")
+          (activePending.appointmentRaw && /^\d{4}-\d{2}-\d{2}/.test(activePending.appointmentRaw)
+            ? activePending.appointmentRaw
+            : ""),
         booked_on: activePending.bookedOn || defaultDate,
         vertical: activePending.vertical,
         rough_job_value: svRough,

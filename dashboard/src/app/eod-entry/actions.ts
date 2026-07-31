@@ -38,6 +38,23 @@ export type EodEntryResult =
   | { ok: true; count: number; pipeline?: string; pipelineOk?: boolean } // pipeline: what happened ("moved to X") or a skip/fail reason
   | { ok: false; error: string };
 
+/** Postgres-safe appointment timestamp from local/ISO-ish strings. */
+function toMachineAppointmentAt(
+  appointmentAt?: string,
+  appointmentDisplay?: string,
+): string {
+  const candidates = [appointmentAt, appointmentDisplay].map(s => String(s || "").trim()).filter(Boolean);
+  for (const s of candidates) {
+    // Already ISO / datetime-local: 2026-07-31T15:30 or 2026-07-31 15:30:00
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})(?::(\d{2}))?/);
+    if (m) return `${m[1]}T${m[2]}:${m[3] || "00"}`;
+    // Skip human AU strings like 31/07/2026 3:30 PM
+    if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(s)) continue;
+    if (/\b(am|pm)\b/i.test(s) && !/^\d{4}-\d{2}-\d{2}/.test(s)) continue;
+  }
+  return "";
+}
+
 export type CompleteSiteVisitInput = {
   token: string;
   ghl_location_id?: string;
@@ -123,9 +140,15 @@ export async function completePendingSiteVisit(
     salesPersonName,
     items,
   );
-  // Prefer human appointment display in the sheet when we have it.
-  if (input.appointment_display) {
-    activities[0].appointmentDateTime = input.appointment_display;
+  // DB/sheet need a parseable timestamp — NEVER the AU display string
+  // (e.g. "31/07/2026 3:30 PM" blows up Postgres). Prefer ISO-ish
+  // appointment_at; fall back to raw display only if it looks machine-safe.
+  const machineAppt = toMachineAppointmentAt(
+    input.appointment_at,
+    input.appointment_display,
+  );
+  if (machineAppt) {
+    activities[0].appointmentDateTime = machineAppt;
   }
   const posted = await postManualActivities(company.name, activities);
   if (!posted.ok) return posted;

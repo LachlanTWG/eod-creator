@@ -634,15 +634,15 @@ export async function fetchGhlContactAppointment(
     const events = (body?.events || body?.appointments || []) as Record<string, unknown>[];
     if (!Array.isArray(events) || events.length === 0) return null;
 
-    const now = Date.now();
     const parsed = events
       .filter(e => !e.deleted)
       .map(e => {
         const startTime = String(e.startTime || e.start_time || "").trim();
         const endTime = String(e.endTime || e.end_time || "").trim();
         const dateAdded = String(e.dateAdded || e.date_added || e.createdAt || "").trim();
-        // Parse "2026-08-11 10:30:00" as local wall-clock sort key
-        const sortMs = Date.parse(startTime.replace(" ", "T") + "Z") || 0;
+        const status = String(
+          e.appointmentStatus || e.appoinmentStatus || e.status || "",
+        ).toLowerCase();
         return {
           startTime,
           endTime,
@@ -650,19 +650,27 @@ export async function fetchGhlContactAppointment(
           title: String(e.title || "").trim(),
           dateAdded,
           id: String(e.id || ""),
-          sortMs,
-          status: String(e.appointmentStatus || e.appoinmentStatus || e.status || "").toLowerCase(),
+          status,
         };
       })
       .filter(e => e.startTime);
 
     if (parsed.length === 0) return null;
 
-    // Prefer next upcoming confirmed, else latest by start time.
-    const upcoming = parsed
-      .filter(e => e.sortMs >= now - 60 * 60 * 1000) // allow 1h grace
-      .sort((a, b) => a.sortMs - b.sortMs);
-    const pick = upcoming[0] || parsed.sort((a, b) => b.sortMs - a.sortMs)[0];
+    // Drop cancelled / no-show — they pollute contacts with old test slots.
+    const active = parsed.filter(
+      e => !["cancelled", "canceled", "noshow", "no_show", "invalid"].includes(e.status),
+    );
+    const pool = active.length > 0 ? active : parsed;
+
+    // Prefer confirmed; among those, latest start (handles reschedules).
+    const confirmed = pool.filter(e =>
+      ["confirmed", "showed", "booked", "new"].includes(e.status) || e.status === "",
+    );
+    const ranked = (confirmed.length > 0 ? confirmed : pool)
+      .slice()
+      .sort((a, b) => b.startTime.localeCompare(a.startTime));
+    const pick = ranked[0];
     return {
       startTime: pick.startTime,
       endTime: pick.endTime,
