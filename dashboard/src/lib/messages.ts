@@ -367,12 +367,33 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
   }
 }
 
-function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData): string | null {
-  const { counts, siteVisits, jobDetails, quoteDetails } = data;
+/**
+ * Personal week (EOW) cards list contact names for Requires Quoting and Quotes
+ * Sent so execs can confirm every RQ this week got a quote out. Team cards stay
+ * count-only (same as Slack/ClickUp EOW) to keep the aggregate view compact.
+ */
+function formatEOWLine(
+  outcomeName: string,
+  formulaId: number,
+  data: CountedData,
+  isTeam: boolean,
+): string | null {
+  const { counts, names, siteVisits, jobDetails, quoteDetails } = data;
   const label = displayLabel(outcomeName);  // printed text only; keys stay raw
   switch (formulaId) {
     case 1: return null;
-    case 11: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label}: ${c}`; }
+    case 11: {
+      const c = counts[outcomeName] || 0;
+      if (c === 0) return null;
+      // Personal week: list names on Requires Quoting (coverage check). Other
+      // formula-11 outcomes stay count-only so the card doesn't explode.
+      if (!isTeam && outcomeName === "Requires Quoting") {
+        const unique = [...new Set((names[outcomeName] || []).filter(Boolean))];
+        if (unique.length === 0) return `${label}: ${c}`;
+        return `${label}: ${c}\n${unique.map(n => `- ${n}`).join("\n")}`;
+      }
+      return `${label}: ${c}`;
+    }
     case 12: {
       const total = counts["Total Calls"] || counts["Total Contact Attempts"] || 0;
       if (total === 0) return null;
@@ -381,8 +402,16 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
       return `Total Calls: ${total} (${rate}% Answered)`;
     }
     case 6: {
-      const qc = quoteDetails.length;
-      return qc === 0 ? null : `Total Contacts Quoted: ${qc}`;
+      // Personal week: per-contact quote lines (same shape as EOD). Team: total only.
+      const valid = quoteDetails.filter(q => q.contactName || q.values.length > 0);
+      if (valid.length === 0) return null;
+      if (isTeam) return `Total Contacts Quoted: ${valid.length}`;
+      const lines = [`Total Contacts Quoted: ${valid.length}`];
+      for (const q of valid) {
+        const valStr = q.values.map(v => formatDollar(v)).join(", ");
+        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
+      }
+      return lines.join("\n");
     }
     case 7: {
       const value = counts["Pipeline Value"] || 0;
@@ -410,6 +439,23 @@ function formatEOWLine(outcomeName: string, formulaId: number, data: CountedData
     case 2: case 3: case 4: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label}: ${c}`; }
     default: return null;
   }
+}
+
+/** Unique contact names logged as Requires Quoting this period. */
+function uniqueRequiresQuoting(data: CountedData): string[] {
+  return [...new Set((data.names["Requires Quoting"] || []).filter(Boolean))];
+}
+
+/** Unique Requires Quoting contacts this period with no matching Quote Sent. */
+function requiresQuotingStillOpen(data: CountedData): string[] {
+  const rq = uniqueRequiresQuoting(data);
+  if (rq.length === 0) return [];
+  const quoted = new Set(
+    data.quoteDetails
+      .map(q => normalizeName(q.contactName))
+      .filter(n => n.length > 0),
+  );
+  return rq.filter(name => !quoted.has(normalizeName(name)));
 }
 
 // ─── Message builders ────────────────────────────────────────────────
@@ -665,12 +711,29 @@ function buildMessage(opts: {
       const formulaId = formulaEntry[formulaKey] ?? 1;
       const line = period === "day"
         ? formatEODLine(outcomeName, formulaId, data, isTeam)
-        : formatEOWLine(outcomeName, formulaId, data);
+        : formatEOWLine(outcomeName, formulaId, data, isTeam);
       if (line) blockLines.push(line);
     }
     if (blockLines.length > 0) {
       lines.push(blockName);
       lines.push(...blockLines);
+      lines.push(separator);
+    }
+  }
+
+  // Personal week only: flag Requires Quoting contacts that still have no
+  // Quote Sent this week, so coverage is obvious without leaving the card.
+  if (period === "week" && !isTeam) {
+    const rqNames = uniqueRequiresQuoting(data);
+    if (rqNames.length > 0) {
+      const open = requiresQuotingStillOpen(data);
+      lines.push("✅ Quoting coverage");
+      if (open.length === 0) {
+        lines.push(`All ${rqNames.length} Requires Quoting covered with a quote this week`);
+      } else {
+        lines.push(`Still need quote: ${open.length} of ${rqNames.length}`);
+        for (const name of open) lines.push(`- ${name}`);
+      }
       lines.push(separator);
     }
   }
