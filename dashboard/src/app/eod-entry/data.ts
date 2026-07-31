@@ -234,10 +234,8 @@ export async function fetchPendingSiteVisits(
       }
     }
 
-    const roughJobValue =
-      r.rough_job_value ||
-      pickFromRaw(raw, "Rough Lead Value incl GST") ||
-      "";
+    // Rough job value is always manual — never prefill from GHL.
+    const roughJobValue = "";
 
     let salesPersonName = r.sales_person_name || "";
     if (!salesPersonName || /^unknown$/i.test(salesPersonName)) {

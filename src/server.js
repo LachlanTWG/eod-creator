@@ -1003,11 +1003,6 @@ const server = http.createServer(async (req, res) => {
       cal.date_created ||
       '';
     const bookedOn = toIsoDateOnly(bookedRaw) || companyToday(company);
-    const roughVal =
-      deepFindField(body, 'Rough Lead Value incl GST') ||
-      body['Rough Lead Value incl GST'] ||
-      '';
-
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'pending',
@@ -1029,7 +1024,8 @@ const server = http.createServer(async (req, res) => {
       appointmentDisplay: String(appointmentDisplay || appointmentStart || '').trim() || null,
       appointmentAt: appointmentStart ? String(appointmentStart) : null,
       bookedOn,
-      roughJobValue: roughVal !== '' && roughVal != null ? String(roughVal) : null,
+      // Rough job value is filled manually in the popup — do not prefill from GHL.
+      roughJobValue: null,
       source: 'ghl',
       rawPayload: body,
     }).then((r) => {

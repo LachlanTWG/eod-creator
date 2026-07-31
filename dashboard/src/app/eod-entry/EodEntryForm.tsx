@@ -207,7 +207,7 @@ export function EodEntryForm({
     } else if (defaultSalesPerson && people.includes(defaultSalesPerson)) {
       chooseSalesPerson(defaultSalesPerson);
     }
-    setSvRough(enriched.roughJobValue || "");
+    setSvRough(""); // always manual — never prefill
     setSvIdealStart("");
     setSvComment("");
     setError(null);
