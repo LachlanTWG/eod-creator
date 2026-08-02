@@ -328,12 +328,13 @@ async function main() {
       const endIdx = args.indexOf('--end');
       const today = todayAEST();
 
-      // Default to the last completed week, Mon–Sun (matches runReports.js)
+      // Default week under review (matches runReports.js):
+      //   Sunday → this Mon–Sun; Mon–Sat → last completed Mon–Sun
       const d = new Date(today + 'T12:00:00+10:00');
       const day = d.getDay();
       const mondayDiff = day === 0 ? -6 : 1 - day;
       const monday = new Date(d);
-      monday.setDate(d.getDate() + mondayDiff - 7);
+      monday.setDate(d.getDate() + mondayDiff + (day === 0 ? 0 : -7));
       const sunday = new Date(monday);
       sunday.setDate(monday.getDate() + 6);
 

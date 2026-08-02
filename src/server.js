@@ -154,7 +154,7 @@ function formatSiteVisitSummary(b) {
 //   11:55pm local (Friday)  → Also ARCHIVE EOW
 //   1st of month, 9am local → EOM (send + archive)
 //   Jan 2, 9am local        → EOY (send + archive)
-//   Friday 6pm local        → Meeting doc (after all EOWs sent)
+//   Sunday 5:30pm AEST      → Meeting doc (night before Monday meeting)
 
 const scheduledJobs = [];
 
@@ -292,14 +292,15 @@ function scheduleSummaryArchive() {
   console.log(`  Summary Archive: Daily 11:59pm Mon-Fri, Weekly 11:59pm Fri, Monthly 2pm 1st (all AEST)`);
 }
 
-// Meeting Doc — Monday 6am AEST, covering the week that just ended (so
-// weekend-logged activity is included before the Monday morning meeting).
+// Meeting Doc — Sunday 5:30pm AEST, covering the week ending that Sunday
+// (Mon–Sun). Runs the night before the Monday morning meeting so the team
+// can add comments overnight.
 function scheduleMeetingDoc() {
-  scheduledJobs.push(cron.schedule('0 6 * * 1', () => {
+  scheduledJobs.push(cron.schedule('30 17 * * 0', () => {
     console.log(`[${new Date().toISOString()}] MEETING DOC`);
     runMeetingDoc().catch(e => console.error('Meeting doc error:', e.message));
   }, { timezone: 'Australia/Sydney' }));
-  console.log(`  Meeting Doc: Monday 6am AEST (previous week)`);
+  console.log(`  Meeting Doc: Sunday 5:30pm AEST (week ending today)`);
 }
 
 // Monthly Review Doc — 1st of month, 12pm AEST (after per-company EOM at ~11am AEST)
@@ -1304,7 +1305,7 @@ const server = http.createServer(async (req, res) => {
         'EOM': '1st of month, 9am local',
         'EOQ': '1st of Jan/Apr/Jul/Oct, 9am local',
         'EOY': 'Jan 2, 9am local',
-        'Meeting Doc': 'Friday 6pm AEST',
+        'Meeting Doc': 'Sunday 5:30pm AEST',
         'Monthly Review Doc': '12pm 1st of month AEST',
       },
     }));

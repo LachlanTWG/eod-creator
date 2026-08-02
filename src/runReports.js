@@ -653,14 +653,22 @@ async function runAllSiteVisitNotifications() {
 }
 
 async function runMeetingDoc(startDate, endDate) {
-  // Default: the last completed week (Mon–Sun). The cron fires Monday 6am
-  // AEST, so the week under review at the meeting is the one just ended.
+  // Default week under review:
+  //   - Sunday (cron night-before): this week's Mon–Sun (week ending today)
+  //   - Mon–Sat (manual re-run): last completed Mon–Sun
+  // Cron fires Sunday 5:30pm AEST so the team can comment overnight before
+  // the Monday morning meeting.
   const today = todayInTz('Australia/Sydney');
-  const d = new Date(getMondayOfWeek(today) + 'T12:00:00Z');
-  d.setDate(d.getDate() - 7);
-  const lastWeekMonday = d.toISOString().split('T')[0];
-  const start = startDate || lastWeekMonday;
-  const end = endDate || getSundayOfWeek(lastWeekMonday);
+  const thisMonday = getMondayOfWeek(today);
+  const dow = new Date(today + 'T12:00:00Z').getUTCDay(); // 0 = Sunday
+  let weekMonday = thisMonday;
+  if (dow !== 0) {
+    const d = new Date(thisMonday + 'T12:00:00Z');
+    d.setDate(d.getDate() - 7);
+    weekMonday = d.toISOString().split('T')[0];
+  }
+  const start = startDate || weekMonday;
+  const end = endDate || getSundayOfWeek(weekMonday);
 
   console.log(`\n=== Generating Meeting Doc — ${start} to ${end} ===\n`);
 
