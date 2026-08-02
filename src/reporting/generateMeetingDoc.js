@@ -219,9 +219,12 @@ async function generateMeetingDoc(startDate, endDate) {
 
   const monthStart = monthStartOf(endDate);
   const funnelStart = addDaysStr(endDate, -89);
+  const jobsPerMonth = huddleCfg.jobsPerMonthTarget;
+  const jobsPerQuarter = jobsPerMonth * 3; // 8/mo → 24/qtr
 
-  // Per-client computations. Health/pace is "as at" the Sunday under review,
-  // so a Monday-morning run reports the completed week, not a fresh month.
+  // Per-client computations. Health/pace is quarter-to-date "as at" the
+  // Sunday under review (target = 8 jobs/mo × 3 = 24/quarter), so a fresh
+  // calendar month mid-quarter doesn't wipe the signal.
   const clients = companies.map(company => {
     const rows = rowsByCompany.get(company.name);
     return {
@@ -230,7 +233,7 @@ async function generateMeetingDoc(startDate, endDate) {
       week: rangeTotals(rows, startDate, endDate),
       health: clientMetrics(rows, {
         today: endDate, weekStart: startDate, monthStart,
-        target: huddleCfg.jobsPerMonthTarget,
+        target: jobsPerMonth,
       }),
       funnel: rangeTotals(rows, funnelStart, endDate),
       trend: weeklyTrend(rows, startDate),
@@ -306,13 +309,13 @@ async function generateMeetingDoc(startDate, endDate) {
 
   // ═══ CLIENT HEALTH ═══
   lines.push('## 🏢 Client Health');
-  lines.push(`_Jobs are month-to-date as at ${formatShortDate(endDate)} (target ${huddleCfg.jobsPerMonthTarget}/mo). FB leads and lead→appt are from Facebook-sourced contacts._`);
+  lines.push(`_Jobs/revenue are quarter-to-date as at ${formatShortDate(endDate)} (target ${jobsPerMonth}/mo = ${jobsPerQuarter}/qtr). Pace projects to quarter-end. FB leads and lead→appt are month-to-date from Facebook-sourced contacts._`);
   lines.push('');
-  lines.push('| Client | 📞 Calls | ⚡ Pick-Up | 📤 Quotes | 🏆 Jobs MTD | 💰 Revenue MTD | Pace | 🌱 FB Leads | 📅 Lead→Appt |');
+  lines.push('| Client | 📞 Calls | ⚡ Pick-Up | 📤 Quotes | 🏆 Jobs QTD | 💰 Revenue QTD | Pace | 🌱 FB Leads | 📅 Lead→Appt |');
   lines.push('|---|---|---|---|---|---|---|---|---|');
   for (const c of clients) {
     const h = c.health;
-    lines.push(`| ${c.company.name} | ${c.week.calls} | ${pct(c.week.spokeTo, c.week.calls)} | ${c.week.quotesSent} | ${h.jobsWonMTD} / ${huddleCfg.jobsPerMonthTarget} | ${formatDollar(h.revenueMTD)} | ${h.health} | ${h.fbLeadsWTD} | ${h.fbLeadsMTD > 0 ? h.leadToApptPct + '%' : '-'} |`);
+    lines.push(`| ${c.company.name} | ${c.week.calls} | ${pct(c.week.spokeTo, c.week.calls)} | ${c.week.quotesSent} | ${h.jobsWonQTD} / ${jobsPerQuarter} | ${formatDollar(h.revenueQTD)} | ${h.health} | ${h.fbLeadsWTD} | ${h.fbLeadsMTD > 0 ? h.leadToApptPct + '%' : '-'} |`);
   }
   lines.push('');
   lines.push('* * *');
@@ -349,7 +352,7 @@ async function generateMeetingDoc(startDate, endDate) {
     if (c.error) { flags.push(`⚠️ **${c.company.name}** — data fetch failed (${c.error})`); continue; }
     if (c.week.calls === 0) { flags.push(`🔇 **${c.company.name}** — no calls logged this week`); continue; }
     if (!c.health.health.startsWith('🟢')) {
-      flags.push(`${c.health.health.split(' ')[0]} **${c.company.name}** — ${c.health.jobsWonMTD}/${huddleCfg.jobsPerMonthTarget} jobs MTD (${c.health.health.replace(/^\S+\s/, '')})`);
+      flags.push(`${c.health.health.split(' ')[0]} **${c.company.name}** — ${c.health.jobsWonQTD}/${jobsPerQuarter} jobs QTD (${c.health.health.replace(/^\S+\s/, '')})`);
     }
     if (c.week.calls >= 10 && c.week.spokeTo / c.week.calls < 0.25) {
       flags.push(`⚡ **${c.company.name}** — pick-up rate ${pct(c.week.spokeTo, c.week.calls)} on ${c.week.calls} calls`);

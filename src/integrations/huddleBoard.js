@@ -38,8 +38,10 @@ const LEADERBOARD_FIELDS = [
 
 const CLIENT_HEALTH_FIELDS = [
   ['Health (Auto)', 'short_text'],
-  ['Jobs Won (MTD)', 'number'], ['Jobs Target (/mo)', 'number'],
-  ['Revenue (MTD)', 'currency'],
+  // Pace is quarterly (8/mo × 3 = 24/qtr). New field names — ensureFields
+  // creates them; any leftover MTD fields in ClickUp are left untouched.
+  ['Jobs Won (QTD)', 'number'], ['Jobs Target (/qtr)', 'number'],
+  ['Revenue (QTD)', 'currency'],
   ['FB Leads (WTD)', 'number'], ['FB Leads (MTD)', 'number'],
   ['Lead → Appt % (MTD)', 'number'],
   ['Dead Leads (WTD)', 'number'],
@@ -233,9 +235,9 @@ async function syncHuddleBoard() {
     });
     const values = {
       'Health (Auto)': m.health,
-      'Jobs Won (MTD)': m.jobsWonMTD,
-      'Jobs Target (/mo)': cfg.jobsPerMonthTarget,
-      'Revenue (MTD)': Math.round(m.revenueMTD),
+      'Jobs Won (QTD)': m.jobsWonQTD,
+      'Jobs Target (/qtr)': m.quarterTarget,
+      'Revenue (QTD)': Math.round(m.revenueQTD),
       'FB Leads (WTD)': m.fbLeadsWTD,
       'FB Leads (MTD)': m.fbLeadsMTD,
       'Lead → Appt % (MTD)': m.leadToApptPct,
@@ -245,8 +247,8 @@ async function syncHuddleBoard() {
     const description = [
       syncedStamp(),
       '',
-      `**${m.health}** — ${m.jobsWonMTD} job${m.jobsWonMTD === 1 ? '' : 's'} won this month (target ${cfg.jobsPerMonthTarget}/mo), ${money(m.revenueMTD)} revenue.`,
-      `Health is projected from month-to-date pace; "happy client" stays a human call.`,
+      `**${m.health}** — ${m.jobsWonQTD} job${m.jobsWonQTD === 1 ? '' : 's'} won this quarter (target ${m.quarterTarget}/qtr = ${cfg.jobsPerMonthTarget}/mo), ${money(m.revenueQTD)} revenue.`,
+      `Health is projected from quarter-to-date pace (since ${pretty(m.quarterStart)}); "happy client" stays a human call.`,
       '',
       dead.length
         ? `### Dead leads this week\n` + dead.map(d =>

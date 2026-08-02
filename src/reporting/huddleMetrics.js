@@ -85,6 +85,38 @@ function monthStartOf(dateStr) {
   return dateStr.slice(0, 8) + '01';
 }
 
+// Calendar quarter start (Jan/Apr/Jul/Oct). Same boundaries as Aus FY
+// quarters — only the Q numbering differs.
+function quarterStartOf(dateStr) {
+  const y = Number(dateStr.slice(0, 4));
+  const m = Number(dateStr.slice(5, 7));
+  const startM = Math.floor((m - 1) / 3) * 3 + 1;
+  return `${y}-${String(startM).padStart(2, '0')}-01`;
+}
+
+function nextQuarterStartOf(dateStr) {
+  const qs = quarterStartOf(dateStr);
+  const y = Number(qs.slice(0, 4));
+  const m = Number(qs.slice(5, 7));
+  if (m === 10) return `${y + 1}-01-01`;
+  return `${y}-${String(m + 3).padStart(2, '0')}-01`;
+}
+
+function daysBetween(startStr, endStr) {
+  const a = new Date(startStr + 'T00:00:00Z');
+  const b = new Date(endStr + 'T00:00:00Z');
+  return Math.round((b - a) / 86400000);
+}
+
+// Inclusive day-of-quarter (1 on the first day of the quarter).
+function dayOfQuarter(dateStr) {
+  return daysBetween(quarterStartOf(dateStr), dateStr) + 1;
+}
+
+function daysInQuarter(dateStr) {
+  return daysBetween(quarterStartOf(dateStr), nextQuarterStartOf(dateStr));
+}
+
 // ─── Grid → row objects ─────────────────────────────────────────────
 
 // Convert the sheet-shaped grid (header row + string rows) from
@@ -190,16 +222,21 @@ function buildContacts(rows) {
   return contacts;
 }
 
-// Health for one client over the current week/month. `rows` are that
-// company's rows only.
+// Health for one client. Jobs/revenue pace is quarter-to-date against
+// `target * 3` (e.g. 8/mo → 24/qtr), so a fresh calendar month mid-quarter
+// doesn't falsely read as "no jobs / off pace". FB lead stats stay monthly.
+// `rows` are that company's rows only.
 function clientMetrics(rows, { today, weekStart, monthStart, target }) {
-  let jobsWonMTD = 0;
-  let revenueMTD = 0;
+  const quarterStart = quarterStartOf(today);
+  const quarterTarget = (Number(target) || 0) * 3;
+
+  let jobsWonQTD = 0;
+  let revenueQTD = 0;
   let deadLeadsWTD = 0;
   for (const row of rows) {
-    if (row.eventType === 'Job Won' && inRange(row, monthStart, today)) {
-      jobsWonMTD += 1;
-      revenueMTD += quoteGroupValue(row.quoteJobValue);
+    if (row.eventType === 'Job Won' && inRange(row, quarterStart, today)) {
+      jobsWonQTD += 1;
+      revenueQTD += quoteGroupValue(row.quoteJobValue);
     }
     if (row.eventType === 'EOD Update' && inRange(row, weekStart, today)
         && DEAD_OUTCOMES.has(parseOutcome(row.outcome).action)) {
@@ -221,17 +258,30 @@ function clientMetrics(rows, { today, weekStart, monthStart, target }) {
     ? Math.round((fbLeadsMTDWithAppt / fbLeadsMTD) * 100)
     : 0;
 
-  // Traffic light from month-end projection at the current pace. "Happy"
+  // Traffic light from quarter-end projection at the current pace. "Happy"
   // (the human half of green) stays a manual call on the board.
-  const dayOfMonth = Number(today.slice(8, 10));
-  const daysInMonth = new Date(Date.UTC(
-    Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).getUTCDate();
-  const projected = jobsWonMTD * (daysInMonth / dayOfMonth);
-  const health = projected >= target ? '🟢 On Pace'
-    : jobsWonMTD > 0 ? '🟠 Behind Pace'
+  const dayOfQ = Math.max(1, dayOfQuarter(today));
+  const daysInQ = daysInQuarter(today);
+  const projected = jobsWonQTD * (daysInQ / dayOfQ);
+  const health = projected >= quarterTarget ? '🟢 On Pace'
+    : jobsWonQTD > 0 ? '🟠 Behind Pace'
     : '🔴 No Jobs Yet';
 
-  return { jobsWonMTD, revenueMTD, fbLeadsWTD, fbLeadsMTD, leadToApptPct, deadLeadsWTD, health };
+  return {
+    jobsWonQTD,
+    revenueQTD,
+    quarterTarget,
+    quarterStart,
+    // Aliases kept so older callers reading MTD names still get QTD numbers
+    // (pace is the quarterly target either way).
+    jobsWonMTD: jobsWonQTD,
+    revenueMTD: revenueQTD,
+    fbLeadsWTD,
+    fbLeadsMTD,
+    leadToApptPct,
+    deadLeadsWTD,
+    health,
+  };
 }
 
 // ─── Site visits ────────────────────────────────────────────────────
@@ -289,6 +339,9 @@ module.exports = {
   todayInTz,
   mondayOf,
   monthStartOf,
+  quarterStartOf,
+  dayOfQuarter,
+  daysInQuarter,
   DEAD_OUTCOMES,
   FB_SOURCES,
 };
