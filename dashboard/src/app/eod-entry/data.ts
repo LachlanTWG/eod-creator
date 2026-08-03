@@ -54,6 +54,8 @@ export type PreviousQuote = {
   date: string;
   value: string;
   person: string;
+  /** Quotie / email quote number when known (e.g. "7544"). */
+  number: string;
 };
 
 /** Open calendar bookings waiting for the exec to log details in the popup. */
@@ -326,25 +328,66 @@ export async function fetchPendingSiteVisits(
   return out;
 }
 
+/** Pull a quote number from Quotie/Make raw payload or free-text subjects. */
+function extractQuoteNumber(
+  raw: Record<string, unknown> | null | undefined,
+  ...textBits: (string | null | undefined)[]
+): string {
+  if (raw && typeof raw === "object") {
+    for (const k of [
+      "quoteNumber", "quote_number", "quoteNo", "quote_no",
+      "quoteId", "quote_id", "number", "id",
+    ]) {
+      const v = raw[k];
+      if (v != null && String(v).trim()) {
+        const digits = String(v).replace(/[^\d]/g, "");
+        // Prefer real quote numbers (3+ digits); skip UUIDs / long ids
+        if (digits.length >= 3 && digits.length <= 8) return digits;
+        const asStr = String(v).trim();
+        if (/^\d{3,8}$/.test(asStr)) return asStr;
+      }
+    }
+  }
+  for (const t of textBits) {
+    if (!t) continue;
+    // "Quote 7544 - Ben Musca - Bolton Electrical"
+    const m = String(t).match(/\bquote\s*#?\s*(\d{3,8})\b/i);
+    if (m) return m[1];
+  }
+  return "";
+}
+
+function activityDateIso(rawDate: string | Date | null | undefined): string {
+  if (rawDate == null || rawDate === "") return "";
+  if (typeof rawDate === "string") return String(rawDate).slice(0, 10);
+  if (rawDate instanceof Date && !Number.isNaN(rawDate.getTime())) {
+    return rawDate.toISOString().slice(0, 10);
+  }
+  return String(rawDate || "").slice(0, 10);
+}
+
 async function fetchPreviousQuotes(
   companyId: string,
   contactId: string,
   contactName: string,
 ): Promise<PreviousQuote[]> {
   const supabase = createAdminClient();
+  const safeName = contactName.replace(/["\\]/g, "").trim();
   let q = supabase
     .from("activities")
-    .select("occurred_on, quote_job_value, sales_person_name, contact_id, contact_name")
+    .select(
+      "occurred_on, quote_job_value, sales_person_name, contact_id, contact_name, raw_payload, outcome",
+    )
     .eq("company_id", companyId)
     .eq("event_type", "quote_sent")
     .order("occurred_on", { ascending: false })
     .limit(20);
-  if (contactId) {
-    q = q.or(
-      `contact_id.eq.${contactId},contact_name.ilike."${contactName.replace(/["\\]/g, "").trim()}"`,
-    );
-  } else if (contactName) {
-    q = q.ilike("contact_name", contactName.trim());
+  if (contactId && safeName) {
+    q = q.or(`contact_id.eq.${contactId},contact_name.ilike."${safeName}"`);
+  } else if (contactId) {
+    q = q.eq("contact_id", contactId);
+  } else if (safeName) {
+    q = q.ilike("contact_name", safeName);
   } else {
     return [];
   }
@@ -353,22 +396,70 @@ async function fetchPreviousQuotes(
     console.error("[eod-entry] fetchPreviousQuotes:", error.message);
     return [];
   }
+
+  // Quote numbers often live only on outbound email subjects
+  // ("Quote 7544 - Name - Company") — Quotie webhook currently omits them.
+  const numbersByDate = new Map<string, string[]>();
+  if (contactId || safeName) {
+    let eq = supabase
+      .from("activities")
+      .select("occurred_on, outcome, contact_name")
+      .eq("company_id", companyId)
+      .eq("event_type", "email_sent")
+      .ilike("outcome", "%quote%")
+      .order("occurred_on", { ascending: false })
+      .limit(40);
+    if (contactId && safeName) {
+      // Match contact id, name on the email row, or name inside the subject line
+      eq = eq.or(
+        `contact_id.eq.${contactId},contact_name.ilike."${safeName}",outcome.ilike."%${safeName}%"`,
+      );
+    } else if (contactId) {
+      eq = eq.eq("contact_id", contactId);
+    } else {
+      eq = eq.or(`contact_name.ilike."${safeName}",outcome.ilike."%${safeName}%"`);
+    }
+    const { data: emails, error: emailErr } = await eq;
+    if (emailErr) {
+      console.error("[eod-entry] fetchPreviousQuotes emails:", emailErr.message);
+    } else {
+      for (const em of emails ?? []) {
+        const num = extractQuoteNumber(null, em.outcome as string | null);
+        if (!num) continue;
+        const d = activityDateIso(em.occurred_on as string | Date | null);
+        if (!d) continue;
+        const list = numbersByDate.get(d) || [];
+        if (!list.includes(num)) list.push(num);
+        numbersByDate.set(d, list);
+      }
+    }
+  }
+
+  // One email number per day → consume once so multi-quote days don't all share it
+  const usedEmailNumbers = new Set<string>();
+
   return (data ?? [])
     .filter(r => r.quote_job_value)
     .slice(0, 8)
     .map(r => {
-      const rawDate = r.occurred_on as string | Date | null;
-      const dateIso =
-        typeof rawDate === "string"
-          ? String(rawDate).slice(0, 10)
-          : rawDate instanceof Date
-            ? rawDate.toISOString().slice(0, 10)
-            : String(rawDate || "").slice(0, 10);
+      const dateIso = activityDateIso(r.occurred_on as string | Date | null);
+      const raw = (r.raw_payload || null) as Record<string, unknown> | null;
+      let number =
+        extractQuoteNumber(raw, r.outcome as string | null) || "";
+      if (!number && dateIso) {
+        const candidates = numbersByDate.get(dateIso) || [];
+        const free = candidates.find(n => !usedEmailNumbers.has(`${dateIso}:${n}`));
+        if (free) {
+          number = free;
+          usedEmailNumbers.add(`${dateIso}:${free}`);
+        }
+      }
       // Keep ISO in `date`; UI formats with formatAuNzDate (DD/MM/YYYY).
       return {
         date: dateIso,
         value: String(r.quote_job_value || ""),
         person: String(r.sales_person_name || ""),
+        number,
       };
     });
 }
@@ -390,18 +481,22 @@ const DEFAULT_STAGES = ["New Leads", "Pre-Quote Follow Up", "Post Quote Follow U
 // CORRECTED "Not a Good Time to Talk" (GHL's field had a "TIme" typo, being
 // retired) — the workflow branch conditions must be updated to match. The
 // lowercase learned-options dedup hides the historical typo'd variant.
+// EOD 3 dropdown order (top → bottom) — matches the order execs expect when selecting.
 const DEFAULT_OUTCOMES = [
-  "Requires Quoting",
-  "Quote Sent",
-  "Book Site Visit",
-  "Verbal Confirmation",
-  "Waiting on Photos",
   "Not a Good Time to Talk",
+  "Requires Quoting",
+  "Book Site Visit",
   "Not Ready Yet - Pre-Quote",
   "Not Ready Yet - Post Quote",
+  "Quote Sent",
+  "Verbal Confirmation",
+  "Waiting on Photos",
+  // Terminal — Lost
   "Lost - Price",
   "Lost - Time Related",
   "Lost - Priorities Changed",
+  // Terminal — DQ (Incorrect Details ≠ Wrong Contact/Spam: real lead, bad contact info)
+  "DQ - Incorrect Details",
   "DQ - Wrong Contact / Spam",
   "DQ - Out of Service Area",
   "DQ - Extent of Works",
@@ -409,6 +504,7 @@ const DEFAULT_OUTCOMES = [
   "DQ - Lead Looking for Work",
   "DQ - Recommended Another Company",
   "DQ - Trying to Sell Me Something",
+  // Terminal — Abandoned
   "Abandoned - Not Responding",
   "Abandoned - Headache",
 ];

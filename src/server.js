@@ -127,7 +127,8 @@ function formatSiteVisitSummary(b) {
     for (const q of b.previousQuotes) {
       const when = formatAuNzDateForSlack(q.date) || q.date || '—';
       const who = q.person ? ` (${q.person})` : '';
-      lines.push(`• ${formatMoney(q.value)} — ${when}${who}`);
+      const num = q.number ? `#${String(q.number).replace(/^#/, '')} · ` : '';
+      lines.push(`• ${num}${formatMoney(q.value)} — ${when}${who}`);
     }
   } else {
     lines.push('*Previous quotes:* No previous quote has been sent.');

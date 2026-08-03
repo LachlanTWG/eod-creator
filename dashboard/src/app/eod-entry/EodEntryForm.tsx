@@ -12,7 +12,7 @@
 // Quote sent / Email sent are automated (Quotie webhook + Gmail/Outlook OAuth sync)
 // and stay available for backfill from the dashboard Activities drawer only.
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
 import type { ContactHistory, EodOptions, PendingSiteVisit } from "./data";
 import { formatAuNzDate } from "./data";
@@ -27,6 +27,30 @@ const EVENT_TYPES = [
   { value: "eod_update", label: "EOD update" },
   { value: "job_won",    label: "Job won" },
 ] as const;
+
+/** Blank / Unknown / Team → anyone can still pick it up. */
+function isUnassignedExec(name: string | null | undefined): boolean {
+  const t = (name || "").trim();
+  return !t || /^unknown$/i.test(t) || /^team$/i.test(t);
+}
+
+/**
+ * Pending site visits are company-wide in the DB, but each exec only sees
+ * their own queue (plus unassigned). Matches roster short names and full
+ * names ("Lachlan" ≡ "Lachlan Boys").
+ */
+function pendingBelongsToExec(p: PendingSiteVisit, me: string): boolean {
+  if (isUnassignedExec(p.salesPersonName)) return true;
+  const owner = (p.salesPersonName || "").trim().toLowerCase();
+  const mine = (me || "").trim().toLowerCase();
+  if (!mine) return false; // don't leak other execs' bookings before we know who you are
+  if (owner === mine) return true;
+  const ownerFirst = owner.split(/\s+/)[0] || "";
+  const mineFirst = mine.split(/\s+/)[0] || "";
+  if (ownerFirst && mineFirst && ownerFirst === mineFirst) return true;
+  if (owner.startsWith(mine + " ") || mine.startsWith(owner + " ")) return true;
+  return false;
+}
 
 type EventType = (typeof EVENT_TYPES)[number]["value"];
 
@@ -110,49 +134,94 @@ export function EodEntryForm({
   const [svIdealStart, setSvIdealStart] = useState("");
   const [svComment, setSvComment] = useState("");
 
+  // Device identity for the pending queue (who *I* am) — independent of the
+  // contact's GHL owner. Without this, opening Zac's contact made Lachlan see
+  // Zac's site-visit log form.
+  const [viewerExec, setViewerExec] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const stored = localStorage.getItem("eod-exec") || "";
+      return stored && people.includes(stored) ? stored : "";
+    } catch {
+      return "";
+    }
+  });
+
   const initialSales =
     (defaultSalesPerson && people.includes(defaultSalesPerson) ? defaultSalesPerson : "") ||
     people[0] ||
     "";
   const [salesPerson, setSalesPerson] = useState(initialSales);
 
+  // Only show pendings assigned to this device's exec (or unassigned).
+  // Deliberately uses viewerExec from localStorage — NOT the contact's GHL
+  // owner / form salesPerson, which can be Zac while Lachlan is looking.
+  const myPendings = useMemo(
+    () => openPendings.filter(p => pendingBelongsToExec(p, viewerExec)),
+    [openPendings, viewerExec],
+  );
+
   // Each exec's browser remembers who they are: pick your name once and every
   // popup on this device defaults to you, across all clients (as long as
   // you're on that client's roster). Read after hydration — localStorage
   // isn't available during SSR.
   useEffect(() => {
-    // Prefer contact owner from GHL; else last-used exec on this device.
+    try {
+      const stored = localStorage.getItem("eod-exec");
+      if (stored && people.includes(stored)) {
+        setViewerExec(stored); // eslint-disable-line react-hooks/set-state-in-effect
+      }
+    } catch { /* storage unavailable (rare iframe modes) — keep default */ }
+
+    // Prefill the form's sales person from GHL contact owner when present;
+    // otherwise fall back to this device's remembered exec. Viewer identity
+    // for the pending queue stays on localStorage (above), not GHL owner.
     if (defaultSalesPerson && people.includes(defaultSalesPerson)) {
-      setSalesPerson(defaultSalesPerson); // eslint-disable-line react-hooks/set-state-in-effect
+      setSalesPerson(defaultSalesPerson);
       return;
     }
     try {
       const stored = localStorage.getItem("eod-exec");
       if (stored && people.includes(stored)) setSalesPerson(stored);
-    } catch { /* storage unavailable (rare iframe modes) — keep default */ }
+    } catch { /* ignore */ }
   }, [defaultSalesPerson, people]);
 
-  // Auto-open the site-visit log form when this contact has a pending booking.
+  // Auto-open the site-visit log form when THIS contact has a pending booking
+  // that belongs to the current exec (never auto-open someone else's).
   useEffect(() => {
-    if (activePending || openPendings.length === 0) return;
+    if (activePending || myPendings.length === 0) return;
     const matchById = contactId
-      ? openPendings.find(p => p.contactId && p.contactId === contactId)
+      ? myPendings.find(p => p.contactId && p.contactId === contactId)
       : null;
     const matchByName = contactName
-      ? openPendings.find(
+      ? myPendings.find(
           p => p.contactName && p.contactName.toLowerCase() === contactName.toLowerCase(),
         )
       : null;
-    const first = matchById || matchByName || (openPendings.length === 1 ? openPendings[0] : null);
+    // Only auto-open for the open contact — never a lone company-wide pending
+    // for a different lead (that used to surface Zac's booking on Lachlan).
+    const first = matchById || matchByName || null;
     if (first) applyPending(first);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contactId, contactName, openPendings.length]);
+  }, [contactId, contactName, myPendings.length, viewerExec]);
+
+  // If the active form is someone else's booking (e.g. viewer just corrected
+  // their name), drop it so it doesn't stay open under the wrong exec.
+  useEffect(() => {
+    if (!activePending) return;
+    if (!pendingBelongsToExec(activePending, viewerExec)) {
+      setActivePending(null);
+    }
+  }, [activePending, viewerExec]);
 
   function chooseSalesPerson(name: string) {
     setSalesPerson(name);
-    try {
-      if (name) localStorage.setItem("eod-exec", name);
-    } catch { /* ignore */ }
+    if (name) {
+      setViewerExec(name);
+      try {
+        localStorage.setItem("eod-exec", name);
+      } catch { /* ignore */ }
+    }
   }
   const [date, setDate] = useState(defaultDate);
   const [eventType, setEventType] = useState<EventType>("eod_update");
@@ -373,9 +442,9 @@ export function EodEntryForm({
 
         {(contactName || contactId) && <HistoryCard history={history} />}
 
-        {openPendings.length > 0 && !activePending && (
+        {myPendings.length > 0 && !activePending && (
           <PendingVisitsBanner
-            pendings={openPendings}
+            pendings={myPendings}
             contactId={contactId}
             activeId={null}
             onLog={applyPending}
@@ -436,6 +505,9 @@ export function EodEntryForm({
                 <ul className="mt-1.5 space-y-1">
                   {activePending.previousQuotes.map((q, i) => (
                     <li key={i} className="text-[12px] text-zinc-300">
+                      {q.number ? (
+                        <span className="text-zinc-400">#{q.number} · </span>
+                      ) : null}
                       ${String(q.value).replace(/[$,]/g, "")}
                       {q.date ? ` · ${formatAuNzDate(q.date) || q.date}` : ""}
                       {q.person ? ` · ${q.person}` : ""}

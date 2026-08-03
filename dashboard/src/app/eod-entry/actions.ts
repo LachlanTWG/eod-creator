@@ -73,7 +73,7 @@ export type CompleteSiteVisitInput = {
   rough_job_value?: string;
   ideal_start_date?: string;
   details_comment?: string;
-  previous_quotes?: { date: string; value: string; person: string }[];
+  previous_quotes?: { date: string; value: string; person: string; number?: string }[];
 };
 
 /** Log a pending calendar booking: dual-write activity + Slack summary. */
