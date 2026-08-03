@@ -1072,8 +1072,9 @@ const server = http.createServer(async (req, res) => {
     // uses short names ("Lachlan"). Without canonicalising, sales_person_id
     // resolves to NULL — the row never attributes to a roster exec.
     body.salesPerson = canonicalisePersonName(body.salesPerson);
-    // Expected JSON from Make.com HTTP module:
-    // { companyName, salesPerson, contactName, quoteValue, contactAddress, contactId, source }
+    // Expected JSON from Make.com / Quotie HTTP module:
+    // { companyName, salesPerson, contactName, quoteValue, contactAddress, contactId, source,
+    //   quoteNumber? | quoteNumbers?  — optional, pipe-separated when multi-option }
     const { companies } = loadCompanies();
     const company = findCompanyByName(companies, body.companyName);
     if (!company) {
@@ -1087,17 +1088,33 @@ const server = http.createServer(async (req, res) => {
     const cleanValues = rawValue.split('|').map(v => v.replace(/[$,\s]/g, '').trim()).filter(Boolean);
     const quoteJobValue = cleanValues.join('|');
 
+    // Quote numbers (optional). Store pipe-aligned with quoteValue so the
+    // site-visit popup can show "#7381 · $16,758.83" without re-querying GHL.
+    const rawNumbers = String(
+      body.quoteNumber || body.quote_number || body.quoteNumbers || body.quote_numbers || ''
+    );
+    const cleanNumbers = rawNumbers
+      .split('|')
+      .map(n => String(n).replace(/[^\d]/g, '').trim())
+      .filter(n => n.length >= 3 && n.length <= 8);
+    // Prefer first number in outcome for single-quote rows; multi stays in raw_payload.
+    const quoteNumberOutcome = cleanNumbers.length === 1 ? cleanNumbers[0] : (cleanNumbers.length > 1 ? cleanNumbers.join('|') : '');
+
     const activityData = {
       date: companyToday(company),
       salesPerson: body.salesPerson || 'Unknown',
       contactName: body.contactName || '',
       eventType: 'Quote Sent',
-      outcome: '',
+      outcome: quoteNumberOutcome,
       adSource: body.source || '',
       quoteJobValue,
       contactAddress: body.contactAddress || '',
       contactId: body.contactId || '',
     };
+    // Ensure raw payload always carries quoteNumber for multi-option matching
+    if (cleanNumbers.length > 0) {
+      body.quoteNumber = cleanNumbers.join('|');
+    }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'logged', type: 'quote', company: company.name, salesPerson: body.salesPerson }));

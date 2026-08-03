@@ -299,9 +299,14 @@ export async function fetchPendingSiteVisits(
     const bookedOnDisplay = formatAuNzDate(bookedOn) || bookedOn;
 
     // Quotes for every vertical — roofing + solar (empty → "no previous quote").
+    // Numbers come from GHL "Quote N Detail" fields / contact custom fields when
+    // Quotie webhook omitted them (historical: almost all quote_sent rows).
     const previousQuotes =
       contactId || contactName
-        ? await fetchPreviousQuotes(companyId, contactId, contactName)
+        ? await fetchPreviousQuotes(companyId, contactId, contactName, {
+            ghlLocationId: opts?.ghlLocationId,
+            ghlRawPayload: raw,
+          })
         : [];
 
     out.push({
@@ -326,6 +331,138 @@ export async function fetchPendingSiteVisits(
     });
   }
   return out;
+}
+
+/** Normalise a money string for matching: "16,758.83" / "$16758.83" → "16758.83" */
+function normaliseMoney(raw: string | null | undefined): string {
+  if (raw == null) return "";
+  const n = String(raw).replace(/[$,\s]/g, "").trim();
+  if (!n || !/^\d+(\.\d+)?$/.test(n)) return "";
+  // Strip trailing zeros so 16758.80 matches 16758.8 from either source
+  const num = Number(n);
+  if (!Number.isFinite(num)) return n;
+  return String(Math.round(num * 100) / 100);
+}
+
+/**
+ * Parse GHL / automation "Quote N Detail" lines:
+ *   "7381 - $16,758.83 - 13.3kW Solar (...)"
+ *   "7382 - $14,657.20 - ..."
+ * Empty placeholders (" -  - ") return null.
+ * Requires a $ amount so ISO dates like "2026-07-23" never match.
+ */
+function parseQuoteDetailLine(text: string | null | undefined): { number: string; value: string } | null {
+  if (!text) return null;
+  const s = String(text).trim();
+  if (!s || /^[-–—\s]*$/.test(s)) return null;
+  // "7381 - $16,758.83 - description" — $ is required (avoids date false-positives)
+  let m = s.match(/^(\d{3,8})\s*[-–—]\s*\$\s*([\d,]+(?:\.\d{1,2})?)/);
+  if (m) {
+    const value = normaliseMoney(m[2]);
+    // Real quote values are hundreds+; reject junk
+    if (value && Number(value) >= 100) return { number: m[1], value };
+  }
+  // "Quote 7381 — $16,758.83"
+  m = s.match(/\bquote\s*#?\s*(\d{3,8})\b[^$]*\$\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if (m) {
+    const value = normaliseMoney(m[2]);
+    if (value && Number(value) >= 100) return { number: m[1], value };
+  }
+  return null;
+}
+
+/** Walk a raw object (webhook payload) and collect Quote Detail lines. */
+function extractQuoteDetailsFromRaw(
+  raw: Record<string, unknown> | null | undefined,
+): { number: string; value: string }[] {
+  if (!raw || typeof raw !== "object") return [];
+  const found: { number: string; value: string }[] = [];
+  const seen = new Set<string>();
+
+  const push = (parsed: { number: string; value: string } | null) => {
+    if (!parsed?.number) return;
+    const key = `${parsed.number}|${parsed.value}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    found.push(parsed);
+  };
+
+  const visit = (node: unknown, keyHint = ""): void => {
+    if (node == null) return;
+    if (typeof node === "string") {
+      // Prefer keys that look like Quote Detail; still pattern-match any string.
+      if (/quote/i.test(keyHint) || parseQuoteDetailLine(node)) {
+        push(parseQuoteDetailLine(node));
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, keyHint);
+      return;
+    }
+    if (typeof node === "object") {
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        visit(v, k);
+      }
+    }
+  };
+
+  // Named fields first (webhook): "Quote 1 Detail", "Quote 2 Detail", ...
+  for (const [k, v] of Object.entries(raw)) {
+    if (/quote\s*\d*\s*detail/i.test(k) && typeof v === "string") {
+      push(parseQuoteDetailLine(v));
+    }
+  }
+  // Also accept pipe-separated quoteNumbers on the Quotie payload when present.
+  for (const k of ["quoteNumber", "quote_number", "quoteNo", "quote_no", "quoteNumbers"]) {
+    const v = raw[k];
+    if (v == null) continue;
+    const parts = String(v).split("|").map(s => s.trim()).filter(Boolean);
+    for (const p of parts) {
+      const digits = p.replace(/[^\d]/g, "");
+      if (digits.length >= 3 && digits.length <= 8) push({ number: digits, value: "" });
+    }
+  }
+  // Deep scan as fallback (custom field bags, nested contact, etc.)
+  visit(raw);
+  return found;
+}
+
+/**
+ * Live GHL contact custom-field values that look like Quote Detail lines.
+ * Fields arrive as {id, value} without names — we pattern-match the value.
+ */
+async function fetchGhlQuoteDetails(
+  ghlLocationId: string,
+  contactId: string,
+): Promise<{ number: string; value: string }[]> {
+  if (!ghlLocationId || !contactId || contactId.startsWith("pending-")) return [];
+  const tokens = loadGhlTokens();
+  const token = tokens[ghlLocationId];
+  if (!token) return [];
+  try {
+    const res = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+      headers: ghlHeaders(token),
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const c = body?.contact ?? {};
+    const fields = (c.customFields || c.customField || []) as { value?: unknown }[];
+    const out: { number: string; value: string }[] = [];
+    const seen = new Set<string>();
+    for (const f of Array.isArray(fields) ? fields : []) {
+      const parsed = parseQuoteDetailLine(String(f?.value ?? ""));
+      if (!parsed?.number) continue;
+      const key = `${parsed.number}|${parsed.value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(parsed);
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 /** Pull a quote number from Quotie/Make raw payload or free-text subjects. */
@@ -366,10 +503,19 @@ function activityDateIso(rawDate: string | Date | null | undefined): string {
   return String(rawDate || "").slice(0, 10);
 }
 
+/**
+ * Previous quotes for a contact — values from quote_sent activities, numbers
+ * from GHL Quote Detail custom fields (primary), email subjects, or Quotie
+ * payload when present. Multi-option pipe values are split into one row each.
+ */
 async function fetchPreviousQuotes(
   companyId: string,
   contactId: string,
   contactName: string,
+  opts?: {
+    ghlLocationId?: string;
+    ghlRawPayload?: Record<string, unknown> | null;
+  },
 ): Promise<PreviousQuote[]> {
   const supabase = createAdminClient();
   const safeName = contactName.replace(/["\\]/g, "").trim();
@@ -397,8 +543,37 @@ async function fetchPreviousQuotes(
     return [];
   }
 
-  // Quote numbers often live only on outbound email subjects
-  // ("Quote 7544 - Name - Company") — Quotie webhook currently omits them.
+  // ── Number sources ────────────────────────────────────────────────
+  // 1) GHL contact custom fields (live) — e.g. "7381 - $16,758.83 - …"
+  // 2) Pending webhook raw_payload named "Quote N Detail"
+  // 3) Email subjects "Quote 7544 - Name - Company"
+  // Quotie webhook historically omits quote numbers (0/1600 rows have them).
+  const ghlDetails: { number: string; value: string }[] = [];
+  const seenGhl = new Set<string>();
+  const pushGhl = (list: { number: string; value: string }[]) => {
+    for (const d of list) {
+      const key = `${d.number}|${d.value}`;
+      if (seenGhl.has(key)) continue;
+      seenGhl.add(key);
+      ghlDetails.push(d);
+    }
+  };
+  if (opts?.ghlRawPayload) pushGhl(extractQuoteDetailsFromRaw(opts.ghlRawPayload));
+  if (opts?.ghlLocationId && contactId) {
+    pushGhl(await fetchGhlQuoteDetails(opts.ghlLocationId, contactId));
+  }
+
+  // Index GHL details by normaliseMoney(value) for value→number matching
+  const numberByValue = new Map<string, string>();
+  const unusedGhlNumbers: string[] = [];
+  for (const d of ghlDetails) {
+    if (d.value) {
+      if (!numberByValue.has(d.value)) numberByValue.set(d.value, d.number);
+    } else {
+      unusedGhlNumbers.push(d.number);
+    }
+  }
+
   const numbersByDate = new Map<string, string[]>();
   if (contactId || safeName) {
     let eq = supabase
@@ -410,7 +585,6 @@ async function fetchPreviousQuotes(
       .order("occurred_on", { ascending: false })
       .limit(40);
     if (contactId && safeName) {
-      // Match contact id, name on the email row, or name inside the subject line
       eq = eq.or(
         `contact_id.eq.${contactId},contact_name.ilike."${safeName}",outcome.ilike."%${safeName}%"`,
       );
@@ -435,33 +609,84 @@ async function fetchPreviousQuotes(
     }
   }
 
-  // One email number per day → consume once so multi-quote days don't all share it
-  const usedEmailNumbers = new Set<string>();
+  const usedNumbers = new Set<string>();
+  const claimNumber = (n: string): string => {
+    if (!n || usedNumbers.has(n)) return "";
+    usedNumbers.add(n);
+    return n;
+  };
 
-  return (data ?? [])
-    .filter(r => r.quote_job_value)
-    .slice(0, 8)
-    .map(r => {
-      const dateIso = activityDateIso(r.occurred_on as string | Date | null);
-      const raw = (r.raw_payload || null) as Record<string, unknown> | null;
-      let number =
-        extractQuoteNumber(raw, r.outcome as string | null) || "";
+  // Expand each activity: "16758.83|14657.20" → two rows (one number each).
+  const rows: PreviousQuote[] = [];
+  for (const r of data ?? []) {
+    if (!r.quote_job_value) continue;
+    const dateIso = activityDateIso(r.occurred_on as string | Date | null);
+    const person = String(r.sales_person_name || "");
+    const raw = (r.raw_payload || null) as Record<string, unknown> | null;
+    const values = String(r.quote_job_value)
+      .split("|")
+      .map(v => normaliseMoney(v) || v.replace(/[$,\s]/g, "").trim())
+      .filter(Boolean);
+
+    // Pipe-separated numbers on the same payload (future Quotie shape)
+    const payloadNumbers = String(
+      (raw as { quoteNumber?: string; quote_number?: string; quoteNumbers?: string } | null)
+        ?.quoteNumber ||
+      (raw as { quote_number?: string } | null)?.quote_number ||
+      (raw as { quoteNumbers?: string } | null)?.quoteNumbers ||
+      "",
+    )
+      .split("|")
+      .map(s => s.replace(/[^\d]/g, ""))
+      .filter(s => s.length >= 3 && s.length <= 8);
+
+    values.forEach((value, idx) => {
+      let number = "";
+      // 1) Same-index number from Quotie payload
+      if (payloadNumbers[idx]) number = claimNumber(payloadNumbers[idx]);
+      // 2) Match GHL detail by dollar value
+      if (!number) {
+        const byVal = numberByValue.get(normaliseMoney(value) || value);
+        if (byVal) number = claimNumber(byVal);
+      }
+      // 3) Single-number payload / outcome
+      if (!number && values.length === 1) {
+        number = claimNumber(extractQuoteNumber(raw, r.outcome as string | null));
+      }
+      // 4) Email subject for that day
       if (!number && dateIso) {
         const candidates = numbersByDate.get(dateIso) || [];
-        const free = candidates.find(n => !usedEmailNumbers.has(`${dateIso}:${n}`));
-        if (free) {
-          number = free;
-          usedEmailNumbers.add(`${dateIso}:${free}`);
+        const free = candidates.find(n => !usedNumbers.has(n));
+        if (free) number = claimNumber(free);
+      }
+      // 5) Leftover GHL numbers (no value match) in order
+      if (!number) {
+        const free = unusedGhlNumbers.find(n => !usedNumbers.has(n));
+        if (free) number = claimNumber(free);
+        else {
+          const freeGhl = ghlDetails.find(d => !usedNumbers.has(d.number));
+          if (freeGhl) number = claimNumber(freeGhl.number);
         }
       }
-      // Keep ISO in `date`; UI formats with formatAuNzDate (DD/MM/YYYY).
-      return {
-        date: dateIso,
-        value: String(r.quote_job_value || ""),
-        person: String(r.sales_person_name || ""),
-        number,
-      };
+      rows.push({ date: dateIso, value, person, number: number || "" });
     });
+    if (rows.length >= 12) break;
+  }
+
+  // If activities are empty but GHL has quote details, still surface them.
+  if (rows.length === 0 && ghlDetails.length > 0) {
+    for (const d of ghlDetails) {
+      if (!d.number && !d.value) continue;
+      rows.push({
+        date: "",
+        value: d.value || "",
+        person: "",
+        number: d.number,
+      });
+    }
+  }
+
+  return rows.slice(0, 12);
 }
 
 /** GHL contact fields we pull for the EOD entry form / pending site visits. */
