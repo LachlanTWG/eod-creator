@@ -217,6 +217,50 @@ export async function completePendingSiteVisit(
   };
 }
 
+/**
+ * Remove a pending site visit from the EOD popup queue without logging it.
+ * Soft-dismiss (sets dismissed_at) so it no longer surfaces in the banner.
+ */
+export async function dismissPendingSiteVisit(input: {
+  token: string;
+  ghl_location_id?: string;
+  pending_id: string;
+}): Promise<EodEntryResult> {
+  const slug = verifyEodEntryToken(input.token || "");
+  if (!slug) return { ok: false, error: "This entry link is no longer valid" };
+  if (!input.pending_id?.trim()) return { ok: false, error: "Missing pending visit" };
+
+  const supabase = createAdminClient();
+  let query = supabase.from("companies").select("id, name, slug, active");
+  if (slug === "agency") {
+    if (!input.ghl_location_id) return { ok: false, error: "Missing GHL location" };
+    query = query.eq("ghl_location_id", input.ghl_location_id);
+  } else {
+    query = query.eq("slug", slug);
+  }
+  const { data: company } = await query.single();
+  if (!company || !company.active) return { ok: false, error: "Client not found" };
+
+  const { data: updated, error } = await supabase
+    .from("pending_site_visits")
+    .update({ dismissed_at: new Date().toISOString() })
+    .eq("id", input.pending_id.trim())
+    .eq("company_id", company.id)
+    .is("resolved_at", null)
+    .is("dismissed_at", null)
+    .select("id");
+
+  if (error) {
+    console.error("[dismissPendingSiteVisit]", error.message);
+    return { ok: false, error: "Could not delete that site visit" };
+  }
+  if (!updated?.length) {
+    return { ok: false, error: "That site visit is already gone" };
+  }
+
+  return { ok: true, count: 0 };
+}
+
 export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResult> {
   const slug = verifyEodEntryToken(input.token || "");
   if (!slug) return { ok: false, error: "This entry link is no longer valid" };

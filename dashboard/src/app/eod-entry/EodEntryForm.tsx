@@ -18,6 +18,7 @@ import type { ContactHistory, EodOptions, PendingSiteVisit } from "./data";
 import { formatAuNzDate } from "./data";
 import {
   completePendingSiteVisit,
+  dismissPendingSiteVisit,
   submitEodEntry,
   type EodEntryInput,
 } from "./actions";
@@ -133,6 +134,8 @@ export function EodEntryForm({
   const [svRough, setSvRough] = useState("");
   const [svIdealStart, setSvIdealStart] = useState("");
   const [svComment, setSvComment] = useState("");
+  /** Two-step delete: first click shows Confirm on the Delete slot. */
+  const [confirmDeletePending, setConfirmDeletePending] = useState(false);
 
   // Device identity for the pending queue (who *I* am) — independent of the
   // contact's GHL owner. Without this, opening Zac's contact made Lachlan see
@@ -279,6 +282,7 @@ export function EodEntryForm({
     setSvRough(""); // always manual — never prefill
     setSvIdealStart("");
     setSvComment("");
+    setConfirmDeletePending(false);
     setError(null);
     setSavedCount(null);
     setPipelineNote(null);
@@ -289,6 +293,7 @@ export function EodEntryForm({
     setSvRough("");
     setSvIdealStart("");
     setSvComment("");
+    setConfirmDeletePending(false);
   }
 
   function submitPendingSiteVisit(e: React.FormEvent) {
@@ -298,6 +303,7 @@ export function EodEntryForm({
     setSavedCount(null);
     setPipelineNote(null);
     setPipelineOk(false);
+    setConfirmDeletePending(false);
 
     if (activePending.vertical === "roofing") {
       if (!svRough.trim()) {
@@ -342,6 +348,40 @@ export function EodEntryForm({
       setSvRough("");
       setSvIdealStart("");
       setSvComment("");
+      setConfirmDeletePending(false);
+    });
+  }
+
+  /** Dismiss a pending visit Jesse (etc.) booked by mistake — no Slack, no activity. */
+  function deletePendingSiteVisit() {
+    if (!activePending) return;
+    if (!confirmDeletePending) {
+      setConfirmDeletePending(true);
+      setError(null);
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const res = await dismissPendingSiteVisit({
+        token,
+        ghl_location_id: ghlLocationId,
+        pending_id: activePending.id,
+      });
+      if (!res.ok) {
+        setError(res.error);
+        setConfirmDeletePending(false);
+        return;
+      }
+      setOpenPendings(list => list.filter(x => x.id !== activePending.id));
+      setActivePending(null);
+      setSvRough("");
+      setSvIdealStart("");
+      setSvComment("");
+      setConfirmDeletePending(false);
+      // Reuse the green status banner: count 0 means dismissed, not logged.
+      setSavedCount(0);
+      setPipelineNote("Site visit removed from queue");
+      setPipelineOk(true);
     });
   }
 
@@ -572,13 +612,37 @@ export function EodEntryForm({
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={pending}
-              className="w-full rounded bg-emerald-600/90 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-            >
-              {pending ? "Sending…" : "Log site visit → Slack"}
-            </button>
+            {confirmDeletePending && (
+              <p className="text-[11px] text-red-300/90">
+                Remove this booking from the queue? It won’t be logged to Slack.
+              </p>
+            )}
+
+            <div className="grid grid-cols-4 gap-2">
+              <button
+                type="submit"
+                disabled={pending}
+                className="col-span-3 rounded bg-emerald-600/90 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+              >
+                {pending && !confirmDeletePending ? "Sending…" : "Log site visit → Slack"}
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={deletePendingSiteVisit}
+                className={
+                  confirmDeletePending
+                    ? "col-span-1 rounded bg-red-600 px-2 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+                    : "col-span-1 rounded border border-red-900/60 bg-red-950/40 px-2 py-2 text-sm font-medium text-red-300 hover:border-red-700 hover:bg-red-950/70 disabled:opacity-50"
+                }
+              >
+                {pending && confirmDeletePending
+                  ? "…"
+                  : confirmDeletePending
+                    ? "Confirm"
+                    : "Delete"}
+              </button>
+            </div>
           </form>
         )}
 
@@ -795,12 +859,18 @@ export function EodEntryForm({
 
           {savedCount !== null && !error && (
             <div className="rounded border border-emerald-900/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
-              Saved {savedCount === 1 ? "1 activity" : `${savedCount} activities`}. It&apos;s in the reports + dashboard.
-              {pipelineNote && pipelineOk && (
-                <span className="mt-0.5 block text-emerald-400">Pipeline: {pipelineNote} ✓</span>
-              )}
-              {pipelineNote && !pipelineOk && (
-                <span className="mt-0.5 block text-amber-300/90">Pipeline not moved: {pipelineNote}</span>
+              {savedCount === 0 ? (
+                pipelineNote || "Done."
+              ) : (
+                <>
+                  Saved {savedCount === 1 ? "1 activity" : `${savedCount} activities`}. It&apos;s in the reports + dashboard.
+                  {pipelineNote && pipelineOk && (
+                    <span className="mt-0.5 block text-emerald-400">Pipeline: {pipelineNote} ✓</span>
+                  )}
+                  {pipelineNote && !pipelineOk && (
+                    <span className="mt-0.5 block text-amber-300/90">Pipeline not moved: {pipelineNote}</span>
+                  )}
+                </>
               )}
             </div>
           )}
