@@ -9,7 +9,7 @@
 
 import { verifyEodEntryToken } from "@/lib/eodEntryToken";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { moveEodOpportunity } from "./ghlPipeline";
+import { moveEodOpportunity, parseMonetaryValue } from "./ghlPipeline";
 import {
   ALLOWED_EVENT_TYPES,
   buildSheetActivities,
@@ -283,7 +283,7 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   }
 
   const supabase = createAdminClient();
-  let query = supabase.from("companies").select("id, name, active");
+  let query = supabase.from("companies").select("id, name, active, ghl_location_id");
   if (slug === "agency") {
     if (!input.ghl_location_id) return { ok: false, error: "Missing GHL location" };
     query = query.eq("ghl_location_id", input.ghl_location_id);
@@ -292,6 +292,10 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   }
   const { data: company } = await query.single();
   if (!company || !company.active) return { ok: false, error: "Client not found" };
+
+  // Prefer the location from the extension URL; fall back to the company's
+  // stored GHL location (company-slug entry links often omit ?location=).
+  const locationId = (input.ghl_location_id || company.ghl_location_id || "").trim();
 
   let salesPersonName = "Team";
   if (input.sales_person) {
@@ -340,7 +344,7 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   if (input.event_type === "eod_update" && input.eod_fields) {
     const withContact = items.find(it => it.contact_id?.trim());
     const moved = await moveEodOpportunity({
-      locationId: input.ghl_location_id || "",
+      locationId,
       contactId: withContact?.contact_id?.trim() || "",
       contactName: withContact?.contact_name?.trim() || items[0]?.contact_name?.trim() || "",
       stage: input.eod_fields.stage,
@@ -349,6 +353,39 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
     });
     pipelineOk = moved.ok;
     pipeline = moved.ok ? (moved.moved || "updated") : moved.reason;
+  } else if (input.event_type === "job_won") {
+    // Job Won must close the GHL opportunity and write the deal value so
+    // pipeline reporting (won rate, revenue) matches the Activity Log.
+    const notes: string[] = [];
+    let anyOk = false;
+    let attempted = 0;
+    for (const it of items) {
+      const contactId = it.contact_id?.trim() || "";
+      if (!contactId) {
+        notes.push("no linked GHL contact");
+        continue;
+      }
+      attempted++;
+      const monetaryValue = parseMonetaryValue(it.quote_job_value);
+      const moved = await moveEodOpportunity({
+        locationId,
+        contactId,
+        contactName: it.contact_name?.trim() || "",
+        stage: "",
+        answered: "",
+        stdOutcome: "Job Won",
+        monetaryValue,
+      });
+      if (moved.ok) {
+        anyOk = true;
+        if (moved.moved) notes.push(moved.moved);
+      } else {
+        notes.push(moved.reason);
+      }
+    }
+    pipelineOk = attempted > 0 && anyOk;
+    pipeline = [...new Set(notes)].join("; ")
+      || (attempted === 0 ? "no linked GHL contact" : "opportunity not updated");
   }
 
   return { ...posted, pipeline, pipelineOk };

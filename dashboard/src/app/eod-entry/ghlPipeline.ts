@@ -4,6 +4,10 @@
 // workflows are deleted from GHL) — the outcome→stage ladder that lived in
 // each location's workflow now lives here.
 //
+// Job Won entries also land here: stage → Accepted (or client equivalent),
+// status → won, and monetaryValue set from the logged job value so GHL
+// pipeline reporting stays in sync with the Activity Log.
+//
 // Requires the location's Private Integration token to have View/Edit
 // Opportunities + pipelines.readonly (plus the existing contact scopes).
 
@@ -23,12 +27,31 @@ function locationToken(locationId: string): string | null {
   }
 }
 
+/** First numeric tier from a job-value string ("$12,500" or "5000|6000"). */
+export function parseMonetaryValue(raw: string | number | null | undefined): number | null {
+  if (raw == null || raw === "") return null;
+  const first = String(raw)
+    .split("|")[0]
+    .replace(/[$,\s]/g, "")
+    .trim();
+  if (!first) return null;
+  const n = Number(first);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 // ─── EOD pipeline + stage resolution (cached per server instance) ────
 
 type Stage = { id: string; name: string; norm: string };
 type Pipeline = { id: string; stages: Stage[] };
 
 const pipelineCache = new Map<string, Pipeline>();
+
+const WON_STAGES = [
+  "Accepted",
+  "Accepted - Needs Scheduling*",
+  "Deposit Paid / Job Won",
+  "Verbal Confirmation",
+];
 
 // The EOD pipeline is the one carrying the day ladder — every client's
 // "Sales Engine" (HDK: "Sales Pipeline") has a literal "Day 1" stage, and
@@ -105,7 +128,7 @@ function targetStageFor(
     if (out === "quotesent") return to(findStage(stages, ["Quote Sent"]));
     if (out === "verbalconfirmation") return to(findStage(stages, ["Verbal Confirmation"]));
     if (out === "sitevisitbooked") return to(findStage(stages, ["Site Visit Booked", "Site Visit"]));
-    if (out === "jobwon" || out === "dealclosed") return to(findStage(stages, ["Accepted", "Accepted - Needs Scheduling*", "Deposit Paid / Job Won", "Verbal Confirmation"]), "won");
+    if (out === "jobwon" || out === "dealclosed") return to(findStage(stages, WON_STAGES), "won");
     // Client-specific outcome that names a stage directly (e.g. ECE's
     // "Waiting on Photos") — move only on an exact stage-name match.
     return to(findStage(stages, [input.stdOutcome]));
@@ -133,25 +156,45 @@ async function findOpportunity(
   token: string,
   contactId: string,
   pipelineId: string,
-): Promise<{ id: string; pipelineStageId: string; status: OppStatus } | null> {
+): Promise<{ id: string; pipelineStageId: string; status: OppStatus; monetaryValue?: number | null } | null> {
   const res = await fetch(
     `${GHL_BASE}/opportunities/search?location_id=${locationId}&contact_id=${encodeURIComponent(contactId)}&limit=20`,
     { headers: { Authorization: `Bearer ${token}`, Version: GHL_VERSION }, cache: "no-store" },
   );
   if (!res.ok) return null;
   const body = await res.json();
-  const opps: { id: string; pipelineId: string; pipelineStageId: string; status?: string; createdAt?: string }[] =
-    body?.opportunities ?? [];
+  const opps: {
+    id: string;
+    pipelineId: string;
+    pipelineStageId: string;
+    status?: string;
+    createdAt?: string;
+    monetaryValue?: number | string | null;
+  }[] = body?.opportunities ?? [];
   const inPipeline = opps.filter(o => o.pipelineId === pipelineId);
+  // Prefer open opps (the live deal). Fall back to most recent any-status so
+  // a re-logged Job Won can still patch value/status on an already-won card.
   const open = inPipeline.filter(o => (o.status || "open") === "open");
   const pick = (open.length > 0 ? open : inPipeline)
     .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
-  return pick
-    ? { id: pick.id, pipelineStageId: pick.pipelineStageId, status: (pick.status as OppStatus) || "open" }
-    : null;
+  if (!pick) return null;
+  const mv = pick.monetaryValue;
+  const monetaryValue =
+    mv == null || mv === "" ? null : Number.isFinite(Number(mv)) ? Number(mv) : null;
+  return {
+    id: pick.id,
+    pipelineStageId: pick.pipelineStageId,
+    status: (pick.status as OppStatus) || "open",
+    monetaryValue,
+  };
 }
 
 export type PipelinePushResult = { ok: true; moved?: string } | { ok: false; reason: string };
+
+function formatValueNote(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  return ` · value $${Math.round(value).toLocaleString("en-AU")}`;
+}
 
 export async function moveEodOpportunity(input: {
   locationId: string;
@@ -160,11 +203,21 @@ export async function moveEodOpportunity(input: {
   stage: string;      // EOD 1 — lead type (New Lead / Pre- / Post-Quote Follow Up)
   answered: string;   // EOD 2
   stdOutcome: string; // EOD 3
+  /** When set (Job Won), written to GHL opportunity.monetaryValue. */
+  monetaryValue?: number | null;
 }): Promise<PipelinePushResult> {
   const { locationId, contactId } = input;
   if (!locationId || !contactId) return { ok: false, reason: "no linked GHL contact" };
   const token = locationToken(locationId);
   if (!token) return { ok: false, reason: "no API token for this location" };
+
+  const monetaryValue =
+    input.monetaryValue != null && Number.isFinite(input.monetaryValue)
+      ? input.monetaryValue
+      : null;
+  const isWin =
+    normalise(input.stdOutcome) === "jobwon" ||
+    normalise(input.stdOutcome) === "dealclosed";
 
   let pipeline: Pipeline | "unauthorized" | null;
   try {
@@ -175,7 +228,7 @@ export async function moveEodOpportunity(input: {
   if (pipeline === "unauthorized") return { ok: false, reason: "token missing the opportunity/pipeline scopes" };
   if (!pipeline) return { ok: false, reason: "no EOD pipeline (with a Day 1 stage) in this location" };
 
-  let opp: { id: string; pipelineStageId: string; status: OppStatus } | null;
+  let opp: { id: string; pipelineStageId: string; status: OppStatus; monetaryValue?: number | null } | null;
   try {
     opp = await findOpportunity(locationId, token, contactId, pipeline.id);
   } catch {
@@ -183,18 +236,73 @@ export async function moveEodOpportunity(input: {
   }
 
   const current = opp ? pipeline.stages.find(s => s.id === opp!.pipelineStageId) || null : null;
-  const target = targetStageFor(pipeline.stages, current, input);
-  if (!target) return { ok: true, moved: "no stage change for this outcome" };
+  let target = targetStageFor(pipeline.stages, current, input);
+
+  // Job Won with no matching stage name: still mark status won (keep current
+  // stage, or create on Day 1) so value + win rate stay correct.
+  if (!target && isWin) {
+    const fallback = current || findStage(pipeline.stages, ["Day 1", ...WON_STAGES]);
+    if (fallback) target = { stage: fallback, status: "won" };
+  }
+
+  if (!target && monetaryValue == null) {
+    return { ok: true, moved: "no stage change for this outcome" };
+  }
+
+  // Value-only patch when we have no stage target but do have a value + opp.
+  if (!target && monetaryValue != null && opp) {
+    try {
+      const res = await fetch(`${GHL_BASE}/opportunities/${opp.id}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, Version: GHL_VERSION, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pipelineId: pipeline.id,
+          pipelineStageId: opp.pipelineStageId,
+          status: isWin ? "won" : opp.status,
+          monetaryValue,
+        }),
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return { ok: false, reason: `GHL ${res.status}: ${text.slice(0, 120)}` };
+      }
+    } catch (e) {
+      return { ok: false, reason: `GHL unreachable: ${(e as Error).message}` };
+    }
+    const statusBit = isWin && opp.status !== "won" ? " · marked won" : "";
+    return { ok: true, moved: `value updated${statusBit}${formatValueNote(monetaryValue)}` };
+  }
+
+  if (!target) {
+    return { ok: true, moved: "no stage change for this outcome" };
+  }
+
   const sameStage = !!current && current.id === target.stage.id;
   const sameStatus = !!opp && opp.status === target.status;
-  if (sameStage && sameStatus) return { ok: true, moved: `already at ${target.stage.name}` };
+  const sameValue =
+    monetaryValue == null ||
+    (opp?.monetaryValue != null && Number(opp.monetaryValue) === monetaryValue);
+  if (sameStage && sameStatus && sameValue) {
+    return {
+      ok: true,
+      moved: `already at ${target.stage.name}${formatValueNote(monetaryValue)}`,
+    };
+  }
+
+  const putBody: Record<string, unknown> = {
+    pipelineId: pipeline.id,
+    pipelineStageId: target.stage.id,
+    status: target.status,
+  };
+  if (monetaryValue != null) putBody.monetaryValue = monetaryValue;
 
   try {
     const res = opp
       ? await fetch(`${GHL_BASE}/opportunities/${opp.id}`, {
           method: "PUT",
           headers: { Authorization: `Bearer ${token}`, Version: GHL_VERSION, "Content-Type": "application/json" },
-          body: JSON.stringify({ pipelineId: pipeline.id, pipelineStageId: target.stage.id, status: target.status }),
+          body: JSON.stringify(putBody),
           cache: "no-store",
         })
       : await fetch(`${GHL_BASE}/opportunities/`, {
@@ -207,6 +315,7 @@ export async function moveEodOpportunity(input: {
             pipelineStageId: target.stage.id,
             name: input.contactName || "EOD Lead",
             status: target.status,
+            ...(monetaryValue != null ? { monetaryValue } : {}),
           }),
           cache: "no-store",
         });
@@ -226,5 +335,5 @@ export async function moveEodOpportunity(input: {
   const verb = !opp ? `created at ${target.stage.name}`
     : sameStage ? `kept at ${target.stage.name}`
     : `moved to ${target.stage.name}`;
-  return { ok: true, moved: verb + statusNote };
+  return { ok: true, moved: verb + statusNote + formatValueNote(monetaryValue) };
 }
