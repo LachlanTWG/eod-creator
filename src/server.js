@@ -28,6 +28,10 @@ const { syncHuddleBoard, createWeeklyHuddleTask } = require('./integrations/hudd
 const { reportJobWonsToCommission } = require('./integrations/commission');
 const mailbox = require('./integrations/mailbox');
 const db = require('./db');
+const {
+  moveEodOpportunity,
+  parseMonetaryValue,
+} = require('./ghl/moveEodOpportunity');
 
 const PORT = process.env.PORT || 3000;
 
@@ -956,6 +960,22 @@ const server = http.createServer(async (req, res) => {
     }).then(() => {
       console.log(`[GHL JOB WON] ${company.name} / ${salesPersonName} / ${body.full_name || '?'} / $${value}`);
     }).catch(e => console.error(`[GHL JOB WON] Error ${company.name}:`, e.message));
+
+    // Close / create the GHL opportunity with value (same ladder as the popup).
+    if (company.ghlLocationId) {
+      moveEodOpportunity({
+        locationId: company.ghlLocationId,
+        contactId: activityData.contactId,
+        contactName: activityData.contactName,
+        stage: '',
+        answered: '',
+        stdOutcome: 'Job Won',
+        monetaryValue: parseMonetaryValue(value),
+      }).then((r) => {
+        if (r.ok) console.log(`[GHL JOB WON] pipeline: ${r.moved || 'ok'}`);
+        else console.warn(`[GHL JOB WON] pipeline not moved: ${r.reason}`);
+      }).catch((e) => console.error(`[GHL JOB WON] pipeline error:`, e.message));
+    }
     return;
   }
 
@@ -1135,6 +1155,26 @@ const server = http.createServer(async (req, res) => {
     }).then(() => {
       console.log(`[QUOTE] ${company.name} / ${body.salesPerson} / ${body.contactName || '?'} / $${body.quoteValue}`);
     }).catch(e => console.error(`[QUOTE] Error ${company.name}:`, e.message));
+
+    // Move (or create) the opportunity to Quote Sent and write the deal value.
+    // Activity log was never enough after the GHL "Contact Changed" workflows
+    // were retired — Quotie must drive the stage the same way EOD popup does.
+    if (company.ghlLocationId) {
+      moveEodOpportunity({
+        locationId: company.ghlLocationId,
+        contactId: activityData.contactId,
+        contactName: activityData.contactName,
+        stage: '',
+        answered: '',
+        stdOutcome: 'Quote Sent',
+        monetaryValue: parseMonetaryValue(quoteJobValue),
+      }).then((r) => {
+        if (r.ok) console.log(`[QUOTE] pipeline: ${r.moved || 'ok'}`);
+        else console.warn(`[QUOTE] pipeline not moved: ${r.reason}`);
+      }).catch((e) => console.error(`[QUOTE] pipeline error:`, e.message));
+    } else {
+      console.warn(`[QUOTE] pipeline skipped: no ghlLocationId for ${company.name}`);
+    }
     return;
   }
 
