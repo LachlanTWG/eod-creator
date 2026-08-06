@@ -4,6 +4,12 @@
 // workflows are deleted from GHL) — the outcome→stage ladder that lived in
 // each location's workflow now lives here.
 //
+// When the contact has no opportunity in the EOD pipeline yet, one is
+// created at the target stage (e.g. Requires Quoting). When the form
+// submits without a contact_id (free-typed name / Direct Phone Call), we
+// resolve the contact by exact name match in GHL first so create/move still
+// runs.
+//
 // Job Won entries also land here: stage → Accepted (or client equivalent),
 // status → won, and monetaryValue set from the logged job value so GHL
 // pipeline reporting stays in sync with the Activity Log.
@@ -16,6 +22,10 @@ const GHL_VERSION = "2021-07-28";
 
 function normalise(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function normaliseName(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function locationToken(locationId: string): string | null {
@@ -37,6 +47,79 @@ export function parseMonetaryValue(raw: string | number | null | undefined): num
   if (!first) return null;
   const n = Number(first);
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Prefer an explicit contact_id; otherwise look up a unique exact-name match
+ * in the location so free-typed EOD logs (e.g. Direct Phone Call) can still
+ * create/move the opportunity.
+ */
+export async function resolveGhlContactId(input: {
+  locationId: string;
+  contactId?: string | null;
+  contactName?: string | null;
+}): Promise<{ contactId: string } | { contactId: null; reason: string }> {
+  const existing = input.contactId?.trim() || "";
+  if (existing) return { contactId: existing };
+
+  const locationId = input.locationId?.trim() || "";
+  const name = input.contactName?.trim() || "";
+  if (!locationId) return { contactId: null, reason: "no linked GHL contact" };
+  if (!name) return { contactId: null, reason: "no linked GHL contact" };
+
+  const token = locationToken(locationId);
+  if (!token) return { contactId: null, reason: "no API token for this location" };
+
+  let contacts: { id: string; firstName?: string; lastName?: string; name?: string }[] = [];
+  try {
+    const res = await fetch(`${GHL_BASE}/contacts/search`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Version: GHL_VERSION,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ locationId, page: 1, pageLimit: 20, query: name }),
+      cache: "no-store",
+    });
+    if (res.status === 401 || res.status === 403) {
+      return { contactId: null, reason: "token missing contact search scope" };
+    }
+    if (!res.ok) {
+      return { contactId: null, reason: "couldn't search GHL contacts" };
+    }
+    const body = await res.json();
+    contacts = body?.contacts ?? [];
+  } catch (e) {
+    return { contactId: null, reason: `GHL unreachable: ${(e as Error).message}` };
+  }
+
+  const target = normaliseName(name);
+  const fullName = (c: { firstName?: string; lastName?: string; name?: string }) =>
+    normaliseName(
+      [c.firstName, c.lastName].filter(Boolean).join(" ") || c.name || "",
+    );
+
+  const exact = contacts.filter(c => fullName(c) === target);
+  if (exact.length === 1) return { contactId: exact[0].id };
+  if (exact.length > 1) {
+    return {
+      contactId: null,
+      reason: `multiple GHL contacts named "${name}" — open the contact in GHL first`,
+    };
+  }
+  // Single fuzzy hit only (query returned one person) — safe to attach.
+  if (contacts.length === 1) return { contactId: contacts[0].id };
+  if (contacts.length === 0) {
+    return {
+      contactId: null,
+      reason: `no GHL contact found for "${name}" — open the contact in GHL first`,
+    };
+  }
+  return {
+    contactId: null,
+    reason: `ambiguous GHL match for "${name}" — open the contact in GHL first`,
+  };
 }
 
 // ─── EOD pipeline + stage resolution (cached per server instance) ────

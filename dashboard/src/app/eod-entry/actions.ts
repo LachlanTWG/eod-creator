@@ -9,7 +9,11 @@
 
 import { verifyEodEntryToken } from "@/lib/eodEntryToken";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { moveEodOpportunity, parseMonetaryValue } from "./ghlPipeline";
+import {
+  moveEodOpportunity,
+  parseMonetaryValue,
+  resolveGhlContactId,
+} from "./ghlPipeline";
 import {
   ALLOWED_EVENT_TYPES,
   buildSheetActivities,
@@ -315,6 +319,22 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
     return { ok: false, error: "Add at least one entry (a contact name or value)" };
   }
 
+  // Free-typed names (e.g. Direct Phone Call without opening the contact in
+  // GHL) arrive without contact_id. Resolve a unique exact-name match so the
+  // activity is linked and the opportunity create/move path can run.
+  if (locationId && (input.event_type === "eod_update" || input.event_type === "job_won")) {
+    for (const it of items) {
+      if (it.contact_id?.trim()) continue;
+      if (!it.contact_name?.trim()) continue;
+      const resolved = await resolveGhlContactId({
+        locationId,
+        contactId: it.contact_id,
+        contactName: it.contact_name,
+      });
+      if (resolved.contactId) it.contact_id = resolved.contactId;
+    }
+  }
+
   const activities = buildSheetActivities(input.occurred_on, input.event_type, salesPersonName, items);
   const posted = await postManualActivities(company.name, activities);
   if (!posted.ok) return posted;
@@ -335,27 +355,43 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
     }
   }
 
-  // Activity is logged; now move the contact's opportunity in the GHL EOD
-  // pipeline directly (the EOD fields + "Contact Changed" workflows are
-  // retired). Failure here never fails the submission — the reason is
-  // surfaced as a note instead.
+  // Activity is logged; now move (or create) the contact's opportunity in
+  // the GHL EOD pipeline. Failure here never fails the submission — the
+  // reason is surfaced as a note instead.
   let pipeline: string | undefined;
   let pipelineOk: boolean | undefined;
   if (input.event_type === "eod_update" && input.eod_fields) {
-    const withContact = items.find(it => it.contact_id?.trim());
-    const moved = await moveEodOpportunity({
-      locationId,
-      contactId: withContact?.contact_id?.trim() || "",
-      contactName: withContact?.contact_name?.trim() || items[0]?.contact_name?.trim() || "",
-      stage: input.eod_fields.stage,
-      answered: input.eod_fields.answered,
-      stdOutcome: input.eod_fields.std_outcome,
-    });
-    pipelineOk = moved.ok;
-    pipeline = moved.ok ? (moved.moved || "updated") : moved.reason;
+    const withContact = items.find(it => it.contact_id?.trim()) || items[0];
+    const contactName =
+      withContact?.contact_name?.trim() || items[0]?.contact_name?.trim() || "";
+    const contactId = withContact?.contact_id?.trim() || "";
+    if (!contactId) {
+      // Name lookup already ran above — re-run only for a precise error note.
+      const resolved = await resolveGhlContactId({
+        locationId,
+        contactId: "",
+        contactName,
+      });
+      pipelineOk = false;
+      pipeline = resolved.contactId == null
+        ? resolved.reason
+        : "no linked GHL contact";
+    } else {
+      const moved = await moveEodOpportunity({
+        locationId,
+        contactId,
+        contactName,
+        stage: input.eod_fields.stage,
+        answered: input.eod_fields.answered,
+        stdOutcome: input.eod_fields.std_outcome,
+      });
+      pipelineOk = moved.ok;
+      pipeline = moved.ok ? (moved.moved || "updated") : moved.reason;
+    }
   } else if (input.event_type === "job_won") {
     // Job Won must close the GHL opportunity and write the deal value so
     // pipeline reporting (won rate, revenue) matches the Activity Log.
+    // contact_id is already name-resolved above when missing.
     const notes: string[] = [];
     let anyOk = false;
     let attempted = 0;
