@@ -54,8 +54,8 @@
     {
       "name": "🚫 Disqualified",
       "outcomes": [
-        "DQ - Out of Service Area", "DQ - Price", "DQ - Extent of Works",
-        "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
+        "DQ - Incorrect Details", "DQ - Out of Service Area", "DQ - Price",
+        "DQ - Extent of Works", "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
       ]
     }
   ],
@@ -94,8 +94,8 @@
     {
       "name": "🚫 Disqualified",
       "outcomes": [
-        "DQ - Out of Service Area", "DQ - Price", "DQ - Extent of Works",
-        "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
+        "DQ - Incorrect Details", "DQ - Out of Service Area", "DQ - Price",
+        "DQ - Extent of Works", "DQ - Wrong Contact / Spam", "DQ - Lead Looking for Work"
       ]
     },
     {

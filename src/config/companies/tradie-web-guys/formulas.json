@@ -20,6 +20,7 @@
     "Deal Closed": { "eod": 4, "eow": 3 },
     "Deal Value": { "eod": 1, "eow": 1 },
     "Abandoned - Not Responding": { "eod": 4, "eow": 3 },
+    "DQ - Incorrect Details": { "eod": 4, "eow": 3 },
     "DQ - Not Interested": { "eod": 4, "eow": 3 },
     "DQ - Budget": { "eod": 4, "eow": 3 },
     "DQ - Wrong Contact / Spam": { "eod": 4, "eow": 3 },

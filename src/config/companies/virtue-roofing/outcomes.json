@@ -21,6 +21,7 @@
     { "name": "Lost - Time Related", "category": "lost" },
     { "name": "Abandoned - Not Responding", "category": "abandoned" },
     { "name": "Abandoned - Headache", "category": "abandoned" },
+    { "name": "DQ - Incorrect Details", "category": "dq" },
     { "name": "DQ - Out of Service Area", "category": "dq" },
     { "name": "DQ - Price", "category": "dq" },
     { "name": "DQ - Extent of Works", "category": "dq" },

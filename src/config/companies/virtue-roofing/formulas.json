@@ -36,6 +36,7 @@
     "Lost - Time Related": { "eod": 4, "eow": 11 },
     "Abandoned - Not Responding": { "eod": 4, "eow": 11 },
     "Abandoned - Headache": { "eod": 4, "eow": 11 },
+    "DQ - Incorrect Details": { "eod": 4, "eow": 11 },
     "DQ - Out of Service Area": { "eod": 4, "eow": 11 },
     "DQ - Price": { "eod": 4, "eow": 11 },
     "DQ - Extent of Works": { "eod": 4, "eow": 11 },

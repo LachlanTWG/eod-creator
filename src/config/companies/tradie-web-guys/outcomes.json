@@ -13,6 +13,7 @@
     { "name": "Deal Closed", "category": "dealClosed" },
     { "name": "Deal Value", "category": "dealValue" },
     { "name": "Abandoned - Not Responding", "category": "abandoned" },
+    { "name": "DQ - Incorrect Details", "category": "dq" },
     { "name": "DQ - Not Interested", "category": "dq" },
     { "name": "DQ - Budget", "category": "dq" },
     { "name": "DQ - Wrong Contact / Spam", "category": "dq" },

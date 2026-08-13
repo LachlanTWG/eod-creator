@@ -117,9 +117,11 @@ async function createDashboard(spreadsheetId, companyName, ownerName, salesPeopl
     'Direct Email', 'Direct Phone Call', 'Direct Text Message',
     'Direct Lead passed on from Client', 'Recommended Another Company',
   ];
-  const lostNames = ['Lost - Price', 'Lost - Time Related', 'Lost - Priorities Changed'];
-  const dqNames = ['DQ - Out of Service Area', 'DQ - Price', 'DQ - Extent of Works', 'DQ - Wrong Contact / Spam', 'DQ - Lead Looking for Work'];
-  const abandonedNames = ['Abandoned - Not Responding', 'Abandoned - Headache'];
+  const byCategory = (cat) =>
+    outcomes.outcomes.filter(o => o.category === cat).map(o => o.name.replace('{owner}', ownerName));
+  const lostNames = byCategory('lost');
+  const dqNames = byCategory('dq');
+  const abandonedNames = byCategory('abandoned');
 
   // --- Delete old, create new ---
   const meta = await getSpreadsheetMeta(spreadsheetId);

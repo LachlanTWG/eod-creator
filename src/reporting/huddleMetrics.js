@@ -21,6 +21,7 @@ const OUTCOME_ALIASES = {
 // Outcome actions that mean a lead is dead (categories dq/lost/abandoned in
 // dashboard/src/lib/configs/outcomes.json).
 const DEAD_OUTCOMES = new Set([
+  'DQ - Incorrect Details',
   'DQ - Out of Service Area',
   'DQ - Price',
   'DQ - Extent of Works',

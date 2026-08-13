@@ -33,7 +33,7 @@
     },
     {
       "name": "🚫 Disqualified",
-      "outcomes": ["DQ - Not Interested", "DQ - Budget", "DQ - Wrong Contact / Spam"]
+      "outcomes": ["DQ - Incorrect Details", "DQ - Not Interested", "DQ - Budget", "DQ - Wrong Contact / Spam"]
     }
   ],
   "eowBlocks": [
@@ -59,7 +59,7 @@
     },
     {
       "name": "🚫 Disqualified",
-      "outcomes": ["DQ - Not Interested", "DQ - Budget", "DQ - Wrong Contact / Spam"]
+      "outcomes": ["DQ - Incorrect Details", "DQ - Not Interested", "DQ - Budget", "DQ - Wrong Contact / Spam"]
     },
     {
       "name": "📣 Marketing Sources",
