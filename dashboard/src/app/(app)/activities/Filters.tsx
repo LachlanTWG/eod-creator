@@ -99,7 +99,8 @@ export function Filters({
 
       <input
         type="text"
-        placeholder="Search contact name…"
+        placeholder="Search name, company, person, address, quote #…"
+        title="Contact name, company, sales person, address, or quote number"
         value={form.q}
         onChange={e => setForm(f => ({ ...f, q: e.target.value }))}
         onBlur={() => apply(form)}

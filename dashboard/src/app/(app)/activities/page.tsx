@@ -78,7 +78,10 @@ export default async function ActivitiesPage({
   if (filters.company) q = q.eq("company_id", filters.company);
   if (filters.person)  q = q.eq("sales_person_id", filters.person);
   if (filters.type)    q = q.eq("event_type", filters.type);
-  if (filters.q)       q = q.ilike("contact_name", `%${filters.q}%`);
+  if (filters.q) {
+    const or = searchOrFilter(filters.q, companies, salesPeople);
+    if (or) q = q.or(or);
+  }
 
   const from = (page - 1) * PAGE_SIZE;
   const to   = from + PAGE_SIZE - 1;
@@ -167,6 +170,35 @@ export default async function ActivitiesPage({
       )}
     </div>
   );
+}
+
+// PostgREST or() values: strip chars that break the filter grammar or act
+// as LIKE wildcards. Quote numbers are not their own column — they sit in
+// outcome (pipe-delimited on quote_sent, "Quote 7544 …" on emails).
+function sanitiseSearch(raw: string): string {
+  return raw.replace(/[%_,"'\\()]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function searchOrFilter(
+  raw: string,
+  companies: { id: string; name: string }[],
+  salesPeople: { id: string; name: string }[],
+): string | null {
+  const needle = sanitiseSearch(raw);
+  if (!needle) return null;
+  const like = `"%${needle}%"`;
+  const lower = needle.toLowerCase();
+  const clauses = [
+    `contact_name.ilike.${like}`,
+    `contact_address.ilike.${like}`,
+    `sales_person_name.ilike.${like}`,
+    `outcome.ilike.${like}`,
+  ];
+  const companyIds = companies.filter(c => c.name.toLowerCase().includes(lower)).map(c => c.id);
+  if (companyIds.length) clauses.push(`company_id.in.(${companyIds.join(",")})`);
+  const personIds = salesPeople.filter(p => p.name.toLowerCase().includes(lower)).map(p => p.id);
+  if (personIds.length) clauses.push(`sales_person_id.in.(${personIds.join(",")})`);
+  return clauses.join(",");
 }
 
 function Pager({
