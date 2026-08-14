@@ -732,15 +732,16 @@ function buildMessage(opts: {
     }
   }
 
-  // Personal week only: flag Requires Quoting contacts that still have no
-  // Quote Sent this week, so coverage is obvious without leaving the card.
-  if (period === "week" && !isTeam) {
+  // Personal day + week: flag Requires Quoting contacts that still have no
+  // Quote Sent in this period, so coverage is obvious without leaving the card.
+  if ((period === "week" || period === "day") && !isTeam) {
     const rqNames = uniqueRequiresQuoting(data);
     if (rqNames.length > 0) {
       const open = requiresQuotingStillOpen(data);
+      const window = period === "day" ? "today" : "this week";
       lines.push("✅ Quoting coverage");
       if (open.length === 0) {
-        lines.push(`All ${rqNames.length} Requires Quoting covered with a quote this week`);
+        lines.push(`All ${rqNames.length} Requires Quoting covered with a quote ${window}`);
       } else {
         lines.push(`Still need quote: ${open.length} of ${rqNames.length}`);
         for (const name of open) lines.push(`- ${name}`);
