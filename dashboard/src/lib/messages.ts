@@ -738,10 +738,9 @@ function buildMessage(opts: {
     const rqNames = uniqueRequiresQuoting(data);
     if (rqNames.length > 0) {
       const open = requiresQuotingStillOpen(data);
-      const window = period === "day" ? "today" : "this week";
       lines.push("✅ Quoting coverage");
       if (open.length === 0) {
-        lines.push(`All ${rqNames.length} Requires Quoting covered with a quote ${window}`);
+        lines.push("Complete 100%");
       } else {
         lines.push(`Still need quote: ${open.length} of ${rqNames.length}`);
         for (const name of open) lines.push(`- ${name}`);
