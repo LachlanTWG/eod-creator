@@ -105,12 +105,124 @@ function resolveAlias(name) {
   return OUTCOME_ALIASES[name] || name;
 }
 
+const HANDOFF_LOOKBACK_DAYS = 30;
+
+function sameExec(a, b) {
+  const na = String(a || '').trim().toLowerCase();
+  const nb = String(b || '').trim().toLowerCase();
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  return na.startsWith(nb + ' ') || nb.startsWith(na + ' ');
+}
+
+function execLabel(name) {
+  const t = String(name || '').trim();
+  return t.split(/\s+/)[0] || t;
+}
+
+function addDaysIso(dateStr, n) {
+  const [y, m, d] = String(dateStr).split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + n);
+  return date.toISOString().slice(0, 10);
+}
+
+function rosterNamesFor(companyName) {
+  try {
+    const { loadCompanies } = require('../config/companiesStore');
+    const { companies } = loadCompanies();
+    const c = (companies || []).find(x => x.name === companyName);
+    return (c?.salesPeople || []).map(p => p.name).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function isRosterName(name, roster) {
+  if (!name || name === 'Team' || /^unknown$/i.test(name)) return false;
+  if (!roster || roster.length === 0) return true; // fail open if config missing
+  return roster.some(r => sameExec(name, r));
+}
+
+function sheetContactKey(row) {
+  const cid = String(row['Contact ID'] || '').trim();
+  if (cid) return `id:${cid}`;
+  const n = normalizeName(row['Contact Name']);
+  if (n.length >= 3) return `name:${n}`;
+  return null;
+}
+
+function parseQuoteValues(raw) {
+  return String(raw || '')
+    .split('|')
+    .map(v => parseFloat(String(v).replace(/[$,\s]/g, '')))
+    .filter(v => Number.isFinite(v));
+}
+
+function isRequiresQuotingAction(outcomeStr) {
+  return resolveAlias(parseOutcome(outcomeStr).action) === 'Requires Quoting';
+}
+
+function findQuoteHandoffs(inRangeQuotes, pool, roster) {
+  const rqs = [];
+  for (const a of pool || []) {
+    const ev = a['Event Type'];
+    if (ev && ev !== 'EOD Update') continue;
+    if (!isRosterName(a['Sales Person'], roster)) continue;
+    if (!isRequiresQuotingAction(a['Outcome'])) continue;
+    const key = sheetContactKey(a);
+    if (!key) continue;
+    rqs.push({ key, exec: a['Sales Person'], day: a['Date'] });
+  }
+
+  const out = new Map();
+  for (const q of inRangeQuotes) {
+    if (q['Event Type'] !== 'Quote Sent') continue;
+    if (!isRosterName(q['Sales Person'], roster)) continue;
+    const key = sheetContactKey(q);
+    if (!key) continue;
+    const cutoff = addDaysIso(q['Date'], -HANDOFF_LOOKBACK_DAYS);
+    let best = null;
+    for (const rq of rqs) {
+      if (rq.key !== key) continue;
+      if (sameExec(rq.exec, q['Sales Person'])) continue;
+      if (rq.day > q['Date'] || rq.day < cutoff) continue;
+      if (!best || rq.day > best.day) best = rq;
+    }
+    if (!best) continue;
+    out.set(key, { key, talker: execLabel(best.exec), sender: execLabel(q['Sales Person']) });
+  }
+  return out;
+}
+
+function pushQuote(list, contactName, values, extra) {
+  extra = extra || {};
+  const existing = list.find(q => q.contactName === contactName);
+  if (existing) {
+    existing.values.push(...values);
+    if (extra.sentBy && !existing.sentBy) existing.sentBy = extra.sentBy;
+    if (extra.fromExec && !existing.fromExec) existing.fromExec = extra.fromExec;
+    if (extra.isHandoff) existing.isHandoff = true;
+    return;
+  }
+  list.push({ contactName, values, ...extra });
+}
+
+function formatQuoteDetailLine(q, isTeam) {
+  const valStr = q.values.map(v => formatDollar(v)).join(', ');
+  let line = `- ${q.contactName} - ${q.values.length} - (${valStr})`;
+  if (!isTeam && q.sentBy) line += ` — by ${q.sentBy}`;
+  else if (!isTeam && q.fromExec) line += ` — from ${q.fromExec}`;
+  return line;
+}
+
 /**
  * Count outcomes from filtered EOD Update activities.
  * @param {Array} allActivities - ALL activity log rows (for cross-referencing lead sources)
  * @returns {{ counts: {name: count}, names: {name: [contactNames]}, quoteDetails: [...], siteVisits: [...], jobDetails: [...] }}
  */
-function countOutcomes(filtered, ownerName, companyName, allActivities) {
+function countOutcomes(filtered, ownerName, companyName, allActivities, opts) {
+  opts = opts || {};
   const outcomeNames = getOutcomeNames(ownerName, companyName);
   const counts = {};
   const names = {};
@@ -119,31 +231,32 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
     names[name] = [];
   }
 
-  const quoteDetails = []; // { contactName, values: [number] }
+  const quoteDetails = []; // { contactName, values, sentBy?, fromExec?, isHandoff? }
   const siteVisits = [];   // { contactName, address, datetime }
   const jobDetails = [];   // { contactName, address, value, source }
   const customNotes = [];  // { contactName, note } — EOD 4 custom outcomes, surfaced verbatim
+  const myRq = [];
+  const pool = allActivities || filtered || [];
+  const roster = rosterNamesFor(companyName);
+  const rangeStart = opts.rangeStart;
+  const rangeEnd = opts.rangeEnd;
+  const inRange = (day) =>
+    (!rangeStart || day >= rangeStart) && (!rangeEnd || day <= rangeEnd);
+  const inRangeQuotes = pool.filter(a => a['Event Type'] === 'Quote Sent' && inRange(a['Date']));
+  const handoffs = opts.forExec ? findQuoteHandoffs(inRangeQuotes, pool, roster) : new Map();
 
   for (const activity of filtered) {
     const eventType = activity['Event Type'];
 
     if (eventType === 'Quote Sent') {
       const contactName = activity['Contact Name'];
-      const valuesStr = activity['Quote/Job Value'] || '';
-      const values = valuesStr.split('|').map(v => parseFloat(v.replace(/[$,\s]/g, ''))).filter(v => !isNaN(v));
-
-      // Find existing entry for this contact or create new
-      let existing = quoteDetails.find(q => q.contactName === contactName);
-      if (existing) {
-        existing.values.push(...values);
-      } else {
-        quoteDetails.push({ contactName, values });
-      }
-
-      const outcomeName = `Quote Sent`;
-      if (outcomeName in counts) {
-        // We count quote events, not individual quote values here
-      }
+      const values = parseQuoteValues(activity['Quote/Job Value']);
+      const key = sheetContactKey(activity);
+      const handoff = key ? handoffs.get(key) : undefined;
+      const fromExec = handoff && opts.forExec && sameExec(handoff.sender, opts.forExec)
+        ? handoff.talker
+        : undefined;
+      pushQuote(quoteDetails, contactName, values, fromExec ? { fromExec } : {});
       continue;
     }
 
@@ -220,6 +333,9 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
           counts[actionKey]++;
           names[actionKey].push(contactName);
         }
+        if (actionKey === 'Requires Quoting') {
+          myRq.push({ name: contactName, key: sheetContactKey(activity) });
+        }
       }
 
       // Source
@@ -240,21 +356,42 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
   if ('Total Calls' in counts) counts['Total Calls'] = totalAnswered;
   if ('Total Contact Attempts' in counts) counts['Total Contact Attempts'] = totalAnswered;
 
+  if (opts.forExec) {
+    const ownNames = new Set(quoteDetails.map(q => normalizeName(q.contactName)));
+    const injected = new Set();
+    for (const q of inRangeQuotes) {
+      if (!isRosterName(q['Sales Person'], roster)) continue;
+      const key = sheetContactKey(q);
+      if (!key || injected.has(key)) continue;
+      const handoff = handoffs.get(key);
+      if (!handoff || !sameExec(handoff.talker, opts.forExec)) continue;
+      const contactName = (q['Contact Name'] || '').trim();
+      if (!contactName || ownNames.has(normalizeName(contactName))) continue;
+      const values = [];
+      for (const row of inRangeQuotes) {
+        if (sheetContactKey(row) === key) values.push(...parseQuoteValues(row['Quote/Job Value']));
+      }
+      pushQuote(quoteDetails, contactName, values, { sentBy: handoff.sender, isHandoff: true });
+      injected.add(key);
+    }
+  }
+
   // Compute Quote Sent count and Total Individual Quotes (trade companies)
   if ('Quote Sent' in counts) {
     counts['Quote Sent'] = quoteDetails.length;
   }
+  const ownQuotes = quoteDetails.filter(q => !q.isHandoff);
   let totalIndividualQuotes = 0;
-  for (const q of quoteDetails) {
+  for (const q of ownQuotes) {
     totalIndividualQuotes += q.values.length;
   }
   if ('Total Individual Quotes' in counts) {
     counts['Total Individual Quotes'] = totalIndividualQuotes;
   }
 
-  // Compute Pipeline Value (trade companies)
+  // Compute Pipeline Value (trade companies) — sender only, not talker copies
   let pipelineValue = 0;
-  for (const q of quoteDetails) {
+  for (const q of ownQuotes) {
     if (q.values.length > 0) {
       const avg = q.values.reduce((a, b) => a + b, 0) / q.values.length;
       pipelineValue += avg;
@@ -264,13 +401,30 @@ function countOutcomes(filtered, ownerName, companyName, allActivities) {
     counts['Pipeline Value'] = Math.round(pipelineValue);
   }
 
+  const teamQuoted = new Set();
+  for (const a of inRangeQuotes) {
+    const key = sheetContactKey(a);
+    if (key) teamQuoted.add(key);
+    const n = normalizeName(a['Contact Name']);
+    if (n) teamQuoted.add(`name:${n}`);
+  }
+  const openByName = new Map();
+  for (const rq of myRq) {
+    if (!rq.name) continue;
+    const closed = (rq.key && teamQuoted.has(rq.key)) || teamQuoted.has(`name:${normalizeName(rq.name)}`);
+    if (!openByName.has(rq.name) || closed) openByName.set(rq.name, !closed);
+  }
+  const quotingOpen = [...openByName.entries()].filter(([, open]) => open).map(([n]) => n).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' }),
+  );
+
   // Synthetic display count for the Pipeline Progress block. Set directly (not
   // via outcomes.json) so it never becomes a positional Google Sheet storage
   // column. "Site Visit Booked" (singular, formula 8) still renders the detailed
   // list in the 🏠 Site Visits block. Mirrors dashboard messages.ts.
   counts['Site Visits Booked'] = siteVisits.length;
 
-  return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes };
+  return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes, quotingOpen };
 }
 
 /**
@@ -363,10 +517,7 @@ function formatEODLine(outcomeName, formulaTypeId, data, isTeam) {
         return `Total Contacts Quoted: ${validQuotes.length}`;
       }
       const lines = [`Total Contacts Quoted: ${validQuotes.length}`];
-      for (const q of validQuotes) {
-        const valStr = q.values.map(v => formatDollar(v)).join(', ');
-        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
-      }
+      for (const q of validQuotes) lines.push(formatQuoteDetailLine(q, isTeam));
       return lines.join('\n');
     }
 
@@ -442,6 +593,22 @@ function buildEODMessage(companyName, dateStr, ownerName, data, salesPerson) {
     }
   }
 
+  // Personal: flag Requires Quoting contacts that still have no team quote.
+  if (salesPerson && salesPerson !== 'Team') {
+    const rqNames = [...new Set((data.names['Requires Quoting'] || []).filter(Boolean))];
+    if (rqNames.length > 0) {
+      const open = data.quotingOpen || [];
+      lines.push('✅ Quoting coverage');
+      if (open.length === 0) {
+        lines.push('Complete 100%');
+      } else {
+        lines.push(`Still in need of quote: ${open.length} of ${rqNames.length}`);
+        for (const name of open) lines.push(`- ${name}`);
+      }
+      lines.push('');
+    }
+  }
+
   // 📝 Notes — custom outcomes (EOD 4) surfaced verbatim at the very bottom,
   // one per line as "Contact Name - Custom Outcome". Deduped on name+note.
   const customNotes = data.customNotes || [];
@@ -488,7 +655,12 @@ async function generateEOD(spreadsheetId, salesPerson, targetDate, companyName, 
     return { message: `No activities found for ${salesPerson} on ${targetDate}.`, counts: {}, names: {} };
   }
 
-  const data = countOutcomes(filtered, ownerName, companyName, activities);
+  const forExec = salesPerson && salesPerson !== 'Team' ? salesPerson : undefined;
+  const data = countOutcomes(filtered, ownerName, companyName, activities, {
+    forExec,
+    rangeStart: targetDate,
+    rangeEnd: targetDate,
+  });
   const message = buildEODMessage(companyName, targetDate, ownerName, data, salesPerson);
 
   return { message, counts: data.counts, names: data.names };

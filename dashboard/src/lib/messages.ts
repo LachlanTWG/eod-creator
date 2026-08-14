@@ -50,14 +50,37 @@ const BLOCKS = blocksConfig as BlocksConfig;
 const FORMULAS = formulasConfig as FormulasConfig;
 const OUTCOMES = outcomesConfig as OutcomesConfig;
 
+type QuoteDetail = {
+  contactName: string;
+  values: number[];
+  /** Talker's injected line: teammate who actually sent the quote. */
+  sentBy?: string;
+  /** Sender's own line: roster exec whose Requires Quoting this send closes. */
+  fromExec?: string;
+  /** True when this line was copied onto the talker's card — skip pipeline $. */
+  isHandoff?: boolean;
+};
+
 type CountedData = {
   counts: Record<string, number>;
   names: Record<string, string[]>;
-  quoteDetails: { contactName: string; values: number[] }[];
+  quoteDetails: QuoteDetail[];
   siteVisits: { contactName: string; address: string; datetime: string }[];
   jobDetails: { contactName: string; address: string; value: number; source: string }[];
   customNotes: { contactName: string; note: string }[]; // EOD 4 custom outcomes, surfaced verbatim
+  /** Requires Quoting contacts still missing a team quote in-range. */
+  quotingOpen: string[];
 };
+
+type CountOpts = {
+  /** Personal card owner (short roster name). Team / omitted → no handoff labels. */
+  forExec?: string;
+  rangeStart?: string;
+  rangeEnd?: string;
+};
+
+/** How far before a quote we look for another exec's Requires Quoting. */
+const HANDOFF_LOOKBACK_DAYS = 30;
 
 type MessageScope = "personal" | "team";
 
@@ -121,18 +144,136 @@ function getOutcomeNames(ownerName: string): string[] {
   return OUTCOMES.outcomes.map(o => o.name.replace("{owner}", ownerName));
 }
 
+function sameExec(a: string | null | undefined, b: string | null | undefined): boolean {
+  const na = (a || "").trim().toLowerCase();
+  const nb = (b || "").trim().toLowerCase();
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  return na.startsWith(nb + " ") || nb.startsWith(na + " ");
+}
+
+/** Roster short name for labels ("Lachlan Boys" → "Lachlan"). */
+function execLabel(name: string): string {
+  const t = (name || "").trim();
+  return t.split(/\s+/)[0] || t;
+}
+
+function isRosterRow(a: ActivityRow): boolean {
+  return !!a.sales_person_id;
+}
+
+function contactKey(companyId: string, contactId: string | null, contactName: string | null): string | null {
+  const cid = (contactId || "").trim();
+  if (cid) return `${companyId}|id:${cid}`;
+  const n = normalizeName(contactName);
+  if (n.length >= 3) return `${companyId}|name:${n}`;
+  return null;
+}
+
+function parseQuoteValues(raw: string | null): number[] {
+  return (raw || "")
+    .split("|")
+    .map(v => parseFloat(v.replace(/[$,\s]/g, "")))
+    .filter(v => Number.isFinite(v));
+}
+
+function isRequiresQuotingAction(outcome: string | null): boolean {
+  return resolveAlias(parseOutcome(outcome).action) === "Requires Quoting";
+}
+
+type QuoteHandoff = { key: string; talker: string; sender: string };
+
+/**
+ * For each in-range roster quote, pair to the most recent Requires Quoting
+ * by a *different* roster exec on the same contact (≤ lookback days, on or
+ * before the quote). Client-owner / unattributed quotes are ignored.
+ */
+function findQuoteHandoffs(inRangeQuotes: ActivityRow[], pool: ActivityRow[]): Map<string, QuoteHandoff> {
+  const rqs: { key: string; exec: string; day: string }[] = [];
+  for (const a of pool) {
+    if (a.event_type !== "eod_update") continue;
+    if (!isRosterRow(a)) continue;
+    if (!isRequiresQuotingAction(a.outcome)) continue;
+    const key = contactKey(a.company_id, a.contact_id, a.contact_name);
+    if (!key) continue;
+    rqs.push({ key, exec: a.sales_person_name, day: a.occurred_on });
+  }
+
+  const out = new Map<string, QuoteHandoff>();
+  for (const q of inRangeQuotes) {
+    if (q.event_type !== "quote_sent") continue;
+    if (!isRosterRow(q)) continue;
+    const key = contactKey(q.company_id, q.contact_id, q.contact_name);
+    if (!key) continue;
+    const cutoff = addDaysIso(q.occurred_on, -HANDOFF_LOOKBACK_DAYS);
+    let best: { exec: string; day: string } | null = null;
+    for (const rq of rqs) {
+      if (rq.key !== key) continue;
+      if (sameExec(rq.exec, q.sales_person_name)) continue;
+      if (rq.day > q.occurred_on || rq.day < cutoff) continue;
+      if (!best || rq.day > best.day) best = rq;
+    }
+    if (!best) continue;
+    out.set(key, {
+      key,
+      talker: execLabel(best.exec),
+      sender: execLabel(q.sales_person_name),
+    });
+  }
+  return out;
+}
+
+function pushQuote(
+  list: QuoteDetail[],
+  contactName: string,
+  values: number[],
+  extra: Partial<QuoteDetail> = {},
+) {
+  const existing = list.find(q => q.contactName === contactName);
+  if (existing) {
+    existing.values.push(...values);
+    if (extra.sentBy && !existing.sentBy) existing.sentBy = extra.sentBy;
+    if (extra.fromExec && !existing.fromExec) existing.fromExec = extra.fromExec;
+    if (extra.isHandoff) existing.isHandoff = true;
+    return;
+  }
+  list.push({ contactName, values, ...extra });
+}
+
+function formatQuoteDetailLine(q: QuoteDetail, isTeam: boolean): string {
+  const valStr = q.values.map(v => formatDollar(v)).join(", ");
+  let line = `- ${q.contactName} - ${q.values.length} - (${valStr})`;
+  if (!isTeam && q.sentBy) line += ` — by ${q.sentBy}`;
+  else if (!isTeam && q.fromExec) line += ` — from ${q.fromExec}`;
+  return line;
+}
+
 // ─── Aggregation engine ──────────────────────────────────────────────
 
-function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities: ActivityRow[]): CountedData {
+function countOutcomes(
+  filtered: ActivityRow[],
+  ownerName: string,
+  allActivities: ActivityRow[],
+  opts: CountOpts = {},
+): CountedData {
   const outcomeNames = getOutcomeNames(ownerName);
   const counts: Record<string, number> = {};
   const names: Record<string, string[]> = {};
   for (const n of outcomeNames) { counts[n] = 0; names[n] = []; }
 
-  const quoteDetails: CountedData["quoteDetails"] = [];
+  const quoteDetails: QuoteDetail[] = [];
   const siteVisits: CountedData["siteVisits"] = [];
   const jobDetails: CountedData["jobDetails"] = [];
   const customNotes: CountedData["customNotes"] = [];
+  const myRq: { name: string; key: string | null; companyId: string }[] = [];
+
+  const rangeStart = opts.rangeStart;
+  const rangeEnd = opts.rangeEnd;
+  const inRange = (day: string) =>
+    (!rangeStart || day >= rangeStart) && (!rangeEnd || day <= rangeEnd);
+
+  const inRangeQuotes = allActivities.filter(a => a.event_type === "quote_sent" && inRange(a.occurred_on));
+  const handoffs = opts.forExec ? findQuoteHandoffs(inRangeQuotes, allActivities) : new Map<string, QuoteHandoff>();
 
   // Read-layer dedup: collapse exact-duplicate job_won / quote_sent rows (same
   // customer + same value) so a re-delivered GHL webhook (source_row_id=null,
@@ -157,13 +298,13 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
     if (ev === "quote_sent") {
       const contactName = (a.contact_name || "").trim();
       if (!contactName) continue;                                 // skip noise: no contact
-      const values = (a.quote_job_value || "")
-        .split("|")
-        .map(v => parseFloat(v.replace(/[$,\s]/g, "")))
-        .filter(v => Number.isFinite(v));
-      const existing = quoteDetails.find(q => q.contactName === contactName);
-      if (existing) existing.values.push(...values);
-      else quoteDetails.push({ contactName, values });
+      const values = parseQuoteValues(a.quote_job_value);
+      const key = contactKey(a.company_id, a.contact_id, a.contact_name);
+      const handoff = key ? handoffs.get(key) : undefined;
+      const fromExec = handoff && opts.forExec && sameExec(handoff.sender, opts.forExec)
+        ? handoff.talker
+        : undefined;
+      pushQuote(quoteDetails, contactName, values, fromExec ? { fromExec } : {});
       continue;
     }
 
@@ -232,6 +373,13 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
           counts[actionKey]++;
           names[actionKey].push(contactName);
         }
+        if (actionKey === "Requires Quoting") {
+          myRq.push({
+            name: contactName,
+            key: contactKey(a.company_id, a.contact_id, a.contact_name),
+            companyId: a.company_id,
+          });
+        }
       }
       if (source && source in counts) {
         counts[source]++;
@@ -245,21 +393,66 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
     }
   }
 
+  // Talker's card: surface teammate sends that close their Requires Quoting.
+  // Skip if they already have their own quote_sent for that contact.
+  if (opts.forExec) {
+    const ownNames = new Set(quoteDetails.map(q => normalizeName(q.contactName)));
+    const injected = new Set<string>();
+    for (const q of inRangeQuotes) {
+      if (!isRosterRow(q)) continue;
+      const key = contactKey(q.company_id, q.contact_id, q.contact_name);
+      if (!key || injected.has(key)) continue;
+      const handoff = handoffs.get(key);
+      if (!handoff || !sameExec(handoff.talker, opts.forExec)) continue;
+      const contactName = (q.contact_name || "").trim();
+      if (!contactName || ownNames.has(normalizeName(contactName))) continue;
+      const values: number[] = [];
+      for (const row of inRangeQuotes) {
+        if (contactKey(row.company_id, row.contact_id, row.contact_name) === key) {
+          values.push(...parseQuoteValues(row.quote_job_value));
+        }
+      }
+      pushQuote(quoteDetails, contactName, values, { sentBy: handoff.sender, isHandoff: true });
+      injected.add(key);
+    }
+  }
+
   // Computed totals
   const totalAnswered = (counts["Answered"] || 0) + (counts["Didn't Answer"] || 0);
   if ("Total Calls" in counts) counts["Total Calls"] = totalAnswered;
   if ("Total Contact Attempts" in counts) counts["Total Contact Attempts"] = totalAnswered;
   if ("Quote Sent" in counts) counts["Quote Sent"] = quoteDetails.length;
 
+  // Pipeline $ and individual-quote counts stay with the sender — handoff
+  // lines are display-only on the talker's card.
+  const ownQuotes = quoteDetails.filter(q => !q.isHandoff);
   let totalIndividualQuotes = 0;
-  for (const q of quoteDetails) totalIndividualQuotes += q.values.length;
+  for (const q of ownQuotes) totalIndividualQuotes += q.values.length;
   if ("Total Individual Quotes" in counts) counts["Total Individual Quotes"] = totalIndividualQuotes;
 
   let pipelineValue = 0;
-  for (const q of quoteDetails) {
+  for (const q of ownQuotes) {
     if (q.values.length > 0) pipelineValue += q.values.reduce((a, b) => a + b, 0) / q.values.length;
   }
   if ("Pipeline Value" in counts) counts["Pipeline Value"] = Math.round(pipelineValue);
+
+  const teamQuoted = new Set<string>();
+  for (const a of inRangeQuotes) {
+    const key = contactKey(a.company_id, a.contact_id, a.contact_name);
+    if (key) teamQuoted.add(key);
+    const n = normalizeName(a.contact_name);
+    if (n) teamQuoted.add(`${a.company_id}|name:${n}`);
+  }
+  const openByName = new Map<string, boolean>();
+  for (const rq of myRq) {
+    if (!rq.name) continue;
+    const closed = (rq.key && teamQuoted.has(rq.key))
+      || teamQuoted.has(`${rq.companyId}|name:${normalizeName(rq.name)}`);
+    if (!openByName.has(rq.name) || closed) openByName.set(rq.name, !closed);
+  }
+  const quotingOpen = sortNamesAlpha(
+    [...openByName.entries()].filter(([, open]) => open).map(([n]) => n),
+  );
 
   // Synthetic display count for the Pipeline Progress block. Set directly (not
   // registered in outcomes.json) so it stays a pure display value — the backend
@@ -268,7 +461,7 @@ function countOutcomes(filtered: ActivityRow[], ownerName: string, allActivities
   // the 🏠 Site Visits block.
   counts["Site Visits Booked"] = siteVisits.length;
 
-  return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes };
+  return { counts, names, quoteDetails, siteVisits, jobDetails, customNotes, quotingOpen };
 }
 
 // ─── Formatting ──────────────────────────────────────────────────────
@@ -317,6 +510,217 @@ const DISPLAY_LABELS: Record<string, string> = {
 };
 const displayLabel = (name: string): string => DISPLAY_LABELS[name] || name;
 
+/**
+ * Short site-visit timestamp for Team EOD: "13 Aug 3:00pm" (no weekday, no address).
+ */
+function formatTeamVisitShort(iso: string | null): string {
+  if (!iso) return "TBC";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "TBC";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let hours = d.getHours();
+  const mins = String(d.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "pm" : "am";
+  if (hours > 12) hours -= 12;
+  if (hours === 0) hours = 12;
+  return `${d.getDate()} ${months[d.getMonth()]} ${hours}:${mins}${ampm}`;
+}
+
+/**
+ * Dashboard-only Team EOD (day) layout — matches the agreed mock.
+ * Personal / week / month / quarter / year are unchanged.
+ */
+function buildTeamEODMessage(opts: {
+  companyLabel: string;
+  personLabel: string;
+  ownerName: string;
+  rangeEnd: string;
+  data: CountedData;
+}): string {
+  const { companyLabel, personLabel, ownerName, rangeEnd, data } = opts;
+  const { counts, quoteDetails, siteVisits, jobDetails } = data;
+  const lines: string[] = [
+    `EOD Report - ${formatEODDate(rangeEnd)} - ${personLabel} - ${companyLabel}`,
+    "",
+  ];
+  const blank = () => { lines.push(""); };
+
+  const countLine = (label: string, n: number, sep = " - "): string | null =>
+    n > 0 ? `${label}${sep}${n}` : null;
+
+  // ── 🎯 Lead Status ───────────────────────────────────────────────
+  {
+    const block: string[] = [];
+    for (const name of ["New Leads", "Pre-Quote Follow Up", "Post Quote Follow Up"]) {
+      const line = countLine(name, counts[name] || 0);
+      if (line) block.push(line);
+    }
+    if (block.length > 0) {
+      lines.push("🎯 Lead Status");
+      lines.push(...block);
+      blank();
+    }
+  }
+
+  // ── 📞 Communication: Answered - X / Y total (Z%) ─────────────────
+  {
+    const answered = counts["Answered"] || 0;
+    const total =
+      counts["Total Calls"] ||
+      counts["Total Contact Attempts"] ||
+      answered + (counts["Didn't Answer"] || 0);
+    if (total > 0 || answered > 0) {
+      const rate = total > 0 ? Math.round((answered / total) * 100) : 0;
+      lines.push("📞 Communication");
+      lines.push(`Answered - ${answered} / ${total} total (${rate}%)`);
+      blank();
+    }
+  }
+
+  // ── 🛠️ Pipeline Progress — every pipeline outcome, 1-line if N > 0 ─
+  {
+    const pipelineOutcomes = [
+      "Requires Quoting",
+      `Passed Onto ${ownerName}`,
+      "Verbal Confirmation",
+      "Site Visits Booked",
+      "Not Ready Yet - Pre-Quote",
+      "Not Ready Yet - Post Quote",
+    ];
+    const block: string[] = [];
+    for (const name of pipelineOutcomes) {
+      const n = counts[name] || 0;
+      if (n <= 0) continue;
+      // Site Visits Booked keeps ":" like the mock; others use " - "
+      if (name === "Site Visits Booked") block.push(`Site Visits Booked: ${n}`);
+      else block.push(`${name} - ${n}`);
+    }
+    if (block.length > 0) {
+      lines.push("🛠️ Pipeline Progress");
+      lines.push(...block);
+      blank();
+    }
+  }
+
+  // ── 📍 Lead Sources ──────────────────────────────────────────────
+  {
+    const sourceNames = OUTCOMES.outcomes
+      .filter(o => o.category === "source")
+      .map(o => o.name);
+    const block: string[] = [];
+    for (const name of sourceNames) {
+      const n = counts[name] || 0;
+      if (n > 0) block.push(`${displayLabel(name)} - ${n}`);
+    }
+    if (block.length > 0) {
+      lines.push("📍 Lead Sources");
+      lines.push(...block);
+      blank();
+    }
+  }
+
+  // ── 💰 Contacts Quotes Sent (compact mid summary) ────────────────
+  {
+    const contactsQuoted = quoteDetails.filter(q => q.contactName || q.values.length > 0).length
+      || (counts["Quote Sent"] || 0);
+    const pipeline = counts["Pipeline Value"] || 0;
+    const individual = counts["Total Individual Quotes"] || 0;
+    if (contactsQuoted > 0 || pipeline > 0 || individual > 0) {
+      if (contactsQuoted > 0) lines.push(`💰 Contacts Quotes Sent - ${contactsQuoted}`);
+      if (pipeline > 0) lines.push(`Pipeline Value - ${formatDollar(pipeline)}`);
+      if (individual > 0) lines.push(`Total Individual Quotes: ${individual}`);
+      blank();
+    }
+  }
+
+  // ── ✅ Jobs Confirmed (compact 1-liner) ───────────────────────────
+  {
+    if (jobDetails.length > 0) {
+      const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
+      lines.push(
+        total > 0
+          ? `✅ Jobs Confirmed - ${jobDetails.length} - ${formatDollar(total)}`
+          : `✅ Jobs Confirmed - ${jobDetails.length}`,
+      );
+      blank();
+    }
+  }
+
+  // ── 🏠 Site Visits — name + short time only ──────────────────────
+  {
+    if (siteVisits.length > 0) {
+      lines.push("🏠 Site Visits");
+      for (const sv of siteVisits) {
+        lines.push(`- ${sv.contactName || "TBC"} - ${formatTeamVisitShort(sv.datetime)}`);
+      }
+      blank();
+    }
+  }
+
+  // ── 📧 Emails Sent — single line ─────────────────────────────────
+  {
+    const n = counts["Emails Sent"] || 0;
+    if (n > 0) {
+      lines.push(`📧 Emails Sent - ${n}`);
+      blank();
+    }
+  }
+
+  // ── 💔 / 👻 / 🚫 flat per-reason lines (no section headers) ──────
+  // Mock: "💔 Lost - Price - 1" / "👻 Abandoned - Not Responding - 2"
+  //       / "🚫 Disqualified - DQ - Price - 1"
+  {
+    const before = lines.length;
+    for (const o of OUTCOMES.outcomes.filter(x => x.category === "lost")) {
+      const n = counts[o.name] || 0;
+      if (n > 0) lines.push(`💔 ${o.name} - ${n}`);
+    }
+    for (const o of OUTCOMES.outcomes.filter(x => x.category === "abandoned")) {
+      const n = counts[o.name] || 0;
+      if (n > 0) lines.push(`👻 ${o.name} - ${n}`);
+    }
+    for (const o of OUTCOMES.outcomes.filter(x => x.category === "dq")) {
+      const n = counts[o.name] || 0;
+      if (n > 0) lines.push(`🚫 Disqualified - ${o.name} - ${n}`);
+    }
+    if (lines.length > before) blank();
+  }
+
+  // ── 💰 Quotes Sent (expanded) ────────────────────────────────────
+  {
+    const valid = quoteDetails.filter(q => q.contactName || q.values.length > 0);
+    if (valid.length > 0) {
+      lines.push("💰 Quotes Sent");
+      lines.push(`Total Contacts Quoted: ${valid.length}`);
+      for (const q of valid) lines.push(formatQuoteDetailLine(q, true));
+      const pipeline = counts["Pipeline Value"] || 0;
+      if (pipeline > 0) lines.push(`Pipeline Value (Sum of Averages): ${formatDollar(pipeline)}`);
+      const individual = counts["Total Individual Quotes"] || 0;
+      if (individual > 0) lines.push(`Total Individual Quotes: ${individual}`);
+      blank();
+    }
+  }
+
+  // ── ✅ Job's Confirmed (expanded) ────────────────────────────────
+  {
+    if (jobDetails.length > 0) {
+      lines.push("✅ Job's Confirmed");
+      const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
+      for (const j of jobDetails) {
+        lines.push(
+          `${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || "N/A"} - ${cleanAddress(j.address).replace(/,/g, "") || "N/A"}`,
+        );
+      }
+      if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
+      blank();
+    }
+  }
+
+  // Trim trailing blank lines
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  return lines.join("\n");
+}
+
 function formatEODLine(outcomeName: string, formulaId: number, data: CountedData, isTeam: boolean): string | null {
   const { counts, names, quoteDetails, siteVisits, jobDetails } = data;
   const label = displayLabel(outcomeName);  // printed text only; keys stay raw
@@ -333,31 +737,30 @@ function formatEODLine(outcomeName: string, formulaId: number, data: CountedData
       return `${label} - ${c} - ${unique.join(", ")}`;
     }
     case 5: { const c = counts[outcomeName] || 0; return c === 0 ? null : `${label}: ${c}`; }
-    case 6: {                                                     // Quote Details
+    case 6: {                                                     // Quote Details — always full lines (Team + personal)
       const valid = quoteDetails.filter(q => q.contactName || q.values.length > 0);
       if (valid.length === 0) return null;
-      if (isTeam) return `Total Contacts Quoted: ${valid.length}`;
       const lines = [`Total Contacts Quoted: ${valid.length}`];
-      for (const q of valid) {
-        const valStr = q.values.map(v => formatDollar(v)).join(", ");
-        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
-      }
+      for (const q of valid) lines.push(formatQuoteDetailLine(q, isTeam));
       return lines.join("\n");
     }
     case 7: {                                                     // Pipeline Value
       const value = counts["Pipeline Value"] || 0;
       return value === 0 ? null : `Pipeline Value (Sum of Averages): ${formatDollar(value)}`;
     }
-    case 8: {                                                     // Site Visit
+    case 8: {                                                     // Site Visit — always name lines (Team + personal)
       if (siteVisits.length === 0) return null;
-      if (isTeam) return `Site Visits Booked: ${siteVisits.length}`;
+      // Team day uses buildTeamEODMessage (short time). Other Team surfaces keep name + time.
+      if (isTeam) {
+        return siteVisits.map(sv =>
+          `${sv.contactName} - ${formatTeamVisitShort(sv.datetime)}`).join("\n");
+      }
       return siteVisits.map(sv =>
         `${sv.contactName} - ${cleanAddress(sv.address) || "TBC"} - ${formatVisitDateTime(sv.datetime) || "TBC"}`).join("\n");
     }
-    case 9: {                                                     // Job Details
+    case 9: {                                                     // Job Details — always full lines (Team + personal)
       if (jobDetails.length === 0) return null;
       const total = jobDetails.reduce((s, j) => s + (j.value || 0), 0);
-      if (isTeam) return `Jobs Won: ${jobDetails.length}${total > 0 ? ` - Total Revenue: ${formatDollar(total)}` : ""}`;
       const lines = jobDetails.map(j => `${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || "N/A"} - ${cleanAddress(j.address).replace(/,/g, "") || "N/A"}`);
       if (total > 0) lines.push(`Total Revenue Generated: ${formatDollar(total)}`);
       return lines.join("\n");
@@ -418,10 +821,7 @@ function formatEOWLine(
         (a.contactName || "").localeCompare(b.contactName || "", undefined, { sensitivity: "base" }),
       );
       const lines = [`Total Contacts Quoted: ${sorted.length}`];
-      for (const q of sorted) {
-        const valStr = q.values.map(v => formatDollar(v)).join(", ");
-        lines.push(`- ${q.contactName} - ${q.values.length} - (${valStr})`);
-      }
+      for (const q of sorted) lines.push(formatQuoteDetailLine(q, isTeam));
       return lines.join("\n");
     }
     case 7: {
@@ -459,14 +859,7 @@ function uniqueRequiresQuoting(data: CountedData): string[] {
 
 /** Unique Requires Quoting contacts this period with no matching Quote Sent (A–Z). */
 function requiresQuotingStillOpen(data: CountedData): string[] {
-  const rq = uniqueRequiresQuoting(data);
-  if (rq.length === 0) return [];
-  const quoted = new Set(
-    data.quoteDetails
-      .map(q => normalizeName(q.contactName))
-      .filter(n => n.length > 0),
-  );
-  return sortNamesAlpha(rq.filter(name => !quoted.has(normalizeName(name))));
+  return data.quotingOpen || [];
 }
 
 // ─── Message builders ────────────────────────────────────────────────
@@ -487,7 +880,7 @@ function buildHeader(period: Period, companyLabel: string, personLabel: string, 
 const MONTH_FULL = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
 
-export type MonthBreakdown = { month: string; counts: Record<string, number> };
+export type MonthBreakdown = { month: string; counts: Record<string, number>; revenue: number };
 
 function periodicLabel(period: Period, rangeStart: string): string {
   const [y, m] = rangeStart.split("-").map(Number);
@@ -596,17 +989,18 @@ function buildPeriodicMessage(opts: {
     lines.push(`${isYear ? "Total Pipeline Value" : "Pipeline Value"}: ${formatDollar(counts["Pipeline Value"] || 0)}`);
     if (has("Site Visit Booked")) lines.push(`Site Visits: ${counts["Site Visit Booked"] || 0}`);
     if (has("Job Won")) {
-      if (isYear) {
-        lines.push(`Jobs Won: ${counts["Job Won"] || 0}`);
-      } else {
-        const jobDetails = data.jobDetails;
-        const jobCount = jobDetails.length > 0 ? jobDetails.length : (counts["Job Won"] || 0);
-        lines.push(`Jobs Won: ${jobCount}`);
-        if (jobDetails.length > 0) {
+      const jobDetails = data.jobDetails;
+      const jobCount = jobDetails.length > 0 ? jobDetails.length : (counts["Job Won"] || 0);
+      lines.push(`Jobs Won: ${jobCount}`);
+      if (jobDetails.length > 0) {
+        // Yearly reports skip the per-job list (too long) but still show the total.
+        if (!isYear) {
           for (const j of jobDetails) {
             lines.push(`${j.contactName} ${formatDollar(j.value)} ${displayLabel(j.source) || "N/A"} - ${cleanAddress(j.address).replace(/,/g, "") || "N/A"}`);
           }
-          const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
+        }
+        const totalRevenue = jobDetails.reduce((sum, j) => sum + (j.value || 0), 0);
+        if (totalRevenue > 0) {
           lines.push(`Total Revenue Generated: ${formatDollar(totalRevenue)}`);
         }
       }
@@ -652,11 +1046,12 @@ function buildPeriodicMessage(opts: {
       return `${MONTH_FULL[mo - 1]} ${yr}`;
     };
     if (has("Quote Sent")) {
-      lines.push("Month | Calls | Answered | Quotes | Site Visits | Jobs Won");
-      lines.push("------|-------|----------|--------|-------------|--------");
+      lines.push("Month | Calls | Answered | Quotes | Site Visits | Jobs Won | Revenue");
+      lines.push("------|-------|----------|--------|-------------|----------|--------");
       for (const mb of monthlyBreakdown) {
         const c = mb.counts;
-        lines.push(`${monthTag(mb.month)} | ${c[totalField] || 0} | ${c["Answered"] || 0} | ${c["Quote Sent"] || 0} | ${c["Site Visit Booked"] || 0} | ${c["Job Won"] || 0}`);
+        const rev = mb.revenue > 0 ? formatDollar(mb.revenue) : "$0";
+        lines.push(`${monthTag(mb.month)} | ${c[totalField] || 0} | ${c["Answered"] || 0} | ${c["Quote Sent"] || 0} | ${c["Site Visit Booked"] || 0} | ${c["Job Won"] || 0} | ${rev}`);
       }
     } else {
       lines.push("Month | Contacts | Answered | Roadmaps | Deals");
@@ -706,6 +1101,17 @@ function buildMessage(opts: {
     });
   }
 
+  // Team EOD (day) only — dedicated layout. Personal day + all weeks unchanged.
+  if (period === "day" && scope === "team") {
+    return buildTeamEODMessage({
+      companyLabel,
+      personLabel,
+      ownerName,
+      rangeEnd,
+      data,
+    });
+  }
+
   const blocks = period === "day" ? BLOCKS.eodBlocks : BLOCKS.eowBlocks;
   const formulaKey: "eod" | "eow" = period === "day" ? "eod" : "eow";
   const separator = ""; // blank line between sections
@@ -749,9 +1155,8 @@ function buildMessage(opts: {
     }
   }
 
-  // 📝 Notes — EOD only: custom outcomes (EOD 4) surfaced verbatim at the very
-  // bottom, one per line as "Contact Name - Custom Outcome". Deduped on name+note.
-  if (period === "day" && data.customNotes.length > 0) {
+  // 📝 Notes — personal EOD only (Team does not show notes).
+  if (period === "day" && !isTeam && data.customNotes.length > 0) {
     const seen = new Set<string>();
     const noteLines: string[] = [];
     for (const { contactName, note } of data.customNotes) {
@@ -805,6 +1210,9 @@ function buildDetailedRangeMessage(opts: {
   ];
 
   for (const block of BLOCKS.eodBlocks) {
+    // Team: skip Action Lists and Notes-related noise — keep quotes / SVs / jobs.
+    if (isTeam && block.name.startsWith("📝")) continue;
+
     const blockName = block.name.replace("{owner}", ownerName);
     const blockLines: string[] = [];
     for (const tpl of block.outcomes || []) {
@@ -821,8 +1229,8 @@ function buildDetailedRangeMessage(opts: {
     }
   }
 
-  // 📝 Notes — custom outcomes surfaced verbatim, deduped on name+note.
-  if (data.customNotes.length > 0) {
+  // 📝 Notes — personal only. Team never shows notes.
+  if (!isTeam && data.customNotes.length > 0) {
     const seen = new Set<string>();
     const noteLines: string[] = [];
     for (const { contactName, note } of data.customNotes) {
@@ -853,6 +1261,22 @@ function buildRangeMessage(opts: {
   rangeEnd: string;
   data: CountedData;
 }): string {
+  // Team + single calendar day → dedicated Team EOD layout (quotes / SVs / jobs).
+  if (
+    opts.scope === "team" &&
+    opts.rangeStart === opts.rangeEnd &&
+    (opts.format === "detailed" || opts.format === "summary")
+  ) {
+    // Prefer the Team EOD mock for any single-day Team report on /reports too.
+    return buildTeamEODMessage({
+      companyLabel: opts.companyLabel,
+      personLabel: opts.personLabel,
+      ownerName: opts.ownerName,
+      rangeEnd: opts.rangeEnd,
+      data: opts.data,
+    });
+  }
+
   if (opts.format === "detailed") return buildDetailedRangeMessage(opts);
   return buildPeriodicMessage({
     period: "month",                       // unused: title/label/isYear overridden
@@ -934,13 +1358,26 @@ export type DashboardMessages = {
 };
 
 /** Bucket rows per month of the range's year and count each — for EOY reports. */
-function monthlyBreakdownFor(rows: ActivityRow[], ownerName: string, all: ActivityRow[], year: string): MonthBreakdown[] {
+function monthlyBreakdownFor(
+  rows: ActivityRow[],
+  ownerName: string,
+  all: ActivityRow[],
+  year: string,
+  opts: CountOpts = {},
+): MonthBreakdown[] {
   const out: MonthBreakdown[] = [];
   for (let m = 1; m <= 12; m++) {
     const prefix = `${year}-${pad2(m)}`;
     const monthRows = rows.filter(r => r.occurred_on.startsWith(prefix));
     if (monthRows.length === 0) continue;
-    out.push({ month: prefix, counts: countOutcomes(monthRows, ownerName, all).counts });
+    const lastDay = new Date(Date.UTC(Number(year), m, 0)).getUTCDate();
+    const data = countOutcomes(monthRows, ownerName, all, {
+      ...opts,
+      rangeStart: `${prefix}-01`,
+      rangeEnd: `${year}-${pad2(m)}-${pad2(lastDay)}`,
+    });
+    const revenue = (data.jobDetails || []).reduce((sum, j) => sum + (j.value || 0), 0);
+    out.push({ month: prefix, counts: data.counts, revenue });
   }
   return out;
 }
@@ -970,15 +1407,20 @@ export async function loadDashboardMessages(
   );
 
   const ids = companies.map(c => c.id);
+  // Pull a lookback window so "I RQ'd Friday, Max quoted Monday" still pairs
+  // on the Monday card. Counts stay clipped to [rangeStart, rangeEnd].
+  const pairStart = addDaysIso(rangeStart, -HANDOFF_LOOKBACK_DAYS);
   const rows = ids.length === 0 ? [] : await pageAll<ActivityRow>((from, to) =>
     supabase
       .from("activities")
       .select("company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_id, contact_address, outcome, ad_source, quote_job_value, appointment_at")
       .in("company_id", ids)
-      .gte("occurred_on", rangeStart)
+      .gte("occurred_on", pairStart)
       .lte("occurred_on", rangeEnd)
       .range(from, to),
   );
+
+  const inPeriod = (r: ActivityRow) => r.occurred_on >= rangeStart && r.occurred_on <= rangeEnd;
 
   // Bucket rows per company; pull personal/team separately
   const byCompany = new Map<string, ActivityRow[]>();
@@ -986,16 +1428,18 @@ export async function loadDashboardMessages(
   for (const row of rows) byCompany.get(row.company_id)?.push(row);
 
   const rangeYear = rangeStart.slice(0, 4);
-  const breakdownFor = (subset: ActivityRow[], ownerName: string, all: ActivityRow[]) =>
-    opts.period === "year" ? monthlyBreakdownFor(subset, ownerName, all, rangeYear) : undefined;
+  const rangeOpts = { rangeStart, rangeEnd };
+  const breakdownFor = (subset: ActivityRow[], ownerName: string, all: ActivityRow[], forExec?: string) =>
+    opts.period === "year" ? monthlyBreakdownFor(subset, ownerName, all, rangeYear, { forExec }) : undefined;
 
   // Build per-company messages
   const perCompany: DashboardMessages["perCompany"] = companies.map(c => {
-    const all = byCompany.get(c.id) || [];
+    const pairing = byCompany.get(c.id) || [];
+    const all = pairing.filter(inPeriod);
     const ownerName = ownerByCompany.get(c.id) || "Owner";
 
     // Team: all activities for this company. countOutcomes treats it the same.
-    const teamData = countOutcomes(all, ownerName, all);
+    const teamData = countOutcomes(all, ownerName, pairing, rangeOpts);
     const teamMessage = buildMessage({
       period: opts.period,
       companyLabel: c.name,
@@ -1004,13 +1448,13 @@ export async function loadDashboardMessages(
       scope: "team",
       rangeStart, rangeEnd,
       data: teamData,
-      monthlyBreakdown: breakdownFor(all, ownerName, all),
+      monthlyBreakdown: breakdownFor(all, ownerName, pairing),
     });
 
     let personal: LiveMessage | null = null;
     if (opts.myCompanyIds.has(c.id)) {
       const mine = all.filter(r => r.sales_person_id && opts.mySalesPersonIds.has(r.sales_person_id));
-      const personalData = countOutcomes(mine, ownerName, all);
+      const personalData = countOutcomes(mine, ownerName, pairing, { forExec: opts.myDisplayName, ...rangeOpts });
       const personalMessage = buildMessage({
         period: opts.period,
         companyLabel: c.name,
@@ -1019,7 +1463,7 @@ export async function loadDashboardMessages(
         scope: "personal",
         rangeStart, rangeEnd,
         data: personalData,
-        monthlyBreakdown: breakdownFor(mine, ownerName, all),
+        monthlyBreakdown: breakdownFor(mine, ownerName, pairing, opts.myDisplayName),
       });
       personal = {
         scope: "personal",
@@ -1043,12 +1487,12 @@ export async function loadDashboardMessages(
 
   if (onRosterCount > 1) {
     const mineAll = rows.filter(r =>
-      opts.myCompanyIds.has(r.company_id) && r.sales_person_id && opts.mySalesPersonIds.has(r.sales_person_id),
+      inPeriod(r) && opts.myCompanyIds.has(r.company_id) && r.sales_person_id && opts.mySalesPersonIds.has(r.sales_person_id),
     );
     // ownerName for total — pick the first on-roster owner; format is generic.
     const firstOwner = companies.find(c => opts.myCompanyIds.has(c.id));
     const ownerName = (firstOwner && ownerByCompany.get(firstOwner.id)) || "Owner";
-    const data = countOutcomes(mineAll, ownerName, rows);
+    const data = countOutcomes(mineAll, ownerName, rows, { forExec: opts.myDisplayName, ...rangeOpts });
     personalTotal = {
       scope: "personal",
       title: "All my companies",
@@ -1061,7 +1505,7 @@ export async function loadDashboardMessages(
         scope: "personal",
         rangeStart, rangeEnd,
         data,
-        monthlyBreakdown: breakdownFor(mineAll, ownerName, rows),
+        monthlyBreakdown: breakdownFor(mineAll, ownerName, rows, opts.myDisplayName),
       }),
     };
   }
@@ -1069,7 +1513,8 @@ export async function loadDashboardMessages(
   if (companies.length > 1) {
     const firstOwner = companies[0];
     const ownerName = (firstOwner && ownerByCompany.get(firstOwner.id)) || "Owner";
-    const data = countOutcomes(rows, ownerName, rows);
+    const periodRows = rows.filter(inPeriod);
+    const data = countOutcomes(periodRows, ownerName, rows, rangeOpts);
     grandTotal = {
       scope: "team",
       title: "All active companies",
@@ -1082,7 +1527,7 @@ export async function loadDashboardMessages(
         scope: "team",
         rangeStart, rangeEnd,
         data,
-        monthlyBreakdown: breakdownFor(rows, ownerName, rows),
+        monthlyBreakdown: breakdownFor(periodRows, ownerName, rows),
       }),
     };
   }
@@ -1143,7 +1588,11 @@ export async function loadCompanyLiveReports(
     .order("name");
 
   const mkReport = (rows: ActivityRow[], personLabel: string, scope: MessageScope) => {
-    const data = countOutcomes(rows, ownerName, all);
+    const data = countOutcomes(rows, ownerName, all, {
+      forExec: scope === "personal" ? personLabel : undefined,
+      rangeStart: start,
+      rangeEnd: end,
+    });
     const hasActivity = Object.values(data.counts).some(v => v > 0);
     const message = buildRangeMessage({
       format: opts.format,

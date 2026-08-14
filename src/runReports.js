@@ -66,7 +66,15 @@ function buildPeopleData(activityData, activePeople, inPeriod, ownerName, compan
     const filtered = activities.filter(a =>
       inPeriod(a['Date']) && (a['Sales Person'] || '').startsWith(person.name)
     );
-    return { name: person.name, data: countOutcomes(filtered, ownerName, companyName, activities) };
+    const dates = filtered.map(a => a['Date']).filter(Boolean).sort();
+    return {
+      name: person.name,
+      data: countOutcomes(filtered, ownerName, companyName, activities, {
+        forExec: person.name,
+        rangeStart: dates[0],
+        rangeEnd: dates[dates.length - 1],
+      }),
+    };
   });
 }
 
@@ -126,7 +134,11 @@ async function sendCompanyEOD(company, targetDate) {
         if (!a['Sales Person'].startsWith(person.name)) return false;
         return true;
       });
-      const data = countOutcomes(filtered, company.ownerName, company.name, activities);
+      const data = countOutcomes(filtered, company.ownerName, company.name, activities, {
+        forExec: person.name,
+        rangeStart: date,
+        rangeEnd: date,
+      });
       peopleData.push({ name: person.name, data });
 
       // Individual reports to Slack only

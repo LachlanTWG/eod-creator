@@ -124,7 +124,12 @@ async function generateEOW(spreadsheetId, salesPerson, startDate, endDate, compa
     return true;
   });
 
-  const data = countOutcomes(filtered, ownerName, companyName, allParsed);
+  const forExec = salesPerson && salesPerson !== 'Team' ? salesPerson : undefined;
+  const data = countOutcomes(filtered, ownerName, companyName, allParsed, {
+    forExec,
+    rangeStart: startDate,
+    rangeEnd: endDate,
+  });
   const weeklyCounts = {};
   for (const name of outcomeNames) {
     weeklyCounts[name] = data.counts[name] || 0;
