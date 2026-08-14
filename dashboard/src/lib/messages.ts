@@ -738,11 +738,15 @@ function buildMessage(opts: {
     const rqNames = uniqueRequiresQuoting(data);
     if (rqNames.length > 0) {
       const open = requiresQuotingStillOpen(data);
+      const total = rqNames.length;
       lines.push("✅ Quoting coverage");
       if (open.length === 0) {
         lines.push("Complete 100%");
       } else {
-        lines.push(`Still need quote: ${open.length} of ${rqNames.length}`);
+        // 0 of N when nobody is quoted yet ("1 of 1" reads as done).
+        // Once some are quoted, remaining of total (4 of 6).
+        const shown = open.length === total ? 0 : open.length;
+        lines.push(`Still need quote: ${shown} of ${total}`);
         for (const name of open) lines.push(`- ${name}`);
       }
       lines.push(separator);
