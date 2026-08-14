@@ -152,6 +152,7 @@ export default async function ActivitiesPage({
                   key={row.id}
                   row={row}
                   companyName={companyById.get(row.company_id) || "—"}
+                  companies={addableCompanies}
                   salesPeople={salesPeople}
                   canEdit={canEdit}
                 />

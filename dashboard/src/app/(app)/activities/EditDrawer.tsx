@@ -30,24 +30,30 @@ export type ActivityRowForEdit = {
   company_id: string;
 };
 
+export type CompanyOption = { id: string; name: string };
 export type SalesPersonOption = { id: string; name: string; company_id: string };
 
 export function EditDrawer({
   row,
   onClose,
+  companies,
   salesPeople,
   canDelete,
+  currentCompanyName,
 }: {
   row: ActivityRowForEdit;
   onClose: () => void;
+  companies: CompanyOption[];
   salesPeople: SalesPersonOption[];
   canDelete: boolean;
+  currentCompanyName?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [form, setForm] = useState({
+    company_id: row.company_id,
     occurred_on: row.occurred_on,
     sales_person_id: row.sales_person_id || "",
     event_type: row.event_type,
@@ -58,7 +64,10 @@ export function EditDrawer({
     appointment_at: row.appointment_at ? row.appointment_at.slice(0, 16) : "",
   });
 
-  const companyPeople = salesPeople.filter(sp => sp.company_id === row.company_id);
+  const companyOptions = companies.some(c => c.id === row.company_id)
+    ? companies
+    : [{ id: row.company_id, name: currentCompanyName || "Current company" }, ...companies];
+  const companyPeople = salesPeople.filter(sp => sp.company_id === form.company_id);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,6 +75,7 @@ export function EditDrawer({
     startTransition(async () => {
       const res = await editActivity({
         id: row.id,
+        company_id: form.company_id,
         occurred_on: form.occurred_on,
         sales_person_id: form.sales_person_id || null,
         event_type: form.event_type as ActivityRowForEdit["event_type"] as "eod_update" | "quote_sent" | "site_visit_booked" | "email_sent" | "job_won",
@@ -114,6 +124,18 @@ export function EditDrawer({
         </div>
 
         <form className="flex-1 space-y-4 px-5 py-5" onSubmit={handleSubmit}>
+          <Field label="Company" hint="Changing company clears the sales person — pick someone on the new client.">
+            <select
+              value={form.company_id}
+              onChange={e => setForm(f => ({ ...f, company_id: e.target.value, sales_person_id: "" }))}
+              className={inputClass}
+            >
+              {companyOptions.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </Field>
+
           <Field label="Date">
             <input
               type="date"

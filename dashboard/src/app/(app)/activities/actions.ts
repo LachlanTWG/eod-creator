@@ -18,6 +18,7 @@ import {
 
 export type EditActivityInput = {
   id: string;
+  company_id?: string;
   occurred_on?: string | null;
   sales_person_id?: string | null;
   event_type?: EventType | null;
@@ -52,7 +53,33 @@ export async function editActivity(input: EditActivityInput): Promise<ActionResu
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not signed in" };
 
+  const viewer = await getViewer();
+
+  const { data: existing, error: readErr } = await supabase
+    .from("activities")
+    .select("id, company_id, sales_person_id")
+    .eq("id", input.id)
+    .single();
+  if (readErr || !existing) return { ok: false, error: readErr?.message || "Activity not found" };
+
   const update: Record<string, string | null> = {};
+
+  let nextCompanyId = existing.company_id as string;
+  if (input.company_id !== undefined) {
+    if (!input.company_id) return { ok: false, error: "Company is required" };
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("id", input.company_id)
+      .single();
+    if (!company) return { ok: false, error: "Company not found" };
+    if (!viewer.isAdmin && !viewer.companyIds.includes(company.id)) {
+      return { ok: false, error: "You're not on this client's roster" };
+    }
+    nextCompanyId = company.id;
+    if (nextCompanyId !== existing.company_id) update.company_id = nextCompanyId;
+  }
+
   if (input.occurred_on !== undefined) {
     const d = sanitiseDate(input.occurred_on);
     if (d === null && input.occurred_on !== "") return { ok: false, error: "occurred_on must be YYYY-MM-DD" };
@@ -66,10 +93,28 @@ export async function editActivity(input: EditActivityInput): Promise<ActionResu
     if (input.sales_person_id) {
       const { data: person } = await supabase
         .from("sales_people")
-        .select("name")
+        .select("name, company_id, user_id")
         .eq("id", input.sales_person_id)
         .single();
-      if (person?.name) update.sales_person_name = person.name;
+      if (!person) return { ok: false, error: "Sales person not found" };
+      if (person.company_id !== nextCompanyId) {
+        return { ok: false, error: "Sales person isn't on this client" };
+      }
+      if (!viewer.isAdmin && person.user_id !== viewer.user.id) {
+        return { ok: false, error: "You can only assign activities under your own name" };
+      }
+      if (person.name) update.sales_person_name = person.name;
+    } else if (!viewer.isAdmin && nextCompanyId !== existing.company_id) {
+      return { ok: false, error: "Pick yourself on the new client" };
+    }
+  } else if (update.company_id && existing.sales_person_id) {
+    const { data: person } = await supabase
+      .from("sales_people")
+      .select("company_id")
+      .eq("id", existing.sales_person_id)
+      .single();
+    if (!person || person.company_id !== nextCompanyId) {
+      return { ok: false, error: "Pick a sales person on the new client" };
     }
   }
   if (input.event_type !== undefined) {
@@ -94,9 +139,10 @@ export async function editActivity(input: EditActivityInput): Promise<ActionResu
 
   if (error) return { ok: false, error: error.message };
 
-  // Refresh both pages — table + live dashboard.
+  // Refresh both pages — table + live dashboard + visits calendar.
   revalidatePath("/activities");
   revalidatePath("/me");
+  revalidatePath("/visits");
   return { ok: true };
 }
 

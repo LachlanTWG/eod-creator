@@ -8,7 +8,7 @@
 
 import { useState } from "react";
 import { addDaysIso } from "@/lib/dates";
-import { EditDrawer, type ActivityRowForEdit, type SalesPersonOption } from "../activities/EditDrawer";
+import { EditDrawer, type ActivityRowForEdit, type CompanyOption, type SalesPersonOption } from "../activities/EditDrawer";
 
 export type CalendarVisit = {
   id: string;
@@ -63,6 +63,7 @@ export function SiteVisitsCalendar({
   periodEnd,
   today,
   visits,
+  companies,
   salesPeople,
 }: {
   view: "month" | "week";
@@ -72,6 +73,7 @@ export function SiteVisitsCalendar({
   periodEnd: string;
   today: string;
   visits: CalendarVisit[];
+  companies: CompanyOption[];
   salesPeople: SalesPersonOption[];
 }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -187,8 +189,10 @@ export function SiteVisitsCalendar({
       {editing && (
         <EditDrawer
           row={toEditRow(editing)}
+          companies={companies}
           salesPeople={salesPeople}
           canDelete={editing.canEdit}
+          currentCompanyName={editing.companyName}
           onClose={() => setEditing(null)}
         />
       )}

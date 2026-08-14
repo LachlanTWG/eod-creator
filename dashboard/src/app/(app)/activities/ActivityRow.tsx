@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { EVENT_LABELS } from "@/lib/format";
-import { EditDrawer, type ActivityRowForEdit, type SalesPersonOption } from "./EditDrawer";
+import { EditDrawer, type ActivityRowForEdit, type CompanyOption, type SalesPersonOption } from "./EditDrawer";
 
 const EVENT_BADGE: Record<string, string> = {
   eod_update:        "bg-zinc-800/80 text-zinc-300",
@@ -23,11 +23,13 @@ const EVENT_BADGE: Record<string, string> = {
 export function ActivityRow({
   row,
   companyName,
+  companies,
   salesPeople,
   canEdit,
 }: {
   row: ActivityRowForEdit;
   companyName: string;
+  companies: CompanyOption[];
   salesPeople: SalesPersonOption[];
   canEdit: boolean;
 }) {
@@ -67,8 +69,10 @@ export function ActivityRow({
         <EditDrawer
           row={row}
           onClose={() => setOpen(false)}
+          companies={companies}
           salesPeople={salesPeople}
           canDelete={canEdit}
+          currentCompanyName={companyName}
         />,
         document.body,
       )}

@@ -191,6 +191,10 @@ export default async function VisitsPage({ searchParams }: { searchParams: Promi
           periodStart={periodStart}
           periodEnd={periodEnd}
           today={today}
+          companies={(viewer.isAdmin
+            ? companies
+            : companies.filter(c => viewer.companyIds.includes(c.id))
+          ).map(c => ({ id: c.id, name: c.name }))}
           salesPeople={salesPeople}
           visits={visits.map(v => ({
             ...v,
