@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getViewer, requireAdminOrViewer } from "@/lib/viewer";
+import { getViewer, requireAppAccess } from "@/lib/viewer";
 import {
   loadOverviewByPeriod,
   loadRecentActivityFeed,
@@ -41,7 +41,7 @@ export default async function OverviewPage({
   searchParams: Promise<{ p?: string }>;
 }) {
   const viewer = await getViewer();
-  requireAdminOrViewer(viewer);
+  requireAppAccess(viewer);
 
   const params = await searchParams;
   const requested = (params.p || "week") as Period;

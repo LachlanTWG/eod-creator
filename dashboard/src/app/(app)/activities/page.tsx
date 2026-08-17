@@ -104,14 +104,19 @@ export default async function ActivitiesPage({
         <div>
           <h1 className="text-xl font-semibold">Activities</h1>
           <p className="mt-0.5 text-sm text-zinc-500">
-            {viewer.seesAll ? "All activity rows across every active client." : "Your activity rows."}{" "}
-            {viewer.isViewer ? "Read-only." : "Edit or delete to correct mistakes; changes are saved directly to the database."}
+            {viewer.seesAll
+              ? "All activity rows across every active client."
+              : "Activity on the clients you can access."}{" "}
+            {viewer.canWriteSales
+              ? "Edit or delete to correct mistakes; changes are saved directly to the database."
+              : "Read-only."}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-zinc-500">
             {count?.toLocaleString() ?? 0} match{count === 1 ? "" : "es"}
           </span>
+          {viewer.canWriteSales && (
           <AddActivityButton
             companies={addableCompanies}
             salesPeople={salesPeople}
@@ -119,6 +124,7 @@ export default async function ActivitiesPage({
             mySalesPersonIds={[...mySalesPersonIds]}
             defaultDate={today}
           />
+          )}
         </div>
       </header>
 

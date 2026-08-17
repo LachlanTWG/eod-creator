@@ -22,7 +22,7 @@ const STORAGE_KEY = "sidebar-collapsed";
 // themselves) can't be serialised that way.
 export type NavIcon =
   | "me" | "overview" | "execs" | "reports"
-  | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail";
+  | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail" | "accounts";
 
 const ICONS: Record<NavIcon, typeof User> = {
   me:         User,
@@ -37,6 +37,7 @@ const ICONS: Record<NavIcon, typeof User> = {
   health:     Activity,
   visits:     CalendarDays,
   gmail:      Mail,
+  accounts:   Users,
 };
 
 export type NavItem = { href: string; label: string; icon: NavIcon };
@@ -44,11 +45,13 @@ export type NavItem = { href: string; label: string; icon: NavIcon };
 export function Sidebar({
   email,
   isAdmin,
+  role,
   salesPersonName,
   navItems,
 }: {
   email: string;
   isAdmin: boolean;
+  role?: string;
   salesPersonName: string | null;
   navItems: NavItem[];
 }) {
@@ -82,7 +85,7 @@ export function Sidebar({
         <div className="flex items-center justify-between gap-2">
           {!collapsed && (
             <div className="min-w-0">
-              <div className="text-sm font-semibold tracking-tight">EOD Dashboard</div>
+              <div className="text-sm font-semibold tracking-tight">The Sales Department</div>
               <div className="mt-0.5 text-xs text-zinc-500 truncate">{email}</div>
             </div>
           )}
@@ -98,9 +101,14 @@ export function Sidebar({
             {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
           </button>
         </div>
-        {!collapsed && (isAdmin || salesPersonName) && (
-          <div className="mt-2 flex gap-1.5">
-            {isAdmin && (
+        {!collapsed && (isAdmin || salesPersonName || role) && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {role && role !== "team" && (
+              <span className="inline-block rounded bg-emerald-600/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                {role}
+              </span>
+            )}
+            {isAdmin && role !== "owner" && (
               <span className="inline-block rounded bg-emerald-600/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
                 admin
               </span>

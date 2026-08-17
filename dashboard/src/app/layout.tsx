@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EOD Dashboard",
-  description: "Sales activity across all clients, live.",
+  title: "The Sales Department",
+  description: "Sales, conversion, and reporting under one roof.",
 };
 
 export default function RootLayout({

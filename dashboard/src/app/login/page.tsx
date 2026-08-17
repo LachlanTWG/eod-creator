@@ -25,7 +25,7 @@ export default async function LoginPage({
     <main className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-white">EOD Dashboard</h1>
+          <h1 className="text-2xl font-semibold text-white">The Sales Department</h1>
           <p className="mt-1 text-sm text-zinc-400">Sign in to continue.</p>
         </div>
 
@@ -62,8 +62,7 @@ export default async function LoginPage({
         )}
 
         <p className="text-xs text-zinc-500">
-          Accounts are managed in the Supabase dashboard. Ask Lachlan if you
-          need access.
+          Accounts are issued by The Sales Department. Ask Lachlan if you need access.
         </p>
       </div>
     </main>

@@ -1,37 +1,47 @@
 // Resolves the current viewer's identity + roles. Used by every protected
 // page to gate access and scope queries.
-//
-// Returns:
-//   - user (auth.users)
-//   - isAdmin (from profiles.is_admin)
-//   - salesPersonName (from sales_people.user_id link, if any) — canonical
-//     name like "Lachlan" / "Buzz" / "Zac". Admins might also be execs.
-//   - companyIds — companies this user belongs to as an exec (empty for
-//     admin-only users)
 
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/server";
 
-export type Viewer = {
-  user: User;
-  isAdmin: boolean;
-  // Read-only "viewer" role: sees ALL data across every client but can edit
-  // nothing and is not an exec. Mutually exclusive with isAdmin in practice.
-  isViewer: boolean;
-  salesPersonName: string | null;
-  companyIds: string[];
-  // Read visibility is org-wide for every role: admins, viewers, and roster
-  // execs all see every client + exec + report (migration 0009). Writes stay
-  // scoped — this flag gates read surfaces and "all" labels only.
-  seesAll: boolean;
+export type AppRole = "owner" | "twg" | "conversion" | "team" | "client";
+export type CompanyAccess = "leader" | "conversion" | "member" | "client" | "twg";
+
+export type Membership = {
+  companyId: string;
+  access: CompanyAccess;
 };
 
-// Wrapped in React.cache so the 3 auth round-trips (getUser + profiles +
-// sales_people) run at most ONCE per request, even though getViewer() is
-// called in both the (app) layout and each page. Request-scoped: never
-// shared across requests/users, so no auth leakage.
+export type Viewer = {
+  user: User;
+  role: AppRole;
+  isAdmin: boolean;
+  isViewer: boolean;
+  isTwg: boolean;
+  isConversion: boolean;
+  isClient: boolean;
+  isLeader: boolean;
+  salesPersonName: string | null;
+  companyIds: string[];
+  memberships: Membership[];
+  // Org-wide read (owner, TWG-all, legacy viewer). Team/leader/conversion
+  // are company-scoped even when they sit on several books.
+  seesAll: boolean;
+  canManageUsers: boolean;
+  canSeeHealth: boolean;
+  canSeeExecs: boolean;
+  canWriteSales: boolean;
+};
+
+function asRole(raw: string | null | undefined): AppRole {
+  if (raw === "owner" || raw === "twg" || raw === "conversion" || raw === "team" || raw === "client") {
+    return raw;
+  }
+  return "team";
+}
+
 export const getViewer = cache(async function getViewer(): Promise<Viewer> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -39,7 +49,7 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("is_admin, is_viewer")
+    .select("is_admin, is_viewer, role, twg_see_all_clients")
     .eq("id", user.id)
     .single();
 
@@ -48,70 +58,78 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
     .select("name, company_id, active")
     .eq("user_id", user.id);
 
+  const { data: memberRows } = await supabase
+    .from("company_memberships")
+    .select("company_id, access")
+    .eq("user_id", user.id);
+
+  const role = asRole(profile?.role);
+  const isAdmin = !!profile?.is_admin || role === "owner";
+  const isTwg = role === "twg";
+  const isConversion = role === "conversion";
+  const isClient = role === "client";
+  const isViewer = !!profile?.is_viewer || isTwg;
+
   const salesPersonName = salesRows && salesRows.length > 0 ? salesRows[0].name : null;
-  // Active rosters only: an exec taken off a client shouldn't see its
-  // drill-down or be able to log activities against it.
-  const companyIds = (salesRows || []).filter(r => r.active).map(r => r.company_id);
+  const rosterIds = (salesRows || []).filter(r => r.active).map(r => r.company_id);
+  const memberships: Membership[] = (memberRows || []).map(r => ({
+    companyId: r.company_id,
+    access: r.access as CompanyAccess,
+  }));
+  const memberIds = memberships.map(m => m.companyId);
+  const companyIds = Array.from(new Set([...rosterIds, ...memberIds]));
+  const isLeader = memberships.some(m => m.access === "leader");
+
+  const seesAll = isAdmin || (isTwg && profile?.twg_see_all_clients !== false) || (!!profile?.is_viewer && role !== "conversion" && !isClient);
 
   return {
     user,
-    isAdmin: !!profile?.is_admin,
-    isViewer: !!profile?.is_viewer,
+    role,
+    isAdmin,
+    isViewer,
+    isTwg,
+    isConversion,
+    isClient,
+    isLeader,
     salesPersonName,
     companyIds,
-    seesAll: !!profile?.is_admin || !!profile?.is_viewer || !!salesPersonName,
+    memberships,
+    seesAll,
+    canManageUsers: isAdmin,
+    canSeeHealth: isAdmin,
+    canSeeExecs: !isClient,
+    canWriteSales: isAdmin || (!!salesPersonName && !isClient && !isTwg),
   };
 });
 
-/**
- * Strictly admin-only. Use for pages that expose ops internals (health) or
- * other admin-only tools (missing info). Read-only viewers are NOT admitted
- * here. Everyone else lands on /me.
- *
- * Note: /duplicates is open to roster execs as well (gated in that page).
- */
 export function requireAdmin(viewer: Viewer): void {
   if (!viewer.isAdmin) redirect("/me");
 }
 
-/**
- * Allow anyone with org-wide read visibility (admins, read-only viewers, and
- * roster execs) through. Use for all-clients read-only surfaces (the
- * overview). Only accounts with no role at all are turned away.
- */
+export function requireAppAccess(viewer: Viewer): void {
+  if (viewer.isAdmin || viewer.isTwg || viewer.isConversion || viewer.isClient || viewer.salesPersonName || viewer.companyIds.length > 0) {
+    return;
+  }
+  redirect("/me");
+}
+
+/** @deprecated use requireAppAccess — kept so existing pages compile during the cutover */
 export function requireAdminOrViewer(viewer: Viewer): void {
-  if (viewer.seesAll) return;
-  redirect("/me");
+  requireAppAccess(viewer);
 }
 
-/**
- * Allow admins, read-only viewers, and roster execs through (used for
- * peer-visible surfaces like the /execs leaderboard and site visits).
- * Pure-admin users with no exec link still pass via isAdmin.
- */
 export function requireRosterOrAdmin(viewer: Viewer): void {
-  if (viewer.isAdmin) return;
-  if (viewer.isViewer) return;
-  if (viewer.salesPersonName) return;
+  if (viewer.isClient) redirect("/me");
+  if (viewer.isAdmin || viewer.isTwg || viewer.isConversion || viewer.isLeader || viewer.salesPersonName) return;
   redirect("/me");
 }
 
-/**
- * For pages parameterised by a sales-person name. Admins and viewers can view
- * any; roster execs can view each other (peer visibility). Non-execs land
- * on /me.
- */
 export function gateExecName(viewer: Viewer, _requestedName: string): void {
-  if (viewer.isAdmin) return;
-  if (viewer.isViewer) return;
-  if (viewer.salesPersonName) return;
+  if (viewer.isClient) redirect("/me");
+  if (viewer.isAdmin || viewer.isTwg || viewer.isConversion || viewer.isLeader || viewer.salesPersonName) return;
   redirect("/me");
 }
 
-/**
- * For company drill-down pages. Every role (admin, viewer, roster exec) can
- * view any client; only role-less accounts are turned away.
- */
 export async function gateCompanySlug(
   viewer: Viewer,
   supabase: SupabaseClient,
@@ -124,5 +142,6 @@ export async function gateCompanySlug(
     .single();
   if (!company) return null;
   if (viewer.seesAll) return company;
+  if (viewer.companyIds.includes(company.id)) return company;
   redirect("/me");
 }
