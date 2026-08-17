@@ -60,10 +60,7 @@ export default async function ConversionClientPage({
     <div className="px-8 py-6 space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <Link href={`/conversion?from=${from}&to=${to}`} className="text-xs text-zinc-500 hover:text-zinc-300">
-            ← All clients
-          </Link>
-          <h1 className="mt-1 text-xl font-semibold">{company.name}</h1>
+          <h1 className="text-xl font-semibold">{company.name}</h1>
           <p className="mt-0.5 text-sm text-zinc-500">Conversion · {rangeLabel}</p>
         </div>
         {companies.length > 1 && (
