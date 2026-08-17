@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer, requireAppAccess, gateCompanySlug } from "@/lib/viewer";
 import { listCompanies } from "@/lib/queries";
-import { loadConversionSnapshot, EVENT_LABEL } from "@/lib/conversion";
+import { loadConversionSnapshot, loadPaidAttribution, EVENT_LABEL } from "@/lib/conversion";
 import { formatCurrency, todayInTz } from "@/lib/format";
 import { mondayOf, addDaysIso, shortDate } from "@/lib/dates";
+import { addManualSpendForm, saveAdAccountForm, syncMetaSpendForm } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +34,17 @@ export default async function ConversionClientPage({
   if (from > to) [from, to] = [to, from];
 
   const companies = await listCompanies(supabase);
-  const snap = await loadConversionSnapshot(supabase, {
-    from,
-    to,
-    companyId: company.id,
-    companyName: company.name,
-    companySlug: company.slug,
-  });
+  const [snap, paid] = await Promise.all([
+    loadConversionSnapshot(supabase, {
+      from,
+      to,
+      companyId: company.id,
+      companyName: company.name,
+      companySlug: company.slug,
+    }),
+    loadPaidAttribution(supabase, { companyId: company.id, from, to }),
+  ]);
+  const canManageAds = viewer.isAdmin || viewer.isConversion;
 
   const maxFunnel = Math.max(1, ...snap.funnel.map(f => f.count));
   const rangeLabel = from === to ? shortDate(from) : `${shortDate(from)} – ${shortDate(to)}`;
@@ -97,6 +102,102 @@ export default async function ConversionClientPage({
           </Link>
         ))}
       </div>
+
+      <section className="grid gap-3 grid-cols-2 md:grid-cols-4">
+        <Hero label="Ad spend" value={formatCurrency(paid.spend)} hint={paid.connected ? "Meta sync" : "Add spend or connect Meta"} />
+        <Hero label="Leads" value={String(paid.leads)} hint={paid.cpl != null ? `${formatCurrency(paid.cpl)} CPL` : "First-touch"} />
+        <Hero label="Wins" value={String(paid.wins)} hint={paid.cpa != null ? `${formatCurrency(paid.cpa)} CPA` : "First-touch"} />
+        <Hero label="ROAS" value={paid.roas != null ? `${paid.roas.toFixed(2)}x` : "—"} hint={formatCurrency(paid.wonValue) + " won"} />
+      </section>
+
+      <section>
+        <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">Paid attribution · first touch</h2>
+        <p className="mt-1 text-xs text-zinc-600">
+          Wins and leads attributed to the contact&apos;s first source/campaign. Spend from Meta or a manual line.
+        </p>
+        <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800">
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
+              <tr>
+                <th className="px-4 py-2 text-left font-normal">Campaign / source</th>
+                <th className="px-4 py-2 text-right font-normal">Spend</th>
+                <th className="px-4 py-2 text-right font-normal">Leads</th>
+                <th className="px-4 py-2 text-right font-normal">CPL</th>
+                <th className="px-4 py-2 text-right font-normal">Quotes</th>
+                <th className="px-4 py-2 text-right font-normal">Wins</th>
+                <th className="px-4 py-2 text-right font-normal">CPA</th>
+                <th className="px-4 py-2 text-right font-normal">Won $</th>
+                <th className="px-4 py-2 text-right font-normal">ROAS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paid.campaigns.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-8 text-center text-zinc-500">No attributed events in this range.</td>
+                </tr>
+              ) : (
+                paid.campaigns.map(r => (
+                  <tr key={r.key} className="border-t border-zinc-800">
+                    <td className="px-4 py-2 text-zinc-200">{r.label}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{formatCurrency(r.spend)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{r.leads}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-zinc-400">{r.cpl != null ? formatCurrency(r.cpl) : "—"}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{r.quotes}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{r.wins}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-zinc-400">{r.cpa != null ? formatCurrency(r.cpa) : "—"}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{formatCurrency(r.wonValue)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{r.roas != null ? `${r.roas.toFixed(2)}x` : "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {canManageAds && (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-zinc-800 p-4">
+            <h2 className="text-sm font-medium text-zinc-200">Meta connection</h2>
+            <p className="mt-1 text-xs text-zinc-500">
+              Pixel + ad account for this client. Token stays on the server. Sync pulls campaign spend into the table above.
+            </p>
+            <form action={saveAdAccountForm} className="mt-3 grid gap-2">
+              <input type="hidden" name="companyId" value={company.id} />
+              <input type="hidden" name="slug" value={slug} />
+              <input name="pixelId" defaultValue={paid.pixelId || ""} placeholder="Pixel ID" className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
+              <input name="adAccountId" defaultValue={(paid.adAccountId || "").replace(/^act_/, "")} placeholder="Ad account ID (act_…)" className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
+              <input name="accessToken" type="password" placeholder={paid.connected ? "Token saved — paste to replace" : "Meta system user token"} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
+              <div className="flex gap-2">
+                <button type="submit" className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-zinc-900">Save</button>
+              </div>
+            </form>
+            <form action={syncMetaSpendForm} className="mt-2">
+              <input type="hidden" name="companyId" value={company.id} />
+              <input type="hidden" name="slug" value={slug} />
+              <input type="hidden" name="from" value={from} />
+              <input type="hidden" name="to" value={to} />
+              <button type="submit" className="text-xs text-zinc-400 hover:text-zinc-100">
+                Sync Meta spend for this range
+              </button>
+            </form>
+          </div>
+          <div className="rounded-lg border border-zinc-800 p-4">
+            <h2 className="text-sm font-medium text-zinc-200">Manual spend</h2>
+            <p className="mt-1 text-xs text-zinc-500">Use until Meta is connected, or for spend that isn&apos;t in Ads Manager.</p>
+            <form action={addManualSpendForm} className="mt-3 grid gap-2 sm:grid-cols-3">
+              <input type="hidden" name="companyId" value={company.id} />
+              <input type="hidden" name="slug" value={slug} />
+              <input type="date" name="spendOn" defaultValue={to} required className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
+              <input name="campaignName" placeholder="Campaign name" className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
+              <input name="spend" type="number" step="0.01" min="0" placeholder="Spend $" required className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
+              <button type="submit" className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200 sm:col-span-3">
+                Add spend line
+              </button>
+            </form>
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">Funnel</h2>
@@ -181,6 +282,16 @@ export default async function ConversionClientPage({
           </table>
         </div>
       </section>
+    </div>
+  );
+}
+
+function Hero({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-50">{value}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-zinc-600">{hint}</div>}
     </div>
   );
 }
