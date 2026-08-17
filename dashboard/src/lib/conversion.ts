@@ -40,32 +40,18 @@ export type ConversionEventRow = {
 export type ConversionSnapshot = {
   from: string;
   to: string;
-  companyId: string | null;
+  companyId: string;
+  companyName: string;
+  companySlug: string;
   funnel: { event: string; label: string; count: number }[];
   sources: { source: string; leads: number; quotes: number; wins: number; wonValue: number }[];
   recent: (ConversionEventRow & { companyName: string })[];
 };
 
-export async function loadConversionSnapshot(
-  supabase: SupabaseClient,
-  opts: { from: string; to: string; companyId?: string },
-): Promise<ConversionSnapshot> {
-  const companies = await listCompanies(supabase);
-  const companyName = new Map(companies.map(c => [c.id, c.name]));
-
-  let q = supabase
-    .from("conversion_events")
-    .select("id, company_id, contact_id, contact_name, event, source, campaign, occurred_on, occurred_at, sales_person_name, value")
-    .gte("occurred_on", opts.from)
-    .lte("occurred_on", opts.to)
-    .order("occurred_at", { ascending: false })
-    .limit(4000);
-  if (opts.companyId) q = q.eq("company_id", opts.companyId);
-
-  const { data, error } = await q;
-  if (error) throw error;
-  const rows = (data || []) as ConversionEventRow[];
-
+function snapshotFromRows(
+  rows: ConversionEventRow[],
+  meta: { from: string; to: string; companyId: string; companyName: string; companySlug: string },
+): ConversionSnapshot {
   const funnelCounts = new Map<string, number>();
   const sourceMap = new Map<string, { leads: number; quotes: number; wins: number; wonValue: number }>();
 
@@ -87,9 +73,7 @@ export async function loadConversionSnapshot(
     .sort((a, b) => b.leads + b.quotes + b.wins - (a.leads + a.quotes + a.wins));
 
   return {
-    from: opts.from,
-    to: opts.to,
-    companyId: opts.companyId || null,
+    ...meta,
     funnel: FUNNEL_EVENTS.map(event => ({
       event,
       label: EVENT_LABEL[event],
@@ -98,7 +82,54 @@ export async function loadConversionSnapshot(
     sources,
     recent: rows.slice(0, 40).map(r => ({
       ...r,
-      companyName: companyName.get(r.company_id) || "—",
+      companyName: meta.companyName,
     })),
   };
+}
+
+export async function loadConversionSnapshot(
+  supabase: SupabaseClient,
+  opts: { from: string; to: string; companyId: string; companyName: string; companySlug: string },
+): Promise<ConversionSnapshot> {
+  const { data, error } = await supabase
+    .from("conversion_events")
+    .select("id, company_id, contact_id, contact_name, event, source, campaign, occurred_on, occurred_at, sales_person_name, value")
+    .eq("company_id", opts.companyId)
+    .gte("occurred_on", opts.from)
+    .lte("occurred_on", opts.to)
+    .order("occurred_at", { ascending: false })
+    .limit(4000);
+  if (error) throw error;
+  return snapshotFromRows((data || []) as ConversionEventRow[], opts);
+}
+
+export async function loadConversionByCompany(
+  supabase: SupabaseClient,
+  opts: { from: string; to: string },
+): Promise<ConversionSnapshot[]> {
+  const companies = await listCompanies(supabase);
+  const { data, error } = await supabase
+    .from("conversion_events")
+    .select("id, company_id, contact_id, contact_name, event, source, campaign, occurred_on, occurred_at, sales_person_name, value")
+    .gte("occurred_on", opts.from)
+    .lte("occurred_on", opts.to)
+    .order("occurred_at", { ascending: false })
+    .limit(8000);
+  if (error) throw error;
+  const rows = (data || []) as ConversionEventRow[];
+  const byCompany = new Map<string, ConversionEventRow[]>();
+  for (const r of rows) {
+    const list = byCompany.get(r.company_id) || [];
+    list.push(r);
+    byCompany.set(r.company_id, list);
+  }
+  return companies.map(c =>
+    snapshotFromRows(byCompany.get(c.id) || [], {
+      from: opts.from,
+      to: opts.to,
+      companyId: c.id,
+      companyName: c.name,
+      companySlug: c.slug,
+    }),
+  );
 }
