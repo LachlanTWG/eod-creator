@@ -617,7 +617,6 @@ function formatVisitDateTimeFull(datetimeStr) {
 async function runAllEOD(targetDate, mode = 'both') {
   const { companies } = loadCompanies();
   for (const company of companies) {
-    if (!company.sheetId) continue;
     if (mode === 'send' || mode === 'both') await sendCompanyEOD(company, targetDate);
     if (mode === 'archive' || mode === 'both') await archiveCompanyEOD(company, targetDate);
   }
@@ -626,7 +625,6 @@ async function runAllEOD(targetDate, mode = 'both') {
 async function runAllEOW(startDate, endDate, mode = 'both') {
   const { companies } = loadCompanies();
   for (const company of companies) {
-    if (!company.sheetId) continue;
     if (mode === 'send' || mode === 'both') await sendCompanyEOW(company, startDate, endDate);
     if (mode === 'archive' || mode === 'both') await archiveCompanyEOW(company, startDate, endDate);
   }
@@ -635,7 +633,6 @@ async function runAllEOW(startDate, endDate, mode = 'both') {
 async function runAllEOM(year, month) {
   const { companies } = loadCompanies();
   for (const company of companies) {
-    if (!company.sheetId) continue;
     await runCompanyEOM(company, year, month);
   }
 }
@@ -643,7 +640,6 @@ async function runAllEOM(year, month) {
 async function runAllEOQ(year, quarter) {
   const { companies } = loadCompanies();
   for (const company of companies) {
-    if (!company.sheetId) continue;
     await runCompanyEOQ(company, year, quarter);
   }
 }
@@ -651,7 +647,6 @@ async function runAllEOQ(year, quarter) {
 async function runAllEOY(year) {
   const { companies } = loadCompanies();
   for (const company of companies) {
-    if (!company.sheetId) continue;
     await runCompanyEOY(company, year);
   }
 }
@@ -659,7 +654,6 @@ async function runAllEOY(year) {
 async function runAllSiteVisitNotifications() {
   const { companies } = loadCompanies();
   for (const company of companies) {
-    if (!company.sheetId) continue;
     await sendSiteVisitNotification(company);
   }
 }

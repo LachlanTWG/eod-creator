@@ -167,7 +167,8 @@ function scheduleCompanyJobs() {
   const { companies } = loadCompanies();
 
   for (const company of companies) {
-    if (!company.sheetId) continue;
+    // Postgres is the report source. sheetId is legacy (sheet dual-write)
+    // and must not gate Slack/ClickUp sends — newer clients have none.
     const tz = company.timezone || 'Australia/Sydney';
     const name = company.name;
 
@@ -1346,7 +1347,6 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/status') {
     const { companies } = loadCompanies();
     const companySchedules = companies
-      .filter(c => c.sheetId)
       .map(c => ({ name: c.name, timezone: c.timezone || 'Australia/Sydney' }));
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
