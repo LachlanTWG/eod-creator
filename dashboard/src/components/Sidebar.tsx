@@ -77,7 +77,7 @@ export function Sidebar({
 
   return (
     <aside
-      className={`shrink-0 border-r border-zinc-800 flex flex-col transition-[width] duration-200 ease-out ${
+      className={`shrink-0 border-r border-zinc-800 flex flex-col min-h-0 h-screen sticky top-0 transition-[width] duration-200 ease-out ${
         collapsed ? "w-14 px-2 py-4" : "w-56 px-4 py-6"
       } ${hydrated ? "" : ""}`}
     >
@@ -124,10 +124,10 @@ export function Sidebar({
       </div>
 
       {/* Nav */}
-      <nav className={`mt-6 flex flex-col gap-0.5 text-sm ${collapsed ? "items-center" : ""}`}>
+      <nav className={`mt-6 flex flex-col gap-0.5 text-sm overflow-y-auto min-h-0 flex-1 ${collapsed ? "items-center" : ""}`}>
         {navItems.map(item => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          const Icon = ICONS[item.icon];
+          const Icon = ICONS[item.icon] || FileText;
           if (collapsed) {
             return (
               <Link
