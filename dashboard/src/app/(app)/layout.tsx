@@ -16,6 +16,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (viewer.salesPersonName) navItems.push({ href: myHref,        label: "My dashboard",                              icon: "me" });
                               navItems.push({ href: "/",           label: "Overview",                                  icon: "overview" });
                               navItems.push({ href: "/conversion", label: "Conversion",                                icon: "conversion" });
+                              navItems.push({ href: "/studio",     label: "Studio",                                    icon: "studio" });
   if (showExecsNav)           navItems.push({ href: "/execs",      label: "Execs",                                     icon: "execs" });
                               navItems.push({ href: "/reports",    label: "Reports",                                   icon: "reports" });
                               navItems.push({ href: "/activities", label: "Activities",                                icon: "activities" });

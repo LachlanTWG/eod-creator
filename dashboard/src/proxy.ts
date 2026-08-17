@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // /eod-entry is the GHL-embedded form — auth is its signed URL token, not a
 // session (third-party cookies don't survive inside the GHL iframe anyway).
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/eod-entry", "/api/conversion/collect"];
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/eod-entry", "/api/conversion/collect", "/p"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

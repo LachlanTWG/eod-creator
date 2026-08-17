@@ -12,7 +12,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ChevronLeft, ChevronRight, LogOut,
-  User, LayoutDashboard, Users, FileText, ListChecks, Trophy, Inbox, Activity, Copy, CalendarDays, FileWarning, Mail, TrendingUp,
+  User, LayoutDashboard, Users, FileText, ListChecks, Trophy, Inbox, Activity, Copy, CalendarDays, FileWarning, Mail, TrendingUp, Clapperboard,
 } from "lucide-react";
 
 const STORAGE_KEY = "sidebar-collapsed";
@@ -22,7 +22,7 @@ const STORAGE_KEY = "sidebar-collapsed";
 // themselves) can't be serialised that way.
 export type NavIcon =
   | "me" | "overview" | "execs" | "reports"
-  | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail" | "accounts" | "conversion";
+  | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail" | "accounts" | "conversion" | "studio";
 
 const ICONS: Record<NavIcon, typeof User> = {
   me:         User,
@@ -39,6 +39,7 @@ const ICONS: Record<NavIcon, typeof User> = {
   gmail:      Mail,
   accounts:   Users,
   conversion: TrendingUp,
+  studio:     Clapperboard,
 };
 
 export type NavItem = { href: string; label: string; icon: NavIcon };
