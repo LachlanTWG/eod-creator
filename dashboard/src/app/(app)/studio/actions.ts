@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getViewer } from "@/lib/viewer";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { KIND_LABEL, PAGE_KINDS, slugify, type PageKind } from "@/lib/studio";
+import { PAGE_KINDS, slugify, type PageKind } from "@/lib/studio";
 
 function canEdit(viewer: { isAdmin: boolean; isConversion: boolean }) {
   return viewer.isAdmin || viewer.isConversion;
@@ -102,5 +102,3 @@ function empty(v: FormDataEntryValue | null): string | null {
   const s = String(v ?? "").trim();
   return s || null;
 }
-
-export { KIND_LABEL };
