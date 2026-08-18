@@ -31,6 +31,12 @@ export async function createClient() {
           }
         },
       },
+      // Next can cache fetch() by URL and ignore the Range header, which
+      // makes page 2 of activities replay page 1 and double every count.
+      global: {
+        fetch: (url: RequestInfo | URL, init?: RequestInit) =>
+          fetch(url, { ...init, cache: "no-store" }),
+      },
     },
   );
 }

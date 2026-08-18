@@ -26,6 +26,7 @@ import outcomesConfig from "./configs/outcomes.json";
 // ─── Types ───────────────────────────────────────────────────────────
 
 type ActivityRow = {
+  id?: string;
   company_id: string;
   sales_person_id: string | null;
   sales_person_name: string;
@@ -1294,6 +1295,9 @@ function buildRangeMessage(opts: {
 // ─── Snapshot loader ─────────────────────────────────────────────────
 
 const PAGE_SIZE = 1000;
+const ACTIVITY_SELECT =
+  "id, company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_id, contact_address, outcome, ad_source, quote_job_value, appointment_at";
+
 async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
   const out: T[] = [];
   let from = 0;
@@ -1304,6 +1308,27 @@ async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ dat
     out.push(...data);
     if (data.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
+  }
+  return out;
+}
+
+/** Drop duplicate activity rows (unstable Range pagination can replay the first page). */
+function dedupeActivities(rows: ActivityRow[]): ActivityRow[] {
+  const seen = new Set<string>();
+  const out: ActivityRow[] = [];
+  for (const row of rows) {
+    const key = row.id || [
+      row.company_id,
+      row.sales_person_id || row.sales_person_name,
+      row.occurred_on,
+      row.event_type,
+      row.contact_id || row.contact_name,
+      row.outcome,
+      row.quote_job_value,
+    ].join("\0");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
   }
   return out;
 }
@@ -1410,15 +1435,17 @@ export async function loadDashboardMessages(
   // Pull a lookback window so "I RQ'd Friday, Max quoted Monday" still pairs
   // on the Monday card. Counts stay clipped to [rangeStart, rangeEnd].
   const pairStart = addDaysIso(rangeStart, -HANDOFF_LOOKBACK_DAYS);
-  const rows = ids.length === 0 ? [] : await pageAll<ActivityRow>((from, to) =>
+  const rows = ids.length === 0 ? [] : dedupeActivities(await pageAll<ActivityRow>((from, to) =>
     supabase
       .from("activities")
-      .select("company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_id, contact_address, outcome, ad_source, quote_job_value, appointment_at")
+      .select(ACTIVITY_SELECT)
       .in("company_id", ids)
       .gte("occurred_on", pairStart)
       .lte("occurred_on", rangeEnd)
+      .order("occurred_on", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, to),
-  );
+  ));
 
   const inPeriod = (r: ActivityRow) => r.occurred_on >= rangeStart && r.occurred_on <= rangeEnd;
 
@@ -1569,15 +1596,15 @@ export async function loadCompanyLiveReports(
   // Whole company log — lead-source resolution cross-references outside the
   // range, matching the backend generators. Ordered so the earliest copy of a
   // duplicate is the one countOutcomes keeps.
-  const all = await pageAll<ActivityRow>((from, to) =>
+  const all = dedupeActivities(await pageAll<ActivityRow>((from, to) =>
     supabase
       .from("activities")
-      .select("company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_id, contact_address, outcome, ad_source, quote_job_value, appointment_at")
+      .select(ACTIVITY_SELECT)
       .eq("company_id", c.id)
       .order("occurred_on", { ascending: true })
-      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, to),
-  );
+  ));
   const inRange = all.filter(r => r.occurred_on >= start && r.occurred_on <= end);
 
   const { data: roster } = await supabase
