@@ -119,6 +119,9 @@ type QuotieSiteVisitInput = {
   salesPersonName?: string;
   assign_to?: string;
   create_ghl_appointment: boolean;
+  rough_job_value?: string;
+  ideal_start?: string;
+  details?: string;
 };
 
 /** POST to a Quotie REST endpoint with the client's api_key + a 10s guard. */
@@ -217,6 +220,10 @@ export async function createQuotieSiteVisit(
   if (input.contact_email?.trim()) body.contact_email = input.contact_email.trim();
   if (input.ghl_contact_id?.trim()) body.ghl_contact_id = input.ghl_contact_id.trim();
   if (input.address?.trim()) body.address = input.address.trim();
+  if (input.rough_job_value?.trim()) body.rough_job_value = input.rough_job_value.trim();
+  if (input.ideal_start?.trim()) body.ideal_start = input.ideal_start.trim();
+  if (input.details?.trim()) body.details = input.details.trim();
+  if (input.salesPersonName?.trim()) body.exec_name = input.salesPersonName.trim();
   if (assigned_to) body.assigned_to = assigned_to;
   return postQuotie(config, "api-site-visits", body);
 }

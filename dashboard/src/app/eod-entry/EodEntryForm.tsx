@@ -257,6 +257,9 @@ export function EodEntryForm({
   const [qsvTime, setQsvTime] = useState("");
   const [qsvAddress, setQsvAddress] = useState(contactAddress || "");
   const [qsvGhlAppt, setQsvGhlAppt] = useState(true);
+  const [qsvRough, setQsvRough] = useState("");
+  const [qsvIdealStart, setQsvIdealStart] = useState("");
+  const [qsvDetails, setQsvDetails] = useState("");
   // Task
   const [qtaskEnabled, setQtaskEnabled] = useState(true);
   const [qtaskTitle, setQtaskTitle] = useState("");
@@ -423,6 +426,9 @@ export function EodEntryForm({
           time: qsvTime.trim() || undefined,
           address: qsvAddress.trim() || undefined,
           create_ghl_appointment: qsvGhlAppt,
+          rough_job_value: qsvRough.trim() || undefined,
+          ideal_start: qsvIdealStart.trim() || undefined,
+          details: qsvDetails.trim() || undefined,
         };
       } else if (quotieKind === "task" && qtaskEnabled) {
         quotie = {
@@ -818,6 +824,39 @@ export function EodEntryForm({
                           value={qsvAddress}
                           onChange={e => setQsvAddress(e.target.value)}
                           className={inputClass}
+                        />
+                      </Field>
+                      <Field label="Rough job value" hint="Optional — dollars, no symbols.">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={qsvRough}
+                          onChange={e => setQsvRough(e.target.value)}
+                          className={inputClass}
+                          placeholder="e.g. 12000"
+                        />
+                      </Field>
+                      <Field label="Ideal start date">
+                        <select
+                          value={qsvIdealStart}
+                          onChange={e => setQsvIdealStart(e.target.value)}
+                          className={inputClass}
+                        >
+                          <option value="">— select —</option>
+                          <option value="ASAP">ASAP</option>
+                          <option value="0-30 days">0-30 days</option>
+                          <option value="30-90 days">30-90 days</option>
+                          <option value="90 days+">90 days+</option>
+                          <option value="Not sure">Not sure</option>
+                        </select>
+                      </Field>
+                      <Field label="Details" hint="Optional.">
+                        <textarea
+                          value={qsvDetails}
+                          onChange={e => setQsvDetails(e.target.value)}
+                          rows={2}
+                          className={inputClass}
+                          placeholder="Anything discussed on the call — access, scope, expectations…"
                         />
                       </Field>
                       <label className="flex items-start gap-2 text-xs text-zinc-300">

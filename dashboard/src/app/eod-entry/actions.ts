@@ -57,6 +57,9 @@ export type EodEntryInput = {
     time?: string;
     address?: string;
     create_ghl_appointment?: boolean;
+    rough_job_value?: string;
+    ideal_start?: string;
+    details?: string;
   };
 };
 
@@ -488,6 +491,9 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
           salesPersonName,
           assign_to: action.assign_to,
           create_ghl_appointment: input.quotie.create_ghl_appointment ?? true,
+          rough_job_value: input.quotie.rough_job_value,
+          ideal_start: input.quotie.ideal_start,
+          details: input.quotie.details,
         });
         quotie_result = { ok: res.ok, detail: res.ok ? res.warnings?.join("; ") : res.error };
       } else {
