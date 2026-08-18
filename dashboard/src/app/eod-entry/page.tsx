@@ -22,6 +22,7 @@ import {
 } from "./data";
 import { MeView, TabBar, TodayView } from "./views";
 import { EodEntryForm } from "./EodEntryForm";
+import { safeQuotieActions } from "./quotie";
 
 export const metadata: Metadata = {
   title: "EOD Entry",
@@ -72,7 +73,7 @@ export default async function EodEntryPage({
   // team, with the client resolved per page view from the GHL location id in
   // the URL the exec is currently on.
   const supabase = createAdminClient();
-  let query = supabase.from("companies").select("id, name, slug, timezone, active");
+  let query = supabase.from("companies").select("id, name, slug, timezone, active, quotie_config");
   if (slug === "agency") {
     if (!location) return <Notice>Open this from the EOD Logger extension inside GHL.</Notice>;
     query = query.eq("ghl_location_id", location);
@@ -131,6 +132,9 @@ export default async function EodEntryPage({
     const displaySource = history?.lastSource || history?.topSource || "";
     // Owner from GHL contact assignment → roster match.
     const defaultExec = ghl.ownerName || "";
+    // Safe outcome→type projection for the Quotie action sections. Empty {}
+    // for clients without a configured api_key — zero visual change.
+    const quotieActions = safeQuotieActions(company.quotie_config);
     content = (
       <EodEntryForm
         token={token}
@@ -148,6 +152,7 @@ export default async function EodEntryPage({
         options={options}
         history={history}
         pendingSiteVisits={pendingVisits}
+        quotieActions={quotieActions}
       />
     );
   }
