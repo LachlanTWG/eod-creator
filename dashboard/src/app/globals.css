@@ -1,10 +1,6 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #0f172a;
-  color-scheme: light;
-}
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --color-background: var(--background);
@@ -13,8 +9,111 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Light (default): original zinc/emerald pages invert to white + blue. */
+:root {
+  color-scheme: light;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+
+  --color-zinc-50: #020617;
+  --color-zinc-100: #0f172a;
+  --color-zinc-200: #1e293b;
+  --color-zinc-300: #334155;
+  --color-zinc-400: #475569;
+  --color-zinc-500: #64748b;
+  --color-zinc-600: #94a3b8;
+  --color-zinc-700: #cbd5e1;
+  --color-zinc-800: #e2e8f0;
+  --color-zinc-900: #ffffff;
+  --color-zinc-950: #f8fafc;
+
+  --color-emerald-50: #eff6ff;
+  --color-emerald-100: #dbeafe;
+  --color-emerald-200: #bfdbfe;
+  --color-emerald-300: #3b82f6;
+  --color-emerald-400: #2563eb;
+  --color-emerald-500: #3b82f6;
+  --color-emerald-600: #2563eb;
+  --color-emerald-700: #1d4ed8;
+  --color-emerald-800: #1e40af;
+  --color-emerald-900: #93c5fd;
+  --color-emerald-950: #eff6ff;
+}
+
+/* Dark: restore zinc + emerald; map slate/blue (light-designed pages) onto them. */
+html.dark {
+  color-scheme: dark;
+  --background: #09090b;
+  --foreground: #f4f4f5;
+
+  --color-zinc-50: #fafafa;
+  --color-zinc-100: #f4f4f5;
+  --color-zinc-200: #e4e4e7;
+  --color-zinc-300: #d4d4d8;
+  --color-zinc-400: #a1a1aa;
+  --color-zinc-500: #71717a;
+  --color-zinc-600: #52525b;
+  --color-zinc-700: #3f3f46;
+  --color-zinc-800: #27272a;
+  --color-zinc-900: #18181b;
+  --color-zinc-950: #09090b;
+
+  --color-emerald-50: #ecfdf5;
+  --color-emerald-100: #d1fae5;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-emerald-700: #047857;
+  --color-emerald-800: #065f46;
+  --color-emerald-900: #064e3b;
+  --color-emerald-950: #022c22;
+
+  --color-slate-50: #09090b;
+  --color-slate-100: #18181b;
+  --color-slate-200: #27272a;
+  --color-slate-300: #3f3f46;
+  --color-slate-400: #71717a;
+  --color-slate-500: #a1a1aa;
+  --color-slate-600: #a1a1aa;
+  --color-slate-700: #d4d4d8;
+  --color-slate-800: #e4e4e7;
+  --color-slate-900: #f4f4f5;
+  --color-slate-950: #fafafa;
+
+  --color-blue-50: #022c22;
+  --color-blue-100: #064e3b;
+  --color-blue-200: #065f46;
+  --color-blue-300: #34d399;
+  --color-blue-400: #34d399;
+  --color-blue-500: #10b981;
+  --color-blue-600: #059669;
+  --color-blue-700: #6ee7b7;
+  --color-blue-800: #047857;
+  --color-blue-900: #6ee7b7;
+  --color-blue-950: #022c22;
+
+  --color-amber-50: #1c1408;
+  --color-amber-100: #2a1c0a;
+  --color-amber-200: #78350f;
+  --color-amber-800: #fbbf24;
+  --color-amber-900: #fcd34d;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Cards built with bg-white follow the surface token in dark mode.
+   text-white on buttons / scorecard headers is left alone. */
+html.dark :where(.bg-white) {
+  background-color: var(--color-zinc-900);
+}
+
+/* In light mode zinc-100 is already dark; hover:text-white would flash white-on-white. */
+html:not(.dark) :where(.hover\:text-white:hover) {
+  color: var(--color-zinc-50);
 }

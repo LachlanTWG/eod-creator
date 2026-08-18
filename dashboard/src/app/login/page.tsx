@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 async function signIn(formData: FormData) {
   "use server";
@@ -22,7 +23,10 @@ export default async function LoginPage({
   const error = params.error;
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+    <main className="relative min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="absolute left-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-sm space-y-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">The Sales Department</h1>

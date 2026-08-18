@@ -71,7 +71,7 @@ export default async function StudioClientPage({
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
-          <button type="submit" className="rounded-md bg-white px-3 py-2 text-sm font-medium text-zinc-900">
+          <button type="submit" className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500">
             Create
           </button>
         </form>

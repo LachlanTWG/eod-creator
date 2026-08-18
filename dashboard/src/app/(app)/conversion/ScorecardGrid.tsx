@@ -34,21 +34,21 @@ export function ScorecardGrid({
         <table className="min-w-max border-collapse text-[12px]">
           <thead>
             <tr>
-              <th className="sticky left-0 z-20 min-w-[220px] border-b border-r border-slate-200 bg-slate-800 px-3 py-2 text-left font-medium text-white">
+              <th className="sticky left-0 z-20 min-w-[220px] border-b border-r border-neutral-700 bg-neutral-800 px-3 py-2 text-left font-medium text-white">
                 Metric
               </th>
               {card.days.map(d => (
                 <th
                   key={d.date}
-                  className={`min-w-[72px] border-b border-slate-700 px-1.5 py-2 text-center font-medium ${
-                    d.off ? "bg-slate-700 text-slate-300" : "bg-slate-800 text-white"
+                  className={`min-w-[72px] border-b border-neutral-700 px-1.5 py-2 text-center font-medium ${
+                    d.off ? "bg-neutral-700 text-neutral-300" : "bg-neutral-800 text-white"
                   }`}
                 >
                   <div>{d.weekday} {d.dayNum}</div>
                   <div className="text-[10px] font-normal opacity-70">{d.month}</div>
                 </th>
               ))}
-              <th className="sticky right-0 z-20 min-w-[72px] border-b border-l border-slate-700 bg-blue-600 px-2 py-2 text-center font-medium text-white">
+              <th className="sticky right-0 z-20 min-w-[72px] border-b border-l border-neutral-700 bg-blue-600 px-2 py-2 text-center font-medium text-white">
                 Total
               </th>
             </tr>

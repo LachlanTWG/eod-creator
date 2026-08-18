@@ -89,7 +89,7 @@ export default async function StudioEditorPage({
               Save draft
             </button>
             {p.status !== "published" ? (
-              <button type="submit" name="publish" value="1" className="rounded-md bg-white px-3 py-2 text-sm font-medium text-zinc-900">
+              <button type="submit" name="publish" value="1" className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500">
                 Publish
               </button>
             ) : (

@@ -14,6 +14,7 @@ import {
   ChevronLeft, ChevronRight, LogOut,
   User, LayoutDashboard, Users, FileText, ListChecks, Trophy, Inbox, Activity, Copy, CalendarDays, FileWarning, Mail, TrendingUp, Clapperboard, Megaphone, Phone, Handshake, ClipboardList, CalendarRange,
 } from "lucide-react";
+import { ThemeToggle } from "./ThemeToggle";
 
 const STORAGE_KEY = "sidebar-collapsed";
 
@@ -97,17 +98,20 @@ export function Sidebar({
               <div className="mt-0.5 text-xs text-slate-500 truncate">{email}</div>
             </div>
           )}
-          <button
-            type="button"
-            onClick={toggle}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={`shrink-0 rounded border border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 flex items-center justify-center ${
-              collapsed ? "mx-auto h-7 w-7" : "h-6 w-6"
-            }`}
-          >
-            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-          </button>
+          <div className={`flex items-center gap-1 ${collapsed ? "mx-auto flex-col" : ""}`}>
+            <ThemeToggle collapsed={collapsed} />
+            <button
+              type="button"
+              onClick={toggle}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className={`shrink-0 rounded border border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 flex items-center justify-center ${
+                collapsed ? "h-7 w-7" : "h-6 w-6"
+              }`}
+            >
+              {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
+          </div>
         </div>
         {!collapsed && (isAdmin || salesPersonName || role) && (
           <div className="mt-2 flex flex-wrap gap-1.5">

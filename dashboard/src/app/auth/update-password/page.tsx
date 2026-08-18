@@ -43,7 +43,7 @@ export default async function UpdatePasswordPage({
     <main className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Set your password</h1>
+          <h1 className="text-2xl font-semibold text-zinc-100">Set your password</h1>
           <p className="mt-1 text-sm text-zinc-400">
             Signed in as {user.email}. Pick a new password — at least 8 characters.
           </p>
@@ -58,7 +58,7 @@ export default async function UpdatePasswordPage({
             minLength={8}
             autoComplete="new-password"
             placeholder="new password"
-            className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+            className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
           />
           <input
             type="password"
@@ -67,11 +67,11 @@ export default async function UpdatePasswordPage({
             minLength={8}
             autoComplete="new-password"
             placeholder="confirm password"
-            className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+            className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
           />
           <button
             type="submit"
-            className="w-full rounded-md bg-white px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+            className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
           >
             Save password
           </button>

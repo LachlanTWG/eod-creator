@@ -4,7 +4,7 @@
 import Link from "next/link";
 
 const inputClass =
-  "rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-100 focus:border-zinc-600 focus:outline-none [color-scheme:dark]";
+  "rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-100 focus:border-zinc-600 focus:outline-none";
 
 export type DatePreset = { label: string; from: string; to: string };
 

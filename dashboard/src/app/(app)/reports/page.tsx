@@ -244,7 +244,7 @@ export default async function ReportsPage({
 }
 
 const selectClass = "rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-100 focus:border-zinc-600 focus:outline-none";
-const inputClass = "rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-100 focus:border-zinc-600 focus:outline-none [color-scheme:dark]";
+const inputClass = "rounded-md border border-zinc-800 bg-zinc-900/60 px-3 py-1.5 text-xs text-zinc-100 focus:border-zinc-600 focus:outline-none";
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 
