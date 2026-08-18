@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { betaPaid, betaPortfolio, betaSnapshot, isBeta } from "./beta";
 import { listCompanies } from "./queries";
 import { createAdminClient } from "./supabase/admin";
 
@@ -92,6 +93,8 @@ export async function loadConversionSnapshot(
   supabase: SupabaseClient,
   opts: { from: string; to: string; companyId: string; companyName: string; companySlug: string },
 ): Promise<ConversionSnapshot> {
+  if (isBeta()) return betaSnapshot(opts);
+
   const { data, error } = await supabase
     .from("conversion_events")
     .select("id, company_id, contact_id, contact_name, event, source, campaign, occurred_on, occurred_at, sales_person_name, value")
@@ -190,34 +193,20 @@ function campaignLabel(r: {
   return (r.utm_campaign || r.campaign || r.source || "").trim() || "Unattributed";
 }
 
-export async function loadPaidAttribution(
-  supabase: SupabaseClient,
-  opts: { companyId: string; from: string; to: string },
-): Promise<PaidAttribution> {
-  const admin = createAdminClient();
-  const [{ data: events, error: eErr }, { data: spendRows, error: sErr }, { data: acct }] = await Promise.all([
-    supabase
-      .from("conversion_events")
-      .select("contact_id, contact_name, event, source, campaign, utm_campaign, campaign_id, occurred_at, value")
-      .eq("company_id", opts.companyId)
-      .order("occurred_at", { ascending: true })
-      .limit(8000),
-    supabase
-      .from("ad_spend")
-      .select("campaign_id, campaign_name, spend")
-      .eq("company_id", opts.companyId)
-      .gte("spend_on", opts.from)
-      .lte("spend_on", opts.to),
-    admin
-      .from("company_ad_accounts")
-      .select("pixel_id, meta_ad_account_id, meta_access_token")
-      .eq("company_id", opts.companyId)
-      .maybeSingle(),
-  ]);
-  if (eErr) throw eErr;
-  if (sErr) throw sErr;
+type SpendRow = { campaign_id: string | null; campaign_name: string | null; spend: number | string };
+type AdAccountRow = {
+  pixel_id: string | null;
+  meta_ad_account_id: string | null;
+  meta_access_token?: string | null;
+};
 
-  const rows = (events || []) as TouchRow[];
+function paidFromRows(
+  rows: TouchRow[],
+  spendRows: SpendRow[],
+  acct: AdAccountRow | null,
+  from: string,
+  to: string,
+): PaidAttribution {
   const firstTouch = new Map<string, { label: string; campaignId: string | null }>();
   for (const r of rows) {
     const key = contactKey(r);
@@ -236,7 +225,7 @@ export async function loadPaidAttribution(
   };
 
   for (const r of rows) {
-    if (r.occurred_at.slice(0, 10) < opts.from || r.occurred_at.slice(0, 10) > opts.to) continue;
+    if (r.occurred_at.slice(0, 10) < from || r.occurred_at.slice(0, 10) > to) continue;
     const key = contactKey(r);
     const touch = (key && firstTouch.get(key)) || { label: campaignLabel(r), campaignId: r.campaign_id };
     const row = bump(touch.label, touch.campaignId);
@@ -249,7 +238,7 @@ export async function loadPaidAttribution(
   }
 
   let spendTotal = 0;
-  for (const s of spendRows || []) {
+  for (const s of spendRows) {
     const spend = Number(s.spend) || 0;
     spendTotal += spend;
     const label = (s.campaign_name || s.campaign_id || "Unattributed").trim();
@@ -289,5 +278,236 @@ export async function loadPaidAttribution(
     connected: !!(acct?.meta_access_token && acct?.meta_ad_account_id),
     pixelId: acct?.pixel_id || null,
     adAccountId: acct?.meta_ad_account_id || null,
+  };
+}
+
+export async function loadPaidAttribution(
+  supabase: SupabaseClient,
+  opts: { companyId: string; from: string; to: string },
+): Promise<PaidAttribution> {
+  if (isBeta()) return betaPaid(opts.companyId);
+
+  const admin = createAdminClient();
+  const [{ data: events, error: eErr }, { data: spendRows, error: sErr }, { data: acct }] = await Promise.all([
+    supabase
+      .from("conversion_events")
+      .select("contact_id, contact_name, event, source, campaign, utm_campaign, campaign_id, occurred_at, value")
+      .eq("company_id", opts.companyId)
+      .order("occurred_at", { ascending: true })
+      .limit(8000),
+    supabase
+      .from("ad_spend")
+      .select("campaign_id, campaign_name, spend")
+      .eq("company_id", opts.companyId)
+      .gte("spend_on", opts.from)
+      .lte("spend_on", opts.to),
+    admin
+      .from("company_ad_accounts")
+      .select("pixel_id, meta_ad_account_id, meta_access_token")
+      .eq("company_id", opts.companyId)
+      .maybeSingle(),
+  ]);
+  if (eErr) throw eErr;
+  if (sErr) throw sErr;
+
+  return paidFromRows(
+    (events || []) as TouchRow[],
+    (spendRows || []) as SpendRow[],
+    (acct || null) as AdAccountRow | null,
+    opts.from,
+    opts.to,
+  );
+}
+
+export type ConversionClientRow = {
+  companyId: string;
+  companyName: string;
+  companySlug: string;
+  funnel: ConversionSnapshot["funnel"];
+  paid: PaidAttribution;
+  studioPublished: number;
+  studioDraft: number;
+};
+
+export type ConversionPortfolio = {
+  from: string;
+  to: string;
+  totals: Pick<PaidAttribution, "spend" | "leads" | "quotes" | "wins" | "wonValue" | "cpl" | "cpa" | "roas">;
+  funnel: ConversionSnapshot["funnel"];
+  clients: ConversionClientRow[];
+  recent: (ConversionEventRow & { companyName: string; companySlug: string })[];
+};
+
+const PAGE = 1000;
+async function pageAll<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    out.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return out;
+}
+
+/** All assigned clients + rolled-up paid metrics for the conversion-lead home. */
+export async function loadConversionPortfolio(
+  supabase: SupabaseClient,
+  opts: { from: string; to: string },
+): Promise<ConversionPortfolio> {
+  if (isBeta()) return betaPortfolio(opts);
+
+  const companies = await listCompanies(supabase);
+  const ids = companies.map(c => c.id);
+  const emptyTotals = {
+    spend: 0, leads: 0, quotes: 0, wins: 0, wonValue: 0,
+    cpl: null as number | null, cpa: null as number | null, roas: null as number | null,
+  };
+  if (ids.length === 0) {
+    return {
+      from: opts.from,
+      to: opts.to,
+      totals: emptyTotals,
+      funnel: FUNNEL_EVENTS.map(event => ({ event, label: EVENT_LABEL[event], count: 0 })),
+      clients: [],
+      recent: [],
+    };
+  }
+
+  const admin = createAdminClient();
+  const [touchByCompany, spendRows, accts, studioRows, rangeRows] = await Promise.all([
+    Promise.all(ids.map(async id => {
+      const { data, error } = await supabase
+        .from("conversion_events")
+        .select("contact_id, contact_name, event, source, campaign, utm_campaign, campaign_id, occurred_at, value")
+        .eq("company_id", id)
+        .order("occurred_at", { ascending: true })
+        .limit(8000);
+      if (error) throw error;
+      return [id, (data || []) as TouchRow[]] as const;
+    })).then(pairs => new Map(pairs)),
+    pageAll<SpendRow & { company_id: string }>((from, to) =>
+      supabase
+        .from("ad_spend")
+        .select("company_id, campaign_id, campaign_name, spend")
+        .in("company_id", ids)
+        .gte("spend_on", opts.from)
+        .lte("spend_on", opts.to)
+        .range(from, to),
+    ),
+    admin
+      .from("company_ad_accounts")
+      .select("company_id, pixel_id, meta_ad_account_id, meta_access_token")
+      .in("company_id", ids)
+      .then(r => {
+        if (r.error) throw r.error;
+        return r.data || [];
+      }),
+    supabase
+      .from("studio_pages")
+      .select("company_id, status")
+      .in("company_id", ids)
+      .then(r => {
+        if (r.error) throw r.error;
+        return r.data || [];
+      }),
+    pageAll<ConversionEventRow>((from, to) =>
+      supabase
+        .from("conversion_events")
+        .select("id, company_id, contact_id, contact_name, event, source, campaign, occurred_on, occurred_at, sales_person_name, value")
+        .in("company_id", ids)
+        .gte("occurred_on", opts.from)
+        .lte("occurred_on", opts.to)
+        .order("occurred_at", { ascending: false })
+        .range(from, to),
+    ),
+  ]);
+  const spendByCompany = new Map<string, SpendRow[]>();
+  for (const r of spendRows) {
+    const list = spendByCompany.get(r.company_id) || [];
+    list.push(r);
+    spendByCompany.set(r.company_id, list);
+  }
+  const acctByCompany = new Map(accts.map(a => [a.company_id as string, a as AdAccountRow]));
+  const studioByCompany = new Map<string, { published: number; draft: number }>();
+  for (const r of studioRows) {
+    const cur = studioByCompany.get(r.company_id) || { published: 0, draft: 0 };
+    if (r.status === "published") cur.published++;
+    else cur.draft++;
+    studioByCompany.set(r.company_id, cur);
+  }
+
+  const clients: ConversionClientRow[] = companies.map(c => {
+    const snap = snapshotFromRows(rangeRows.filter(r => r.company_id === c.id), {
+      from: opts.from,
+      to: opts.to,
+      companyId: c.id,
+      companyName: c.name,
+      companySlug: c.slug,
+    });
+    const studio = studioByCompany.get(c.id) || { published: 0, draft: 0 };
+    return {
+      companyId: c.id,
+      companyName: c.name,
+      companySlug: c.slug,
+      funnel: snap.funnel,
+      paid: paidFromRows(
+        touchByCompany.get(c.id) || [],
+        spendByCompany.get(c.id) || [],
+        acctByCompany.get(c.id) || null,
+        opts.from,
+        opts.to,
+      ),
+      studioPublished: studio.published,
+      studioDraft: studio.draft,
+    };
+  });
+  clients.sort((a, b) =>
+    b.paid.spend - a.paid.spend || b.paid.wonValue - a.paid.wonValue || a.companyName.localeCompare(b.companyName),
+  );
+
+  const spend = clients.reduce((s, c) => s + c.paid.spend, 0);
+  const leads = clients.reduce((s, c) => s + c.paid.leads, 0);
+  const quotes = clients.reduce((s, c) => s + c.paid.quotes, 0);
+  const wins = clients.reduce((s, c) => s + c.paid.wins, 0);
+  const wonValue = clients.reduce((s, c) => s + c.paid.wonValue, 0);
+  const funnelCounts = new Map<string, number>();
+  for (const c of clients) {
+    for (const step of c.funnel) {
+      funnelCounts.set(step.event, (funnelCounts.get(step.event) || 0) + step.count);
+    }
+  }
+
+  const companyById = new Map(companies.map(c => [c.id, c]));
+  const recent = rangeRows.slice(0, 25).map(r => {
+    const co = companyById.get(r.company_id);
+    return { ...r, companyName: co?.name || "—", companySlug: co?.slug || "" };
+  });
+
+  return {
+    from: opts.from,
+    to: opts.to,
+    totals: {
+      spend,
+      leads,
+      quotes,
+      wins,
+      wonValue,
+      cpl: leads > 0 ? spend / leads : null,
+      cpa: wins > 0 ? spend / wins : null,
+      roas: spend > 0 ? wonValue / spend : null,
+    },
+    funnel: FUNNEL_EVENTS.map(event => ({
+      event,
+      label: EVENT_LABEL[event],
+      count: funnelCounts.get(event) || 0,
+    })),
+    clients,
+    recent,
   };
 }

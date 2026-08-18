@@ -3,6 +3,7 @@
 
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { BETA_COMPANIES, isBeta } from "./beta";
 import { quoteGroupValue, todayInTz } from "./format";
 import {
   mondayOf, addDaysIso, businessDaysBetween,
@@ -95,6 +96,8 @@ function bumpCounts(bucket: EventCounts, eventType: string, quoteJobValue: strin
 export const listCompanies = cache(async function listCompanies(
   supabase: SupabaseClient,
 ): Promise<CompanyRow[]> {
+  if (isBeta()) return BETA_COMPANIES;
+
   const { data, error } = await supabase
     .from("companies")
     .select("id, name, slug, timezone, active")

@@ -12,7 +12,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ChevronLeft, ChevronRight, LogOut,
-  User, LayoutDashboard, Users, FileText, ListChecks, Trophy, Inbox, Activity, Copy, CalendarDays, FileWarning, Mail, TrendingUp, Clapperboard,
+  User, LayoutDashboard, Users, FileText, ListChecks, Trophy, Inbox, Activity, Copy, CalendarDays, FileWarning, Mail, TrendingUp, Clapperboard, Megaphone, Phone, Handshake, ClipboardList, CalendarRange,
 } from "lucide-react";
 
 const STORAGE_KEY = "sidebar-collapsed";
@@ -22,7 +22,8 @@ const STORAGE_KEY = "sidebar-collapsed";
 // themselves) can't be serialised that way.
 export type NavIcon =
   | "me" | "overview" | "execs" | "reports"
-  | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail" | "accounts" | "conversion" | "studio";
+  | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail" | "accounts" | "conversion" | "studio"
+  | "ads" | "setters" | "closers" | "eod" | "eow";
 
 const ICONS: Record<NavIcon, typeof User> = {
   me:         User,
@@ -40,9 +41,14 @@ const ICONS: Record<NavIcon, typeof User> = {
   accounts:   Users,
   conversion: TrendingUp,
   studio:     Clapperboard,
+  ads:        Megaphone,
+  setters:    Phone,
+  closers:    Handshake,
+  eod:        ClipboardList,
+  eow:        CalendarRange,
 };
 
-export type NavItem = { href: string; label: string; icon: NavIcon };
+export type NavItem = { href: string; label: string; icon: NavIcon; exact?: boolean };
 
 export function Sidebar({
   email,
@@ -78,7 +84,7 @@ export function Sidebar({
 
   return (
     <aside
-      className={`shrink-0 border-r border-zinc-800 flex flex-col min-h-0 h-screen sticky top-0 transition-[width] duration-200 ease-out ${
+      className={`shrink-0 border-r border-slate-200 bg-white flex flex-col min-h-0 h-screen sticky top-0 transition-[width] duration-200 ease-out ${
         collapsed ? "w-14 px-2 py-4" : "w-56 px-4 py-6"
       } ${hydrated ? "" : ""}`}
     >
@@ -88,7 +94,7 @@ export function Sidebar({
           {!collapsed && (
             <div className="min-w-0">
               <div className="text-sm font-semibold tracking-tight">The Sales Department</div>
-              <div className="mt-0.5 text-xs text-zinc-500 truncate">{email}</div>
+              <div className="mt-0.5 text-xs text-slate-500 truncate">{email}</div>
             </div>
           )}
           <button
@@ -96,7 +102,7 @@ export function Sidebar({
             onClick={toggle}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className={`shrink-0 rounded border border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 flex items-center justify-center ${
+            className={`shrink-0 rounded border border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 flex items-center justify-center ${
               collapsed ? "mx-auto h-7 w-7" : "h-6 w-6"
             }`}
           >
@@ -106,17 +112,17 @@ export function Sidebar({
         {!collapsed && (isAdmin || salesPersonName || role) && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {role && role !== "team" && (
-              <span className="inline-block rounded bg-emerald-600/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+              <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-blue-600">
                 {role}
               </span>
             )}
             {isAdmin && role !== "owner" && (
-              <span className="inline-block rounded bg-emerald-600/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+              <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-blue-600">
                 admin
               </span>
             )}
             {salesPersonName && (
-              <span className="inline-block rounded bg-zinc-700/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-300">
+              <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600">
                 {salesPersonName}
               </span>
             )}
@@ -127,7 +133,9 @@ export function Sidebar({
       {/* Nav */}
       <nav className={`mt-6 flex flex-col gap-0.5 text-sm overflow-y-auto min-h-0 flex-1 ${collapsed ? "items-center" : ""}`}>
         {navItems.map(item => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const active = item.exact
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = ICONS[item.icon] || FileText;
           if (collapsed) {
             return (
@@ -137,8 +145,8 @@ export function Sidebar({
                 title={item.label}
                 className={`flex h-9 w-9 items-center justify-center rounded ${
                   active
-                    ? "bg-zinc-800 text-zinc-50"
-                    : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
+                    ? "bg-blue-50 text-blue-600"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 }`}
               >
                 <Icon size={18} strokeWidth={1.75} />
@@ -151,8 +159,8 @@ export function Sidebar({
               href={item.href}
               className={`flex items-center gap-2 rounded px-2 py-1.5 ${
                 active
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-100"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
               }`}
             >
               <Icon size={16} strokeWidth={1.75} className="shrink-0" />
@@ -167,7 +175,7 @@ export function Sidebar({
         <button
           type="submit"
           title={collapsed ? "Sign out" : undefined}
-          className={`rounded-md border border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200 flex items-center justify-center ${
+          className={`rounded-md border border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-600 flex items-center justify-center ${
             collapsed
               ? "mx-auto h-9 w-9"
               : "w-full gap-2 px-3 py-1.5 text-xs"

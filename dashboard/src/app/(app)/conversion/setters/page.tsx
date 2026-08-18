@@ -1,0 +1,26 @@
+import { getViewer, requireAppAccess } from "@/lib/viewer";
+import { QuotieDashboard } from "../QuotieDashboard";
+import { loadQuotieRange } from "../quotieRange";
+
+export const dynamic = "force-dynamic";
+
+export default async function SettersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
+  const viewer = await getViewer();
+  requireAppAccess(viewer);
+  const q = await searchParams;
+  const { snap, rangeLabel, presets, from, to } = loadQuotieRange(q);
+  return (
+    <QuotieDashboard
+      tab="setters"
+      snap={snap}
+      rangeLabel={rangeLabel}
+      presets={presets}
+      from={from}
+      to={to}
+    />
+  );
+}

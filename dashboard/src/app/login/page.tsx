@@ -10,7 +10,7 @@ async function signIn(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`);
-  redirect("/");
+  redirect("/me");
 }
 
 export default async function LoginPage({
@@ -22,11 +22,11 @@ export default async function LoginPage({
   const error = params.error;
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
+    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div>
-          <h1 className="text-2xl font-semibold text-white">The Sales Department</h1>
-          <p className="mt-1 text-sm text-zinc-400">Sign in to continue.</p>
+          <h1 className="text-2xl font-semibold text-slate-900">The Sales Department</h1>
+          <p className="mt-1 text-sm text-slate-500">Sign in to continue.</p>
         </div>
 
         <form action={signIn} className="space-y-3">
@@ -37,7 +37,7 @@ export default async function LoginPage({
             autoFocus
             autoComplete="email"
             placeholder="you@tradiewebguys.com.au"
-            className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
           />
           <input
             type="password"
@@ -45,23 +45,23 @@ export default async function LoginPage({
             required
             autoComplete="current-password"
             placeholder="password"
-            className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-zinc-600 focus:outline-none"
+            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
           />
           <button
             type="submit"
-            className="w-full rounded-md bg-white px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+            className="w-full rounded-md bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600"
           >
             Log in
           </button>
         </form>
 
         {error && (
-          <div className="rounded-md border border-red-700/40 bg-red-900/20 px-4 py-3 text-sm text-red-200">
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {error}
           </div>
         )}
 
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-slate-500">
           Accounts are issued by The Sales Department. Ask Lachlan if you need access.
         </p>
       </div>

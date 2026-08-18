@@ -11,8 +11,10 @@ import { createClient } from "@/lib/supabase/client";
 export function LiveBadge() {
   const router = useRouter();
   const [status, setStatus] = useState<"connecting" | "live" | "error">("connecting");
+  const beta = process.env.NEXT_PUBLIC_TSD_BETA === "1";
 
   useEffect(() => {
+    if (beta) return;
     const supabase = createClient();
     // Debounce: a burst of inserts (multiple execs logging at once) re-runs
     // the full server-side overview aggregation on every row otherwise. Coalesce
@@ -37,16 +39,25 @@ export function LiveBadge() {
       if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [router, beta]);
+
+  if (beta) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-blue-600">
+        <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+        Beta
+      </span>
+    );
+  }
 
   const dotClass =
-    status === "live" ? "bg-emerald-500 animate-pulse" :
-    status === "error" ? "bg-red-500" : "bg-zinc-500";
+    status === "live" ? "bg-blue-500 animate-pulse" :
+    status === "error" ? "bg-red-500" : "bg-slate-400";
 
   const label = status === "live" ? "Live" : status === "error" ? "Offline" : "Connecting…";
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
+    <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
       <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
       {label}
     </span>

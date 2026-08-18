@@ -8,13 +8,18 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { isBeta } from "../beta";
 
 export async function createClient() {
   const cookieStore = await cookies();
+  const url = isBeta() ? "https://beta.supabase.local" : process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = isBeta()
+    ? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxfQ.beta"
+    : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    key,
     {
       cookies: {
         getAll() {

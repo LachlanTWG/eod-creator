@@ -47,6 +47,7 @@ export async function saveAdAccount(formData: FormData): Promise<{ ok: true } | 
     updated_by: viewer.user.id,
   });
   if (error) return { ok: false, error: error.message };
+  revalidatePath("/conversion");
   revalidatePath(`/conversion/${slug}`);
   return { ok: true };
 }
@@ -71,6 +72,7 @@ export async function addManualSpend(formData: FormData): Promise<{ ok: true } |
     spend,
   });
   if (error) return { ok: false, error: error.message };
+  revalidatePath("/conversion");
   revalidatePath(`/conversion/${slug}`);
   return { ok: true };
 }
@@ -134,6 +136,7 @@ export async function syncMetaSpend(formData: FormData): Promise<{ ok: true; day
     })));
     if (error) return { ok: false, error: error.message };
   }
+  revalidatePath("/conversion");
   revalidatePath(`/conversion/${slug}`);
   return { ok: true, days: rows.length };
 }

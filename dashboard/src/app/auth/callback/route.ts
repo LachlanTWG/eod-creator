@@ -32,5 +32,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth/update-password", origin));
   }
 
-  return NextResponse.redirect(new URL(next || "/", origin));
+  return NextResponse.redirect(new URL(next || "/me", origin));
 }

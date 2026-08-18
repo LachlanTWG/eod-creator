@@ -5,6 +5,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/server";
+import { betaCompany, betaViewer, isBeta } from "./beta";
 
 export type AppRole = "owner" | "twg" | "conversion" | "team" | "client";
 export type CompanyAccess = "leader" | "conversion" | "member" | "client" | "twg";
@@ -43,6 +44,8 @@ function asRole(raw: string | null | undefined): AppRole {
 }
 
 export const getViewer = cache(async function getViewer(): Promise<Viewer> {
+  if (isBeta()) return betaViewer();
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -102,6 +105,13 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
   };
 });
 
+/** First page after login. Conversion lead home wins even if they are also on a roster. */
+export function homeHref(viewer: Viewer): string {
+  if (viewer.isConversion) return "/conversion";
+  if (viewer.salesPersonName) return `/execs/${encodeURIComponent(viewer.salesPersonName)}`;
+  return "/";
+}
+
 export function requireAdmin(viewer: Viewer): void {
   if (!viewer.isAdmin) redirect("/me");
 }
@@ -135,6 +145,8 @@ export async function gateCompanySlug(
   supabase: SupabaseClient,
   slug: string,
 ): Promise<{ id: string; name: string; slug: string; timezone: string; owner_name: string | null } | null> {
+  if (isBeta()) return betaCompany(slug);
+
   const { data: company } = await supabase
     .from("companies")
     .select("id, name, slug, timezone, owner_name")

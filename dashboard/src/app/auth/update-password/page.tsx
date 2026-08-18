@@ -22,7 +22,7 @@ async function updatePassword(formData: FormData) {
   if (error) {
     redirect(`/auth/update-password?error=${encodeURIComponent(error.message)}`);
   }
-  redirect("/");
+  redirect("/me");
 }
 
 export default async function UpdatePasswordPage({

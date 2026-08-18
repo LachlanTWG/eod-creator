@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer, requireAppAccess, gateCompanySlug } from "@/lib/viewer";
 import { listCompanies } from "@/lib/queries";
 import { loadConversionSnapshot, loadPaidAttribution, EVENT_LABEL } from "@/lib/conversion";
 import { formatCurrency, todayInTz } from "@/lib/format";
 import { mondayOf, addDaysIso, shortDate } from "@/lib/dates";
+import { isBeta } from "@/lib/beta";
 import { addManualSpendForm, saveAdAccountForm, syncMetaSpendForm } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,14 @@ export default async function ConversionClientPage({
   const viewer = await getViewer();
   requireAppAccess(viewer);
   const { slug } = await params;
+  if (isBeta()) {
+    const q = await searchParams;
+    const u = new URLSearchParams();
+    if (q.from) u.set("from", q.from);
+    if (q.to) u.set("to", q.to);
+    const qs = u.toString();
+    redirect(qs ? `/conversion?${qs}` : "/conversion");
+  }
   const q = await searchParams;
   const supabase = await createClient();
   const company = await gateCompanySlug(viewer, supabase, slug);
@@ -44,7 +53,7 @@ export default async function ConversionClientPage({
     }),
     loadPaidAttribution(supabase, { companyId: company.id, from, to }),
   ]);
-  const canManageAds = viewer.isAdmin || viewer.isConversion;
+  const canManageAds = !isBeta() && (viewer.isAdmin || viewer.isConversion);
 
   const maxFunnel = Math.max(1, ...snap.funnel.map(f => f.count));
   const rangeLabel = from === to ? shortDate(from) : `${shortDate(from)} – ${shortDate(to)}`;
@@ -65,8 +74,11 @@ export default async function ConversionClientPage({
     <div className="px-8 py-6 space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">{company.name}</h1>
-          <p className="mt-0.5 text-sm text-zinc-500">Conversion · {rangeLabel}</p>
+          <Link href={`/conversion?from=${from}&to=${to}`} className="text-xs text-slate-500 hover:text-blue-700">
+            ← All clients
+          </Link>
+          <h1 className="mt-1 text-xl font-semibold">{company.name}</h1>
+          <p className="mt-0.5 text-sm text-slate-500">Conversion · {rangeLabel}</p>
         </div>
         {companies.length > 1 && (
           <div className="flex max-w-xl flex-wrap justify-end gap-1">
@@ -76,8 +88,8 @@ export default async function ConversionClientPage({
                 href={href({ slug: c.slug })}
                 className={`rounded-md border px-2 py-1 text-xs ${
                   c.slug === slug
-                    ? "border-zinc-500 bg-zinc-800 text-zinc-100"
-                    : "border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
                 }`}
               >
                 {c.name}
@@ -94,8 +106,8 @@ export default async function ConversionClientPage({
             href={href(p)}
             className={`rounded-md border px-2 py-1 ${
               from === p.from && to === p.to
-                ? "border-zinc-500 bg-zinc-800 text-zinc-100"
-                : "border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
             }`}
           >
             {p.label}
@@ -111,13 +123,13 @@ export default async function ConversionClientPage({
       </section>
 
       <section>
-        <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">Paid attribution · first touch</h2>
-        <p className="mt-1 text-xs text-zinc-600">
+        <h2 className="text-xs font-medium uppercase tracking-wider text-slate-500">Paid attribution · first touch</h2>
+        <p className="mt-1 text-xs text-slate-500">
           Wins and leads attributed to the contact&apos;s first source/campaign. Spend from Meta or a manual line.
         </p>
-        <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800">
+        <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-2 text-left font-normal">Campaign / source</th>
                 <th className="px-4 py-2 text-right font-normal">Spend</th>
@@ -133,18 +145,18 @@ export default async function ConversionClientPage({
             <tbody>
               {paid.campaigns.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-zinc-500">No attributed events in this range.</td>
+                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">No attributed events in this range.</td>
                 </tr>
               ) : (
                 paid.campaigns.map(r => (
-                  <tr key={r.key} className="border-t border-zinc-800">
-                    <td className="px-4 py-2 text-zinc-200">{r.label}</td>
+                  <tr key={r.key} className="border-t border-slate-200">
+                    <td className="px-4 py-2 text-slate-800">{r.label}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{formatCurrency(r.spend)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{r.leads}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-zinc-400">{r.cpl != null ? formatCurrency(r.cpl) : "—"}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-500">{r.cpl != null ? formatCurrency(r.cpl) : "—"}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{r.quotes}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{r.wins}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-zinc-400">{r.cpa != null ? formatCurrency(r.cpa) : "—"}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-500">{r.cpa != null ? formatCurrency(r.cpa) : "—"}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{formatCurrency(r.wonValue)}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{r.roas != null ? `${r.roas.toFixed(2)}x` : "—"}</td>
                   </tr>
@@ -157,19 +169,19 @@ export default async function ConversionClientPage({
 
       {canManageAds && (
         <section className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-lg border border-zinc-800 p-4">
-            <h2 className="text-sm font-medium text-zinc-200">Meta connection</h2>
-            <p className="mt-1 text-xs text-zinc-500">
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-medium text-slate-900">Meta connection</h2>
+            <p className="mt-1 text-xs text-slate-500">
               Pixel + ad account for this client. Token stays on the server. Sync pulls campaign spend into the table above.
             </p>
             <form action={saveAdAccountForm} className="mt-3 grid gap-2">
               <input type="hidden" name="companyId" value={company.id} />
               <input type="hidden" name="slug" value={slug} />
-              <input name="pixelId" defaultValue={paid.pixelId || ""} placeholder="Pixel ID" className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
-              <input name="adAccountId" defaultValue={(paid.adAccountId || "").replace(/^act_/, "")} placeholder="Ad account ID (act_…)" className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
-              <input name="accessToken" type="password" placeholder={paid.connected ? "Token saved — paste to replace" : "Meta system user token"} className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
+              <input name="pixelId" defaultValue={paid.pixelId || ""} placeholder="Pixel ID" className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm" />
+              <input name="adAccountId" defaultValue={(paid.adAccountId || "").replace(/^act_/, "")} placeholder="Ad account ID (act_…)" className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm" />
+              <input name="accessToken" type="password" placeholder={paid.connected ? "Token saved — paste to replace" : "Meta system user token"} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm" />
               <div className="flex gap-2">
-                <button type="submit" className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-zinc-900">Save</button>
+                <button type="submit" className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">Save</button>
               </div>
             </form>
             <form action={syncMetaSpendForm} className="mt-2">
@@ -177,21 +189,21 @@ export default async function ConversionClientPage({
               <input type="hidden" name="slug" value={slug} />
               <input type="hidden" name="from" value={from} />
               <input type="hidden" name="to" value={to} />
-              <button type="submit" className="text-xs text-zinc-400 hover:text-zinc-100">
+              <button type="submit" className="text-xs text-slate-500 hover:text-blue-700">
                 Sync Meta spend for this range
               </button>
             </form>
           </div>
-          <div className="rounded-lg border border-zinc-800 p-4">
-            <h2 className="text-sm font-medium text-zinc-200">Manual spend</h2>
-            <p className="mt-1 text-xs text-zinc-500">Use until Meta is connected, or for spend that isn&apos;t in Ads Manager.</p>
+          <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <h2 className="text-sm font-medium text-slate-900">Manual spend</h2>
+            <p className="mt-1 text-xs text-slate-500">Use until Meta is connected, or for spend that isn&apos;t in Ads Manager.</p>
             <form action={addManualSpendForm} className="mt-3 grid gap-2 sm:grid-cols-3">
               <input type="hidden" name="companyId" value={company.id} />
               <input type="hidden" name="slug" value={slug} />
-              <input type="date" name="spendOn" defaultValue={to} required className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
-              <input name="campaignName" placeholder="Campaign name" className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
-              <input name="spend" type="number" step="0.01" min="0" placeholder="Spend $" required className="rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm" />
-              <button type="submit" className="rounded-md border border-zinc-700 px-3 py-2 text-xs text-zinc-200 sm:col-span-3">
+              <input type="date" name="spendOn" defaultValue={to} required className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm" />
+              <input name="campaignName" placeholder="Campaign name" className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm" />
+              <input name="spend" type="number" step="0.01" min="0" placeholder="Spend $" required className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm" />
+              <button type="submit" className="rounded-md border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:border-blue-400 hover:text-blue-700 sm:col-span-3">
                 Add spend line
               </button>
             </form>
@@ -200,28 +212,28 @@ export default async function ConversionClientPage({
       )}
 
       <section>
-        <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">Funnel</h2>
+        <h2 className="text-xs font-medium uppercase tracking-wider text-slate-500">Funnel</h2>
         <div className="mt-3 grid gap-2">
           {snap.funnel.map(step => (
             <div key={step.event} className="flex items-center gap-3">
-              <div className="w-28 shrink-0 text-xs text-zinc-400">{step.label}</div>
-              <div className="h-7 flex-1 rounded bg-zinc-900">
+              <div className="w-28 shrink-0 text-xs text-slate-500">{step.label}</div>
+              <div className="h-7 flex-1 rounded bg-slate-100">
                 <div
-                  className="h-7 rounded bg-emerald-700/70"
+                  className="h-7 rounded bg-blue-600"
                   style={{ width: `${Math.max(step.count ? 4 : 0, (step.count / maxFunnel) * 100)}%` }}
                 />
               </div>
-              <div className="w-12 shrink-0 text-right text-sm tabular-nums text-zinc-200">{step.count}</div>
+              <div className="w-12 shrink-0 text-right text-sm tabular-nums text-slate-800">{step.count}</div>
             </div>
           ))}
         </div>
       </section>
 
       <section>
-        <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">By source</h2>
-        <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800">
+        <h2 className="text-xs font-medium uppercase tracking-wider text-slate-500">By source</h2>
+        <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-2 text-left font-normal">Source</th>
                 <th className="px-4 py-2 text-right font-normal">Leads</th>
@@ -233,16 +245,16 @@ export default async function ConversionClientPage({
             <tbody>
               {snap.sources.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">No events in this range.</td>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">No events in this range.</td>
                 </tr>
               ) : (
                 snap.sources.map(s => (
-                  <tr key={s.source} className="border-t border-zinc-800">
-                    <td className="px-4 py-2 text-zinc-200">{s.source}</td>
+                  <tr key={s.source} className="border-t border-slate-200">
+                    <td className="px-4 py-2 text-slate-800">{s.source}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{s.leads}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{s.quotes}</td>
                     <td className="px-4 py-2 text-right tabular-nums">{s.wins}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-zinc-300">{formatCurrency(s.wonValue)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-blue-700">{formatCurrency(s.wonValue)}</td>
                   </tr>
                 ))
               )}
@@ -252,10 +264,10 @@ export default async function ConversionClientPage({
       </section>
 
       <section>
-        <h2 className="text-xs font-medium uppercase tracking-wider text-zinc-500">Recent events</h2>
-        <div className="mt-3 overflow-hidden rounded-lg border border-zinc-800">
+        <h2 className="text-xs font-medium uppercase tracking-wider text-slate-500">Recent events</h2>
+        <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-4 py-2 text-left font-normal">When</th>
                 <th className="px-4 py-2 text-left font-normal">Event</th>
@@ -266,15 +278,15 @@ export default async function ConversionClientPage({
             <tbody>
               {snap.recent.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">Nothing logged yet.</td>
+                  <td colSpan={4} className="px-4 py-8 text-center text-slate-500">Nothing logged yet.</td>
                 </tr>
               ) : (
                 snap.recent.map(r => (
-                  <tr key={r.id} className="border-t border-zinc-800">
-                    <td className="px-4 py-2 text-zinc-400 whitespace-nowrap">{r.occurred_on}</td>
-                    <td className="px-4 py-2 text-zinc-200">{EVENT_LABEL[r.event] || r.event}</td>
-                    <td className="px-4 py-2 text-zinc-300">{r.contact_name || "—"}</td>
-                    <td className="px-4 py-2 text-zinc-500">{r.source || "—"}</td>
+                  <tr key={r.id} className="border-t border-slate-200">
+                    <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{r.occurred_on}</td>
+                    <td className="px-4 py-2 text-slate-800">{EVENT_LABEL[r.event] || r.event}</td>
+                    <td className="px-4 py-2 text-slate-700">{r.contact_name || "—"}</td>
+                    <td className="px-4 py-2 text-slate-500">{r.source || "—"}</td>
                   </tr>
                 ))
               )}
@@ -288,10 +300,10 @@ export default async function ConversionClientPage({
 
 function Hero({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-4 py-3">
-      <div className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-50">{value}</div>
-      {hint && <div className="mt-0.5 text-[11px] text-zinc-600">{hint}</div>}
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="text-[11px] uppercase tracking-wider text-slate-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums text-slate-900">{value}</div>
+      {hint && <div className="mt-0.5 text-[11px] text-slate-500">{hint}</div>}
     </div>
   );
 }

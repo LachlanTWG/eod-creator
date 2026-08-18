@@ -12,6 +12,19 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/eod-entry", "/api/conversion/collect", "/p"];
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const beta = process.env.TSD_BETA === "1" || process.env.NEXT_PUBLIC_TSD_BETA === "1";
+  if (beta) {
+    const allowed = pathname === "/conversion" || pathname.startsWith("/conversion/");
+    if (!allowed) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/conversion";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -44,7 +57,6 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims ?? null;
 
-  const { pathname } = request.nextUrl;
   const isPublic = PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + "/"));
 
   if (!claims && !isPublic) {

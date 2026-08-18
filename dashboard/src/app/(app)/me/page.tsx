@@ -1,9 +1,8 @@
-// /me — convenience redirect to the viewer's own /execs/[name] page so
-// there's one canonical "my dashboard" view (live messages + analytics).
-// Pure-admin users with no sales_people link land on the overview.
+// /me — convenience redirect to the viewer's own home.
+// Execs → /execs/[name]. Conversion lead → /conversion. Everyone else → overview.
 
 import { redirect } from "next/navigation";
-import { getViewer } from "@/lib/viewer";
+import { getViewer, homeHref } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +20,14 @@ export default async function MePage({
     if (sp.to) qs.set("to", sp.to);
     const q = qs.toString();
     redirect(`/execs/${encodeURIComponent(viewer.salesPersonName)}${q ? `?${q}` : ""}`);
+  }
+  const dest = homeHref(viewer);
+  if (dest !== "/") {
+    const qs = new URLSearchParams();
+    if (sp.from) qs.set("from", sp.from);
+    if (sp.to) qs.set("to", sp.to);
+    const q = qs.toString();
+    redirect(q ? `${dest}?${q}` : dest);
   }
   redirect("/");
 }
