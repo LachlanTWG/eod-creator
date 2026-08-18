@@ -9,7 +9,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadDashboardMessages } from "@/lib/messages";
 import { LiveMessage } from "@/components/LiveMessage";
 import { PeriodTabs } from "@/components/PeriodTabs";
-import type { Period } from "@/lib/dates";
+import { DateRangeBar } from "@/components/DateRangeBar";
+import { lastCompletedSatFri, type Period } from "@/lib/dates";
 
 export async function LiveMessagesPanel({
   supabase,
@@ -19,6 +20,8 @@ export async function LiveMessagesPanel({
   targetCompanyIds,
   isAdmin,
   basePath,
+  customRange,
+  today,
 }: {
   supabase: SupabaseClient;
   period: Period;
@@ -27,13 +30,20 @@ export async function LiveMessagesPanel({
   targetCompanyIds: Set<string>;
   isAdmin: boolean;
   basePath: string;                           // for period tab links (e.g. "/me" or "/execs/Zac")
+  customRange?: { from: string; to: string } | null;
+  today: string;
 }) {
   const messages = await loadDashboardMessages(supabase, {
     period,
     mySalesPersonIds: targetSalesPersonIds,
     myCompanyIds: targetCompanyIds,
     myDisplayName: targetExecName || "Team",
+    rangeStart: customRange?.from,
+    rangeEnd: customRange?.to,
   });
+  const lastWeek = lastCompletedSatFri(today);
+  const from = customRange?.from ?? messages.rangeStart;
+  const to = customRange?.to ?? messages.rangeEnd;
 
   const byName = (a: { company: { name: string } }, b: { company: { name: string } }) =>
     a.company.name.localeCompare(b.company.name);
@@ -44,7 +54,16 @@ export async function LiveMessagesPanel({
 
   return (
     <>
-      <PeriodTabs basePath={basePath} active={period} />
+      <PeriodTabs basePath={basePath} active={customRange ? null : period} />
+      <div className="mt-3">
+        <DateRangeBar
+          action={basePath}
+          from={from}
+          to={to}
+          today={today}
+          presets={[{ label: "Last week", from: lastWeek.from, to: lastWeek.to }]}
+        />
+      </div>
 
       {targetSalesPersonIds.size > 0 && (
         <section className="mt-6">

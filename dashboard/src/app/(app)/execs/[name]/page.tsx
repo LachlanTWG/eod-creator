@@ -12,7 +12,7 @@ import { loadExecDetail, loadExecHeatmap } from "@/lib/analytics";
 import { Heatmap } from "@/components/Heatmap";
 import { loadExecWonJobsSummary } from "@/lib/wonJobs";
 import { EVENT_LABELS, formatCurrency, relativeTime, quoteGroupValue, todayInTz, SYDNEY_TZ } from "@/lib/format";
-import { mondayOf, addDaysIso, shortDate, type Period } from "@/lib/dates";
+import { mondayOf, addDaysIso, shortDate, parseIsoDate, clampRange, type Period } from "@/lib/dates";
 import { BarChart, HBars } from "@/components/BarChart";
 import { LiveMessagesPanel } from "@/components/LiveMessagesPanel";
 import { LiveRefresh } from "@/components/LiveRefresh";
@@ -38,12 +38,18 @@ export default async function ExecDetail({
   searchParams,
 }: {
   params: Promise<{ name: string }>;
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
   const { name: rawName } = await params;
   const name = decodeURIComponent(rawName);
   const sp = await searchParams;
-  const period = parsePeriod(sp.period);
+  const fromParam = parseIsoDate(sp.from);
+  const toParam = parseIsoDate(sp.to);
+  const customRange = fromParam && toParam ? clampRange(fromParam, toParam) : null;
+  const period = customRange
+    ? (customRange.from === customRange.to ? "day" : "week")
+    : parsePeriod(sp.period);
+  const today = todayInTz(SYDNEY_TZ);
 
   const viewer = await getViewer();
   gateExecName(viewer, name);
@@ -84,7 +90,7 @@ export default async function ExecDetail({
   const weeklyBars = (() => {
     const map = new Map(weekly.map(w => [w.week_start, w]));
     const out: { label: string; value: number; sub?: string }[] = [];
-    const currentMonday = mondayOf(todayInTz(SYDNEY_TZ));
+    const currentMonday = mondayOf(today);
     for (let i = 11; i >= 0; i--) {
       const wk = addDaysIso(currentMonday, -i * 7);
       const bucket = map.get(wk);
@@ -106,7 +112,12 @@ export default async function ExecDetail({
       {/* Crumb (anyone drilling in from the leaderboard) */}
       {viewer.seesAll && !isOwnPage && (
         <div className="flex items-center gap-3 text-sm">
-          <Link href="/execs" className="text-zinc-500 hover:text-zinc-300">← Execs</Link>
+          <Link
+            href={customRange ? `/execs?from=${customRange.from}&to=${customRange.to}` : "/execs"}
+            className="text-zinc-500 hover:text-zinc-300"
+          >
+            ← Execs
+          </Link>
           <span className="text-zinc-700">/</span>
           <span className="text-zinc-300">{name}</span>
         </div>
@@ -119,7 +130,12 @@ export default async function ExecDetail({
             {isOwnPage && !viewer.isAdmin ? `Hi ${name}` : name}
           </h1>
           <p className="mt-0.5 text-sm text-zinc-500">
-            {PERIOD_LABELS[period]} · 12-week analytics below
+            {customRange
+              ? (customRange.from === customRange.to
+                  ? shortDate(customRange.from)
+                  : `${shortDate(customRange.from)} – ${shortDate(customRange.to)}`)
+              : PERIOD_LABELS[period]}
+            {" · 12-week analytics below"}
           </p>
         </div>
         <LiveRefresh fetchedAtIso={fetchedAt} />
@@ -135,6 +151,8 @@ export default async function ExecDetail({
           targetCompanyIds={targetCompanyIds}
           isAdmin={viewer.seesAll}
           basePath={basePath}
+          customRange={customRange}
+          today={today}
         />
       </div>
 

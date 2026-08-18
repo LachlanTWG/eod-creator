@@ -1415,11 +1415,24 @@ export async function loadDashboardMessages(
     myCompanyIds: Set<string>;
     myDisplayName: string;            // shown as "personLabel" in personal headers
     anchor?: string;                  // any date inside the desired period; defaults to today
+    rangeStart?: string;              // optional custom range — wins over period/anchor
+    rangeEnd?: string;
   },
 ): Promise<DashboardMessages> {
   const companies = await listCompanies(supabase);
   const today = todayInTz(SYDNEY_TZ);
-  const { start: rangeStart, end: rangeEnd } = fullPeriodRange(opts.period, opts.anchor || today);
+  const custom = opts.rangeStart && opts.rangeEnd
+    ? (opts.rangeStart <= opts.rangeEnd
+        ? { start: opts.rangeStart, end: opts.rangeEnd }
+        : { start: opts.rangeEnd, end: opts.rangeStart })
+    : null;
+  const { start: rangeStart, end: rangeEnd } = custom
+    ?? fullPeriodRange(opts.period, opts.anchor || today);
+  // Custom multi-day ranges render as EOW-style (named contacts); a single
+  // day stays EOD. Period-tab navigation is unchanged.
+  const period: Period = custom
+    ? (rangeStart === rangeEnd ? "day" : "week")
+    : opts.period;
 
   // companies.owner_name comes from the table — listCompanies doesn't fetch
   // it, so pull it via a second targeted query.
@@ -1457,7 +1470,7 @@ export async function loadDashboardMessages(
   const rangeYear = rangeStart.slice(0, 4);
   const rangeOpts = { rangeStart, rangeEnd };
   const breakdownFor = (subset: ActivityRow[], ownerName: string, all: ActivityRow[], forExec?: string) =>
-    opts.period === "year" ? monthlyBreakdownFor(subset, ownerName, all, rangeYear, { forExec }) : undefined;
+    period === "year" ? monthlyBreakdownFor(subset, ownerName, all, rangeYear, { forExec }) : undefined;
 
   // Build per-company messages
   const perCompany: DashboardMessages["perCompany"] = companies.map(c => {
@@ -1468,7 +1481,7 @@ export async function loadDashboardMessages(
     // Team: all activities for this company. countOutcomes treats it the same.
     const teamData = countOutcomes(all, ownerName, pairing, rangeOpts);
     const teamMessage = buildMessage({
-      period: opts.period,
+      period,
       companyLabel: c.name,
       personLabel: "Team",
       ownerName,
@@ -1483,7 +1496,7 @@ export async function loadDashboardMessages(
       const mine = all.filter(r => r.sales_person_id && opts.mySalesPersonIds.has(r.sales_person_id));
       const personalData = countOutcomes(mine, ownerName, pairing, { forExec: opts.myDisplayName, ...rangeOpts });
       const personalMessage = buildMessage({
-        period: opts.period,
+        period,
         companyLabel: c.name,
         personLabel: opts.myDisplayName,
         ownerName,
@@ -1525,7 +1538,7 @@ export async function loadDashboardMessages(
       title: "All my companies",
       subtitle: opts.myDisplayName,
       message: buildMessage({
-        period: opts.period,
+        period,
         companyLabel: "All My Companies",
         personLabel: opts.myDisplayName,
         ownerName,
@@ -1547,7 +1560,7 @@ export async function loadDashboardMessages(
       title: "All active companies",
       subtitle: "Grand total",
       message: buildMessage({
-        period: opts.period,
+        period,
         companyLabel: "All Active Companies",
         personLabel: "Team",
         ownerName,
@@ -1559,7 +1572,7 @@ export async function loadDashboardMessages(
     };
   }
 
-  return { period: opts.period, rangeStart, rangeEnd, perCompany, personalTotal, grandTotal };
+  return { period, rangeStart, rangeEnd, perCompany, personalTotal, grandTotal };
 }
 
 // ─── Company live reports (for /reports) ────────────────────────────

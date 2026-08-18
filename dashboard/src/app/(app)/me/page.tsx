@@ -10,13 +10,17 @@ export const dynamic = "force-dynamic";
 export default async function MePage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
   const viewer = await getViewer();
   if (viewer.salesPersonName) {
-    const qs = sp.period ? `?period=${encodeURIComponent(sp.period)}` : "";
-    redirect(`/execs/${encodeURIComponent(viewer.salesPersonName)}${qs}`);
+    const qs = new URLSearchParams();
+    if (sp.period) qs.set("period", sp.period);
+    if (sp.from) qs.set("from", sp.from);
+    if (sp.to) qs.set("to", sp.to);
+    const q = qs.toString();
+    redirect(`/execs/${encodeURIComponent(viewer.salesPersonName)}${q ? `?${q}` : ""}`);
   }
   redirect("/");
 }

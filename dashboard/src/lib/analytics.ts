@@ -81,10 +81,19 @@ export type BacklogItem = {
 
 export async function loadExecSummaries(
   supabase: SupabaseClient,
-  options: { sinceDays?: number } = {},
+  options: { sinceDays?: number; from?: string; to?: string } = {},
 ): Promise<ExecSummary[]> {
-  const sinceDays = options.sinceDays ?? 30;
-  const since = new Date(Date.now() - sinceDays * 86400_000).toISOString().slice(0, 10);
+  const today = todayInTz(SYDNEY_TZ);
+  let from: string;
+  let to: string;
+  if (options.from && options.to) {
+    from = options.from <= options.to ? options.from : options.to;
+    to = options.from <= options.to ? options.to : options.from;
+  } else {
+    const sinceDays = options.sinceDays ?? 30;
+    to = today;
+    from = addDaysIso(today, -(sinceDays - 1));
+  }
 
   const activeIds = await activeCompanyIds(supabase);
   if (activeIds.length === 0) return [];
@@ -98,14 +107,15 @@ export async function loadExecSummaries(
     quote_job_value: string | null;
     created_at: string;
     occurred_on: string;
-  }>((from, to) =>
+  }>((start, end) =>
     supabase
       .from("activities")
       .select("sales_person_name, sales_person_id, company_id, event_type, quote_job_value, created_at, occurred_on")
-      .gte("occurred_on", since)
+      .gte("occurred_on", from)
+      .lte("occurred_on", to)
       .not("sales_person_id", "is", null)
       .in("company_id", activeIds)
-      .range(from, to)
+      .range(start, end)
   );
 
   const { data: companiesData } = await supabase

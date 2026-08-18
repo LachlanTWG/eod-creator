@@ -2,47 +2,63 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getViewer, requireRosterOrAdmin } from "@/lib/viewer";
 import { loadExecSummaries } from "@/lib/analytics";
-import { formatCurrency, relativeTime } from "@/lib/format";
+import { formatCurrency, relativeTime, todayInTz, SYDNEY_TZ } from "@/lib/format";
+import { addDaysIso, lastCompletedSatFri, parseIsoDate, clampRange, shortDate } from "@/lib/dates";
+import { DateRangeBar } from "@/components/DateRangeBar";
 
 export const dynamic = "force-dynamic";
 
 export default async function ExecsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ days?: string }>;
+  searchParams: Promise<{ days?: string; from?: string; to?: string }>;
 }) {
   const viewer = await getViewer();
   requireRosterOrAdmin(viewer);
 
   const params = await searchParams;
+  const today = todayInTz(SYDNEY_TZ);
+  const fromParam = parseIsoDate(params.from);
+  const toParam = parseIsoDate(params.to);
+  const custom = fromParam && toParam ? clampRange(fromParam, toParam) : null;
   const days = Math.min(365, Math.max(1, parseInt(params.days || "30", 10)));
+  const from = custom?.from ?? addDaysIso(today, -(days - 1));
+  const to = custom?.to ?? today;
+
   const supabase = await createClient();
-  const summaries = await loadExecSummaries(supabase, { sinceDays: days });
+  const summaries = await loadExecSummaries(supabase, { from, to });
+  const lastWeek = lastCompletedSatFri(today);
 
   const totalRevenue = summaries.reduce((s, x) => s + x.totals.job_won_value, 0);
   const totalWins = summaries.reduce((s, x) => s + x.totals.job_won, 0);
+  const rangeLabel = from === to ? shortDate(from) : `${shortDate(from)} – ${shortDate(to)}`;
 
   return (
     <div className="px-8 py-6">
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Execs</h1>
           <p className="mt-0.5 text-sm text-zinc-500">
-            Cross-company leaderboard · last {days} days · {summaries.length} active
+            Cross-company leaderboard · {rangeLabel} · {summaries.length} active
           </p>
         </div>
-        <div className="flex gap-1.5 text-xs">
-          {[7, 30, 90, 365].map(d => (
-            <Link
-              key={d}
-              href={`/execs?days=${d}`}
-              className={`rounded px-2 py-1 border ${d === days ? "border-zinc-600 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:border-zinc-700"}`}
-            >
-              {d === 365 ? "1y" : `${d}d`}
-            </Link>
-          ))}
-        </div>
       </header>
+
+      <div className="mt-4">
+        <DateRangeBar
+          action="/execs"
+          from={from}
+          to={to}
+          today={today}
+          presets={[
+            { label: "Last week", from: lastWeek.from, to: lastWeek.to },
+            { label: "7d", from: addDaysIso(today, -6), to: today },
+            { label: "30d", from: addDaysIso(today, -29), to: today },
+            { label: "90d", from: addDaysIso(today, -89), to: today },
+            { label: "1y", from: addDaysIso(today, -364), to: today },
+          ]}
+        />
+      </div>
 
       <div className="mt-6 grid grid-cols-3 gap-3 max-w-2xl">
         <Stat label="Total revenue" value={formatCurrency(totalRevenue)} accent />
@@ -75,7 +91,7 @@ export default async function ExecsPage({
               return (
                 <tr key={s.name} className="border-t border-zinc-800 hover:bg-zinc-900/40">
                   <td className="px-4 py-3">
-                    <Link href={`/execs/${encodeURIComponent(s.name)}`} className="font-medium text-zinc-100 hover:text-white">
+                    <Link href={`/execs/${encodeURIComponent(s.name)}?from=${from}&to=${to}`} className="font-medium text-zinc-100 hover:text-white">
                       {s.name}
                     </Link>
                     {closeRate !== null && (

@@ -13,7 +13,7 @@ const TABS: Tab[] = [
   { period: "year",    label: "This year",  sub: "EOY" },
 ];
 
-export function PeriodTabs({ basePath, active }: { basePath: string; active: Period }) {
+export function PeriodTabs({ basePath, active }: { basePath: string; active: Period | null }) {
   return (
     <div className="flex flex-wrap items-stretch gap-1 rounded-xl border border-zinc-800 bg-zinc-900/30 p-1">
       {TABS.map(t => {

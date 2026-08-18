@@ -5,7 +5,7 @@ import { listCompanies } from "@/lib/queries";
 import { loadBacklog } from "@/lib/analytics";
 import { loadCompanyLiveReports, type CompanyLiveReport, type ReportFormat } from "@/lib/messages";
 import { formatCurrency, todayInTz, SYDNEY_TZ } from "@/lib/format";
-import { mondayOf, shiftPeriodAnchor } from "@/lib/dates";
+import { mondayOf, shiftPeriodAnchor, lastCompletedSatFri } from "@/lib/dates";
 import { LiveRefresh } from "@/components/LiveRefresh";
 
 export const dynamic = "force-dynamic";
@@ -63,9 +63,11 @@ export default async function ReportsPage({
   const qStart = `${y}-${pad2((Math.ceil(m / 3) - 1) * 3 + 1)}-01`;
   const prevMonthAnchor = shiftPeriodAnchor("month", today, -1);
   const prevMonthLast = `${prevMonthAnchor.slice(0, 8)}${pad2(new Date(Date.UTC(y, m - 1, 0)).getUTCDate())}`;
+  const lastWeek = lastCompletedSatFri(today);
   const presets: { label: string; from: string; to: string }[] = [
     { label: "Today", from: today, to: today },
     { label: "This week", from: mondayOf(today), to: today },
+    { label: "Last week", from: lastWeek.from, to: lastWeek.to },
     { label: "This month", from: monthStart, to: today },
     { label: "Last month", from: prevMonthAnchor, to: prevMonthLast },
     { label: "This quarter", from: qStart, to: today },
@@ -89,7 +91,7 @@ export default async function ReportsPage({
       </header>
 
       {/* Filters — a single GET form so the whole thing is server-rendered. */}
-      <form action="/reports" method="get" className="flex flex-wrap items-end gap-3">
+      <form key={`${from}-${to}-${companyFilter}-${format}`} action="/reports" method="get" className="flex flex-wrap items-end gap-3">
         <Field label="Client">
           <select name="company" defaultValue={companyFilter} className={selectClass}>
             <option value="">All clients</option>
@@ -99,10 +101,10 @@ export default async function ReportsPage({
           </select>
         </Field>
         <Field label="From">
-          <input type="date" name="from" defaultValue={from} max={to} className={inputClass} />
+          <input type="date" name="from" defaultValue={from} max={today} className={inputClass} />
         </Field>
         <Field label="To">
-          <input type="date" name="to" defaultValue={to} min={from} max={today} className={inputClass} />
+          <input type="date" name="to" defaultValue={to} max={today} className={inputClass} />
         </Field>
         <Field label="Summarise as">
           <select name="format" defaultValue={format} className={selectClass}>
@@ -176,7 +178,16 @@ export default async function ReportsPage({
                   {cards.map(c => (
                     <div key={c.name} className="rounded border border-zinc-800 bg-zinc-950/40 p-4">
                       <div className="mb-2 flex items-baseline justify-between">
-                        <span className="text-[10px] uppercase tracking-wider text-zinc-500">{c.name}</span>
+                        {c.name === "Team" ? (
+                          <span className="text-[10px] uppercase tracking-wider text-zinc-500">{c.name}</span>
+                        ) : (
+                          <Link
+                            href={`/execs/${encodeURIComponent(c.name)}?from=${from}&to=${to}`}
+                            className="text-[10px] uppercase tracking-wider text-zinc-500 hover:text-zinc-300"
+                          >
+                            {c.name}
+                          </Link>
+                        )}
                         {!c.hasActivity && <span className="text-[10px] text-zinc-600">no activity</span>}
                       </div>
                       {c.hasActivity ? (

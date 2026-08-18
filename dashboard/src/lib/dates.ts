@@ -17,6 +17,29 @@ export function addDaysIso(dateStr: string, n: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function parseIsoDate(raw: string | undefined | null): string | null {
+  return raw && ISO_DATE_RE.test(raw) ? raw : null;
+}
+
+export function clampRange(from: string, to: string): { from: string; to: string } {
+  return from > to ? { from: to, to: from } : { from, to };
+}
+
+/**
+ * Most recently completed Saturday–Friday week strictly before `today`.
+ * TSD's last-week report window (Sat through Fri).
+ */
+export function lastCompletedSatFri(today: string): { from: string; to: string } {
+  const [y, m, d] = today.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun … 5=Fri
+  const daysSinceFriday = (dow - 5 + 7) % 7;
+  const daysToLastCompletedFriday = daysSinceFriday === 0 ? 7 : daysSinceFriday;
+  const to = addDaysIso(today, -daysToLastCompletedFriday);
+  return { from: addDaysIso(to, -6), to };
+}
+
 /** Days between two calendar dates: returns (b - a). */
 export function daysBetweenIso(a: string, b: string): number {
   const [ay, am, ad] = a.split("-").map(Number);
