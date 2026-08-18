@@ -23,6 +23,12 @@ import {
   type EventType,
   type NewActivityItem,
 } from "@/lib/manualActivities";
+import {
+  createQuotieSiteVisit,
+  createQuotieTask,
+  resolveQuotieAction,
+  type QuotieConfig,
+} from "./quotie";
 
 export type EodEntryInput = {
   token: string;
@@ -36,10 +42,32 @@ export type EodEntryInput = {
   eod_fields?: { stage: string; answered: string; std_outcome: string };
   /** When logging a site visit that came from a GHL calendar pending row. */
   pending_site_visit_id?: string;
+  /**
+   * Optional Quotie action to fire alongside an eod_update. The client picks
+   * the section (task / site_visit) from safeQuotieActions, but the server
+   * NEVER trusts `type` — it re-resolves from quotie_config. All other fields
+   * are user-editable form values.
+   */
+  quotie?: {
+    type: "task" | "site_visit";
+    title?: string;
+    notes?: string;
+    due_date?: string;
+    date?: string;
+    time?: string;
+    address?: string;
+    create_ghl_appointment?: boolean;
+  };
 };
 
 export type EodEntryResult =
-  | { ok: true; count: number; pipeline?: string; pipelineOk?: boolean } // pipeline: what happened ("moved to X") or a skip/fail reason
+  | {
+      ok: true;
+      count: number;
+      pipeline?: string;
+      pipelineOk?: boolean; // pipeline: what happened ("moved to X") or a skip/fail reason
+      quotie_result?: { ok: boolean; detail?: string };
+    }
   | { ok: false; error: string };
 
 /** Postgres-safe appointment timestamp from local/ISO-ish strings. */
@@ -287,7 +315,7 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
   }
 
   const supabase = createAdminClient();
-  let query = supabase.from("companies").select("id, name, active, ghl_location_id");
+  let query = supabase.from("companies").select("id, name, active, ghl_location_id, quotie_config");
   if (slug === "agency") {
     if (!input.ghl_location_id) return { ok: false, error: "Missing GHL location" };
     query = query.eq("ghl_location_id", input.ghl_location_id);
@@ -424,5 +452,62 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
       || (attempted === 0 ? "no linked GHL contact" : "opportunity not updated");
   }
 
-  return { ...posted, pipeline, pipelineOk };
+  // Quotie push — fire the client's configured task / site-visit action for
+  // this EOD outcome. A Quotie failure must NEVER fail the EOD submit, so
+  // every path here folds into quotie_result and swallows its own errors.
+  let quotie_result: { ok: boolean; detail?: string } | undefined;
+  const quotieConfig = company.quotie_config as QuotieConfig | null | undefined;
+  if (
+    input.quotie &&
+    input.event_type === "eod_update" &&
+    input.eod_fields &&
+    quotieConfig?.api_key
+  ) {
+    const stdOutcome = input.eod_fields.std_outcome || "";
+    // NEVER trust the client's `type` — re-resolve server-side.
+    const action = resolveQuotieAction(stdOutcome, quotieConfig);
+    if (!action) {
+      quotie_result = { ok: false, detail: "no Quotie action for this outcome" };
+    } else if (action.type !== input.quotie.type) {
+      // Client/server disagree (config changed mid-session) — skip, don't guess.
+      quotie_result = { ok: false, detail: "Quotie action changed — reload and retry" };
+    } else {
+      // Contact context: prefer the item that resolved to a GHL contact id.
+      const withContact = items.find(it => it.contact_id?.trim()) || items[0];
+      const contactName =
+        withContact?.contact_name?.trim() || items[0]?.contact_name?.trim() || "";
+      const ghlContactId = withContact?.contact_id?.trim() || undefined;
+
+      if (action.type === "site_visit") {
+        const res = await createQuotieSiteVisit(quotieConfig, {
+          date: input.quotie.date || input.occurred_on,
+          time: input.quotie.time,
+          contact_name: contactName,
+          ghl_contact_id: ghlContactId,
+          address: input.quotie.address,
+          salesPersonName,
+          assign_to: action.assign_to,
+          create_ghl_appointment: input.quotie.create_ghl_appointment ?? true,
+        });
+        quotie_result = { ok: res.ok, detail: res.ok ? res.warnings?.join("; ") : res.error };
+      } else {
+        // Task title: client-provided if non-empty, else the resolved
+        // template with {contact} substituted (or a plain fallback).
+        const template = action.titleTemplate || "Follow up with {contact}";
+        const resolvedTitle = template.replace(/\{contact\}/g, contactName || "contact");
+        const title = input.quotie.title?.trim() || resolvedTitle;
+        const res = await createQuotieTask(quotieConfig, {
+          title,
+          notes: input.quotie.notes,
+          due_date: input.quotie.due_date,
+          salesPersonName,
+          assign_to: action.assign_to,
+          ghl_contact_id: ghlContactId,
+        });
+        quotie_result = { ok: res.ok, detail: res.ok ? res.warnings?.join("; ") : res.error };
+      }
+    }
+  }
+
+  return { ...posted, pipeline, pipelineOk, quotie_result };
 }

@@ -88,6 +88,13 @@ const emptyItem = (
 
 const FALLBACK_OPTIONS: EodOptions = { stages: [], outcomes: [], sources: [] };
 
+/** YYYY-MM-DD `days` from now, in local time. */
+function isoInDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function EodEntryForm({
   token,
   ghlLocationId = "",
@@ -104,6 +111,7 @@ export function EodEntryForm({
   options = FALLBACK_OPTIONS,
   history = null,
   pendingSiteVisits = [],
+  quotieActions = {},
 }: {
   token: string;
   ghlLocationId?: string;
@@ -123,12 +131,16 @@ export function EodEntryForm({
   options?: EodOptions;
   history?: ContactHistory | null;
   pendingSiteVisits?: PendingSiteVisit[];
+  /** EOD 3 outcome → Quotie action kind. Empty {} disables the feature. */
+  quotieActions?: Record<string, "task" | "site_visit">;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [savedCount, setSavedCount] = useState<number | null>(null);
   const [pipelineNote, setPipelineNote] = useState<string | null>(null);
   const [pipelineOk, setPipelineOk] = useState<boolean>(false);
+  const [quotieResult, setQuotieResult] = useState<{ ok: boolean; detail?: string } | null>(null);
+  const [quotieKindDone, setQuotieKindDone] = useState<"task" | "site_visit" | null>(null);
   const [openPendings, setOpenPendings] = useState<PendingSiteVisit[]>(pendingSiteVisits);
   const [activePending, setActivePending] = useState<PendingSiteVisit | null>(null);
   const [svRough, setSvRough] = useState("");
@@ -236,6 +248,20 @@ export function EodEntryForm({
   const [stdOutcome, setStdOutcome] = useState("");
   const [customOutcome, setCustomOutcome] = useState("");
   const [source, setSource] = useState(defaultLeadSource || history?.topSource || "");
+
+  // ── Quotie action state (only relevant when quotieActions[stdOutcome] set) ──
+  const quotieKind = quotieActions[stdOutcome];
+  // Site visit
+  const [qsvEnabled, setQsvEnabled] = useState(true);
+  const [qsvDate, setQsvDate] = useState(() => isoInDays(1));
+  const [qsvTime, setQsvTime] = useState("");
+  const [qsvAddress, setQsvAddress] = useState(contactAddress || "");
+  const [qsvGhlAppt, setQsvGhlAppt] = useState(true);
+  // Task
+  const [qtaskEnabled, setQtaskEnabled] = useState(true);
+  const [qtaskTitle, setQtaskTitle] = useState("");
+  const [qtaskDue, setQtaskDue] = useState("");
+  const [qtaskNotes, setQtaskNotes] = useState("");
 
   // Multi-row items for the non-EOD event types. Address + lead source are
   // prefilled from GHL Street Address / EOD 5 when available.
@@ -386,6 +412,28 @@ export function EodEntryForm({
   }
 
   function submit(payloadItems: NewActivityItem[], evType: EventType) {
+    // Attach the Quotie action only for eod_update, only when a kind is
+    // configured for this outcome, and only when that section's toggle is ON.
+    let quotie: EodEntryInput["quotie"];
+    if (evType === "eod_update" && quotieKind) {
+      if (quotieKind === "site_visit" && qsvEnabled) {
+        quotie = {
+          type: "site_visit",
+          date: qsvDate,
+          time: qsvTime.trim() || undefined,
+          address: qsvAddress.trim() || undefined,
+          create_ghl_appointment: qsvGhlAppt,
+        };
+      } else if (quotieKind === "task" && qtaskEnabled) {
+        quotie = {
+          type: "task",
+          title: qtaskTitle.trim() || undefined,
+          notes: qtaskNotes.trim() || undefined,
+          due_date: qtaskDue.trim() || undefined,
+        };
+      }
+    }
+
     const input: EodEntryInput = {
       token,
       ghl_location_id: ghlLocationId,
@@ -397,6 +445,7 @@ export function EodEntryForm({
         evType === "eod_update"
           ? { stage, answered, std_outcome: stdOutcome }
           : undefined,
+      quotie,
     };
     startTransition(async () => {
       const res = await submitEodEntry(input);
@@ -404,6 +453,8 @@ export function EodEntryForm({
       setSavedCount(res.count);
       setPipelineNote(res.pipeline ?? null);
       setPipelineOk(res.pipelineOk ?? false);
+      setQuotieResult(res.quotie_result ?? null);
+      setQuotieKindDone(input.quotie?.type ?? null);
       if (evType === "eod_update") {
         // Keep stage + source (same contact, likely same context next time);
         // clear the per-call outcomes.
@@ -422,6 +473,8 @@ export function EodEntryForm({
     setSavedCount(null);
     setPipelineNote(null);
     setPipelineOk(false);
+    setQuotieResult(null);
+    setQuotieKindDone(null);
 
     if (eventType === "eod_update") {
       if (!answered) { setError("Tap Answered or Didn't Answer"); return; }
@@ -726,6 +779,129 @@ export function EodEntryForm({
                 </select>
               </Field>
 
+              {quotieKind === "site_visit" && (
+                <div className="space-y-3 rounded-lg border border-sky-900/60 bg-sky-950/20 p-3">
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-sky-300/90">
+                      Book site visit in Quotie
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={qsvEnabled}
+                      onChange={e => setQsvEnabled(e.target.checked)}
+                      className="rounded border-zinc-600 bg-zinc-900"
+                    />
+                  </label>
+                  {qsvEnabled && (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Date">
+                          <input
+                            type="date"
+                            value={qsvDate}
+                            onChange={e => setQsvDate(e.target.value)}
+                            className={inputClass}
+                          />
+                        </Field>
+                        <Field label="Time" hint="Optional.">
+                          <input
+                            type="time"
+                            value={qsvTime}
+                            onChange={e => setQsvTime(e.target.value)}
+                            className={inputClass}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Address" hint="Prefilled from the contact — edit if needed.">
+                        <input
+                          type="text"
+                          value={qsvAddress}
+                          onChange={e => setQsvAddress(e.target.value)}
+                          className={inputClass}
+                        />
+                      </Field>
+                      <label className="flex items-start gap-2 text-xs text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={qsvGhlAppt}
+                          onChange={e => setQsvGhlAppt(e.target.checked)}
+                          className="mt-0.5 rounded border-zinc-600 bg-zinc-900"
+                        />
+                        <span className="font-medium text-zinc-200">Also create GHL calendar appointment</span>
+                      </label>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {quotieKind === "task" && (
+                <div className="space-y-3 rounded-lg border border-sky-900/60 bg-sky-950/20 p-3">
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-sky-300/90">
+                      Create Quotie task
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={qtaskEnabled}
+                      onChange={e => setQtaskEnabled(e.target.checked)}
+                      className="rounded border-zinc-600 bg-zinc-900"
+                    />
+                  </label>
+                  {qtaskEnabled && (
+                    <>
+                      <Field label="Title" hint="Leave blank to auto-title from the outcome.">
+                        <input
+                          type="text"
+                          value={qtaskTitle}
+                          onChange={e => setQtaskTitle(e.target.value)}
+                          className={inputClass}
+                          placeholder={eodName.trim() ? `Task for ${eodName.trim()}` : "Task title"}
+                        />
+                      </Field>
+                      <Field label="Due date">
+                        <div className="mb-2 grid grid-cols-3 gap-2">
+                          {[
+                            { label: "Tomorrow", days: 1 },
+                            { label: "3 days", days: 3 },
+                            { label: "1 week", days: 7 },
+                          ].map(q => {
+                            const val = isoInDays(q.days);
+                            return (
+                              <button
+                                key={q.label}
+                                type="button"
+                                onClick={() => setQtaskDue(val)}
+                                className={
+                                  qtaskDue === val
+                                    ? "rounded border border-emerald-600 bg-emerald-600/20 px-2 py-1.5 text-center text-xs font-medium text-emerald-300"
+                                    : "rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-center text-xs text-zinc-400 hover:border-zinc-600"
+                                }
+                              >
+                                {q.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <input
+                          type="date"
+                          value={qtaskDue}
+                          onChange={e => setQtaskDue(e.target.value)}
+                          className={inputClass}
+                        />
+                      </Field>
+                      <Field label="Notes" hint="Optional.">
+                        <textarea
+                          value={qtaskNotes}
+                          onChange={e => setQtaskNotes(e.target.value)}
+                          rows={2}
+                          className={inputClass}
+                        />
+                      </Field>
+                    </>
+                  )}
+                </div>
+              )}
+
               <Field label="EOD 4 · Custom outcome" hint="Optional — anything worth remembering.">
                 <input
                   type="text"
@@ -869,6 +1045,17 @@ export function EodEntryForm({
                   )}
                   {pipelineNote && !pipelineOk && (
                     <span className="mt-0.5 block text-amber-300/90">Pipeline not moved: {pipelineNote}</span>
+                  )}
+                  {quotieResult && quotieResult.ok && (
+                    <span className="mt-0.5 block text-sky-300">
+                      ✓ {quotieKindDone === "site_visit" ? "Site visit booked in Quotie" : "Task created in Quotie"}
+                      {quotieResult.detail ? ` · ${quotieResult.detail}` : ""}
+                    </span>
+                  )}
+                  {quotieResult && !quotieResult.ok && (
+                    <span className="mt-0.5 block text-amber-300/90">
+                      ⚠ Quotie: {quotieResult.detail || "action not created"}
+                    </span>
                   )}
                 </>
               )}
