@@ -45,12 +45,18 @@ export function StudioTracker({
       source: params.get("utm_source") || (params.get("fbclid") ? "facebook" : null),
     };
 
-    void fetch("/api/conversion/collect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      keepalive: true,
-    });
+    const onceKey = `tsd-px:${companySlug}:${pageKey}:${event}`;
+    let alreadySent = false;
+    try { alreadySent = sessionStorage.getItem(onceKey) === "1"; } catch { /* ignore */ }
+    if (!alreadySent) {
+      try { sessionStorage.setItem(onceKey, "1"); } catch { /* ignore */ }
+      void fetch("/api/conversion/collect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      });
+    }
 
     if (pixelId && typeof window !== "undefined") {
       loadMetaPixel(pixelId);

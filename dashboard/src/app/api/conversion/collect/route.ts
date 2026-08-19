@@ -45,33 +45,69 @@ export async function POST(req: Request) {
   }
 
   const occurredOn = todayInTz(company.timezone || SYDNEY_TZ);
-  const { error } = await admin.from("conversion_events").insert({
-    company_id: company.id,
-    event,
-    contact_id: emptyToNull(body.contact_id),
-    contact_name: emptyToNull(body.contact_name),
-    visitor_id: emptyToNull(body.visitor_id),
-    source: emptyToNull(body.source) || emptyToNull(body.utm_source),
-    campaign: emptyToNull(body.campaign) || emptyToNull(body.utm_campaign),
-    utm_source: emptyToNull(body.utm_source),
-    utm_medium: emptyToNull(body.utm_medium),
-    utm_campaign: emptyToNull(body.utm_campaign),
-    utm_content: emptyToNull(body.utm_content),
-    fbclid: emptyToNull(body.fbclid),
-    gclid: emptyToNull(body.gclid),
-    campaign_id: emptyToNull(body.campaign_id),
-    adset_id: emptyToNull(body.adset_id),
-    ad_id: emptyToNull(body.ad_id),
-    page_key: emptyToNull(body.page_key),
-    occurred_on: occurredOn,
-    value: typeof body.value === "number" ? body.value : null,
-    payload: { via: "collect" },
-  });
+  const args = {
+    p_company_id: company.id,
+    p_event: event,
+    p_occurred_on: occurredOn,
+    p_contact_id: emptyToNull(body.contact_id),
+    p_contact_name: emptyToNull(body.contact_name),
+    p_visitor_id: emptyToNull(body.visitor_id),
+    p_source: emptyToNull(body.source) || emptyToNull(body.utm_source),
+    p_campaign: emptyToNull(body.campaign) || emptyToNull(body.utm_campaign),
+    p_utm_source: emptyToNull(body.utm_source),
+    p_utm_medium: emptyToNull(body.utm_medium),
+    p_utm_campaign: emptyToNull(body.utm_campaign),
+    p_utm_content: emptyToNull(body.utm_content),
+    p_fbclid: emptyToNull(body.fbclid),
+    p_gclid: emptyToNull(body.gclid),
+    p_campaign_id: emptyToNull(body.campaign_id),
+    p_adset_id: emptyToNull(body.adset_id),
+    p_ad_id: emptyToNull(body.ad_id),
+    p_page_key: emptyToNull(body.page_key),
+    p_value: typeof body.value === "number" ? body.value : null,
+    p_payload: { via: "collect" },
+  };
 
-  if (error && error.code !== "23505") {
-    return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
+  // Prefer the ON CONFLICT DO NOTHING rpc so a remount / refresh does not
+  // surface conversion_events_pixel_uidx as an error. Fall back to insert
+  // (and treat 23505 as success) until the migration is applied.
+  const { error: rpcError } = await admin.rpc("record_pixel_conversion", args);
+  if (rpcError && !isMissingRpc(rpcError)) {
+    return NextResponse.json({ error: rpcError.message }, { status: 500, headers: CORS });
+  }
+  if (rpcError && isMissingRpc(rpcError)) {
+    const { error } = await admin.from("conversion_events").insert({
+      company_id: args.p_company_id,
+      event: args.p_event,
+      occurred_on: args.p_occurred_on,
+      contact_id: args.p_contact_id,
+      contact_name: args.p_contact_name,
+      visitor_id: args.p_visitor_id,
+      source: args.p_source,
+      campaign: args.p_campaign,
+      utm_source: args.p_utm_source,
+      utm_medium: args.p_utm_medium,
+      utm_campaign: args.p_utm_campaign,
+      utm_content: args.p_utm_content,
+      fbclid: args.p_fbclid,
+      gclid: args.p_gclid,
+      campaign_id: args.p_campaign_id,
+      adset_id: args.p_adset_id,
+      ad_id: args.p_ad_id,
+      page_key: args.p_page_key,
+      value: args.p_value,
+      payload: args.p_payload,
+    });
+    if (error && error.code !== "23505") {
+      return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
+    }
   }
   return NextResponse.json({ ok: true }, { headers: CORS });
+}
+
+function isMissingRpc(err: { code?: string; message?: string }): boolean {
+  return err.code === "PGRST202" || err.code === "42883"
+    || /record_pixel_conversion/i.test(err.message || "");
 }
 
 function emptyToNull(v: unknown): string | null {
