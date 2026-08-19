@@ -7,6 +7,9 @@
 
 export type QuotieActionType = "task" | "site_visit";
 
+/** Stripped team-member shape sent to the browser — never includes quotie_auth_id. */
+export type QuotieTeamMember = { id: string; name: string | null; is_primary: boolean };
+
 export type QuotieAction = {
   type: QuotieActionType;
   /** Task title template, {contact} is substituted server-side. */
@@ -122,7 +125,73 @@ type QuotieSiteVisitInput = {
   rough_job_value?: string;
   ideal_start?: string;
   details?: string;
+  ghl_assigned_user_id?: string;
 };
+
+/**
+ * GET /api-site-visits/team-members from the client's Quotie instance.
+ * Never throws — returns { ok: false, members: [] } on any failure.
+ * quotie_auth_id is kept here (server-side) for the user_map lookup in
+ * actions.ts; it must be stripped before reaching the browser.
+ */
+export async function getQuotieTeamMembers(
+  config: QuotieConfig,
+): Promise<{ ok: boolean; members: Array<{ ghl_user_id: string; name: string | null; is_primary: boolean; quotie_auth_id: string | null }>; error?: string }> {
+  const apiUrl = (config.api_url || "").trim().replace(/\/+$/, "");
+  const apiKey = (config.api_key || "").trim();
+  if (!apiUrl || !apiKey) {
+    return { ok: false, members: [] };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), QUOTIE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${apiUrl}/api-site-visits/team-members`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const text = await res.text().catch(() => "");
+    let parsed: unknown = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      /* non-JSON */
+    }
+    if (!res.ok) {
+      const detail =
+        (parsed && typeof parsed === "object" && "error" in parsed
+          ? String((parsed as { error?: unknown }).error)
+          : "") ||
+        text.slice(0, 200) ||
+        `HTTP ${res.status}`;
+      return { ok: false, members: [], error: detail };
+    }
+    const data =
+      parsed && typeof parsed === "object" && "data" in parsed
+        ? (parsed as { data?: unknown }).data
+        : null;
+    const rawMembers =
+      data && typeof data === "object" && "members" in data && Array.isArray((data as { members?: unknown }).members)
+        ? (data as { members: Array<{ ghl_user_id?: unknown; name?: unknown; is_primary?: unknown; quotie_auth_id?: unknown }> }).members
+        : [];
+    const members = rawMembers.map(m => ({
+      ghl_user_id: String(m.ghl_user_id || ""),
+      name: m.name != null ? String(m.name) : null,
+      is_primary: Boolean(m.is_primary),
+      quotie_auth_id: m.quotie_auth_id != null ? String(m.quotie_auth_id) : null,
+    }));
+    return { ok: true, members };
+  } catch (e) {
+    const msg = (e as Error).name === "AbortError" ? "Quotie timed out" : (e as Error).message;
+    return { ok: false, members: [], error: msg };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** POST to a Quotie REST endpoint with the client's api_key + a 10s guard. */
 async function postQuotie(
@@ -225,5 +294,6 @@ export async function createQuotieSiteVisit(
   if (input.details?.trim()) body.details = input.details.trim();
   if (input.salesPersonName?.trim()) body.exec_name = input.salesPersonName.trim();
   if (assigned_to) body.assigned_to = assigned_to;
+  if (input.ghl_assigned_user_id?.trim()) body.ghl_assigned_user_id = input.ghl_assigned_user_id.trim();
   return postQuotie(config, "api-site-visits", body);
 }

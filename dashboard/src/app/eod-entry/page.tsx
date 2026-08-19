@@ -22,7 +22,7 @@ import {
 } from "./data";
 import { MeView, TabBar, TodayView } from "./views";
 import { EodEntryForm } from "./EodEntryForm";
-import { safeQuotieActions } from "./quotie";
+import { safeQuotieActions, type QuotieConfig } from "./quotie";
 
 export const metadata: Metadata = {
   title: "EOD Entry",
@@ -135,6 +135,9 @@ export default async function EodEntryPage({
     // Safe outcome→type projection for the Quotie action sections. Empty {}
     // for clients without a configured api_key — zero visual change.
     const quotieActions = safeQuotieActions(company.quotie_config);
+    // Feature flag for the always-available task checkbox: quotieActions is
+    // {} both for "no api_key" and "no mapped outcomes", so derive separately.
+    const quotieEnabled = !!(company.quotie_config as QuotieConfig | null | undefined)?.api_key;
     content = (
       <EodEntryForm
         token={token}
@@ -153,6 +156,7 @@ export default async function EodEntryPage({
         history={history}
         pendingSiteVisits={pendingVisits}
         quotieActions={quotieActions}
+        quotieEnabled={quotieEnabled}
       />
     );
   }

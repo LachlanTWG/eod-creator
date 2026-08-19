@@ -12,16 +12,18 @@
 // Quote sent / Email sent are automated (Quotie webhook + Gmail/Outlook OAuth sync)
 // and stay available for backfill from the dashboard Activities drawer only.
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { NewActivityItem } from "@/lib/manualActivities";
 import type { ContactHistory, EodOptions, PendingSiteVisit } from "./data";
 import { formatAuNzDate } from "./data";
 import {
   completePendingSiteVisit,
   dismissPendingSiteVisit,
+  fetchQuotieTeamMembers,
   submitEodEntry,
   type EodEntryInput,
 } from "./actions";
+import type { QuotieTeamMember } from "./quotie";
 
 // Site visits are logged via the pending calendar banner (not this Type selector).
 const EVENT_TYPES = [
@@ -112,6 +114,7 @@ export function EodEntryForm({
   history = null,
   pendingSiteVisits = [],
   quotieActions = {},
+  quotieEnabled = false,
 }: {
   token: string;
   ghlLocationId?: string;
@@ -133,6 +136,8 @@ export function EodEntryForm({
   pendingSiteVisits?: PendingSiteVisit[];
   /** EOD 3 outcome → Quotie action kind. Empty {} disables the feature. */
   quotieActions?: Record<string, "task" | "site_visit">;
+  /** Company has a Quotie api_key — enables the always-available task checkbox. */
+  quotieEnabled?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -260,11 +265,49 @@ export function EodEntryForm({
   const [qsvRough, setQsvRough] = useState("");
   const [qsvIdealStart, setQsvIdealStart] = useState("");
   const [qsvDetails, setQsvDetails] = useState("");
-  // Task
-  const [qtaskEnabled, setQtaskEnabled] = useState(true);
+  // Team member picker — null means not yet fetched; [] means fetched but empty (hide picker).
+  const [qsvTeam, setQsvTeam] = useState("");
+  const [qsvTeamTouched, setQsvTeamTouched] = useState(false);
+  const [qsvTeamMembers, setQsvTeamMembers] = useState<QuotieTeamMember[] | null>(null);
+  const [qsvTeamDefaults, setQsvTeamDefaults] = useState<Record<string, string>>({});
+  const teamFetchedRef = useRef(false);
+  // Task — outcome-independent: lives in the sticky bottom bar, available for
+  // any outcome. Defaults off, but auto-ticks when the outcome maps to a task
+  // (unless the exec has manually toggled it this session).
+  const [qtaskEnabled, setQtaskEnabled] = useState(false);
   const [qtaskTitle, setQtaskTitle] = useState("");
   const [qtaskDue, setQtaskDue] = useState("");
   const [qtaskNotes, setQtaskNotes] = useState("");
+  const userTouchedTask = useRef(false);
+  const [quotieTaskDone, setQuotieTaskDone] = useState(false);
+
+  useEffect(() => {
+    if (userTouchedTask.current) return;
+    if (quotieActions[stdOutcome] === "task") setQtaskEnabled(true);
+  }, [stdOutcome, quotieActions]);
+
+  // Lazy-fetch team members once when the site-visit section becomes active.
+  useEffect(() => {
+    if (quotieKind !== "site_visit" || !qsvEnabled) return;
+    if (qsvTeamMembers !== null) return;
+    if (teamFetchedRef.current) return;
+    teamFetchedRef.current = true;
+    fetchQuotieTeamMembers({ token, ghl_location_id: ghlLocationId }).then(res => {
+      setQsvTeamMembers(res.members);
+      setQsvTeamDefaults(res.defaults);
+      if (!qsvTeamTouched) {
+        setQsvTeam(res.defaults[salesPerson] ?? "");
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotieKind, qsvEnabled]);
+
+  // When salesPerson changes, recompute the default team member (unless exec touched it).
+  useEffect(() => {
+    if (qsvTeamTouched) return;
+    if (qsvTeamMembers === null) return;
+    setQsvTeam(qsvTeamDefaults[salesPerson] ?? "");
+  }, [salesPerson, qsvTeamTouched, qsvTeamMembers, qsvTeamDefaults]);
 
   // Multi-row items for the non-EOD event types. Address + lead source are
   // prefilled from GHL Street Address / EOD 5 when available.
@@ -415,30 +458,31 @@ export function EodEntryForm({
   }
 
   function submit(payloadItems: NewActivityItem[], evType: EventType) {
-    // Attach the Quotie action only for eod_update, only when a kind is
-    // configured for this outcome, and only when that section's toggle is ON.
+    // Site visit stays outcome-mapped; the task is independent (sticky-bar
+    // checkbox) and rides along in quotie_task regardless of outcome.
     let quotie: EodEntryInput["quotie"];
-    if (evType === "eod_update" && quotieKind) {
-      if (quotieKind === "site_visit" && qsvEnabled) {
-        quotie = {
-          type: "site_visit",
-          date: qsvDate,
-          time: qsvTime.trim() || undefined,
-          address: qsvAddress.trim() || undefined,
-          create_ghl_appointment: qsvGhlAppt,
-          rough_job_value: qsvRough.trim() || undefined,
-          ideal_start: qsvIdealStart.trim() || undefined,
-          details: qsvDetails.trim() || undefined,
-        };
-      } else if (quotieKind === "task" && qtaskEnabled) {
-        quotie = {
-          type: "task",
-          title: qtaskTitle.trim() || undefined,
-          notes: qtaskNotes.trim() || undefined,
-          due_date: qtaskDue.trim() || undefined,
-        };
-      }
+    if (evType === "eod_update" && quotieKind === "site_visit" && qsvEnabled) {
+      quotie = {
+        type: "site_visit",
+        date: qsvDate,
+        time: qsvTime.trim() || undefined,
+        address: qsvAddress.trim() || undefined,
+        create_ghl_appointment: qsvGhlAppt,
+        rough_job_value: qsvRough.trim() || undefined,
+        ideal_start: qsvIdealStart.trim() || undefined,
+        details: qsvDetails.trim() || undefined,
+        ghl_assigned_user_id: qsvTeam || undefined,
+      };
     }
+
+    const quotie_task: EodEntryInput["quotie_task"] =
+      evType === "eod_update" && quotieEnabled && qtaskEnabled
+        ? {
+            title: qtaskTitle.trim() || undefined,
+            notes: qtaskNotes.trim() || undefined,
+            due_date: qtaskDue.trim() || undefined,
+          }
+        : undefined;
 
     const input: EodEntryInput = {
       token,
@@ -452,6 +496,7 @@ export function EodEntryForm({
           ? { stage, answered, std_outcome: stdOutcome }
           : undefined,
       quotie,
+      quotie_task,
     };
     startTransition(async () => {
       const res = await submitEodEntry(input);
@@ -460,7 +505,8 @@ export function EodEntryForm({
       setPipelineNote(res.pipeline ?? null);
       setPipelineOk(res.pipelineOk ?? false);
       setQuotieResult(res.quotie_result ?? null);
-      setQuotieKindDone(input.quotie?.type ?? null);
+      setQuotieKindDone(input.quotie?.type ?? (input.quotie_task ? "task" : null));
+      setQuotieTaskDone(!!input.quotie_task);
       if (evType === "eod_update") {
         // Keep stage + source (same contact, likely same context next time);
         // clear the per-call outcomes.
@@ -859,6 +905,22 @@ export function EodEntryForm({
                           placeholder="Anything discussed on the call — access, scope, expectations…"
                         />
                       </Field>
+                      {qsvTeamMembers !== null && qsvTeamMembers.length > 0 && (
+                        <Field label="Team member" hint="Who the GHL appointment is assigned to.">
+                          <select
+                            value={qsvTeam}
+                            onChange={e => { setQsvTeam(e.target.value); setQsvTeamTouched(true); }}
+                            className={inputClass}
+                          >
+                            <option value="">Calendar default</option>
+                            {qsvTeamMembers.map(m => (
+                              <option key={m.id} value={m.id}>
+                                {m.name ?? m.id}{m.is_primary ? " · primary" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      )}
                       <label className="flex items-start gap-2 text-xs text-zinc-300">
                         <input
                           type="checkbox"
@@ -868,74 +930,6 @@ export function EodEntryForm({
                         />
                         <span className="font-medium text-zinc-200">Also create GHL calendar appointment</span>
                       </label>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {quotieKind === "task" && (
-                <div className="space-y-3 rounded-lg border border-sky-900/60 bg-sky-950/20 p-3">
-                  <label className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-medium uppercase tracking-wider text-sky-300/90">
-                      Create Quotie task
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={qtaskEnabled}
-                      onChange={e => setQtaskEnabled(e.target.checked)}
-                      className="rounded border-zinc-600 bg-zinc-900"
-                    />
-                  </label>
-                  {qtaskEnabled && (
-                    <>
-                      <Field label="Title" hint="Leave blank to auto-title from the outcome.">
-                        <input
-                          type="text"
-                          value={qtaskTitle}
-                          onChange={e => setQtaskTitle(e.target.value)}
-                          className={inputClass}
-                          placeholder={eodName.trim() ? `Task for ${eodName.trim()}` : "Task title"}
-                        />
-                      </Field>
-                      <Field label="Due date">
-                        <div className="mb-2 grid grid-cols-3 gap-2">
-                          {[
-                            { label: "Tomorrow", days: 1 },
-                            { label: "3 days", days: 3 },
-                            { label: "1 week", days: 7 },
-                          ].map(q => {
-                            const val = isoInDays(q.days);
-                            return (
-                              <button
-                                key={q.label}
-                                type="button"
-                                onClick={() => setQtaskDue(val)}
-                                className={
-                                  qtaskDue === val
-                                    ? "rounded border border-emerald-600 bg-emerald-600/20 px-2 py-1.5 text-center text-xs font-medium text-emerald-300"
-                                    : "rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-center text-xs text-zinc-400 hover:border-zinc-600"
-                                }
-                              >
-                                {q.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <input
-                          type="date"
-                          value={qtaskDue}
-                          onChange={e => setQtaskDue(e.target.value)}
-                          className={inputClass}
-                        />
-                      </Field>
-                      <Field label="Notes" hint="Optional.">
-                        <textarea
-                          value={qtaskNotes}
-                          onChange={e => setQtaskNotes(e.target.value)}
-                          rows={2}
-                          className={inputClass}
-                        />
-                      </Field>
                     </>
                   )}
                 </div>
@@ -1066,49 +1060,128 @@ export function EodEntryForm({
             </>
           )}
 
-          {error && (
-            <div className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
-              {error}
+          {quotieEnabled && eventType === "eod_update" && qtaskEnabled && (
+            <div className="space-y-3 rounded-lg border border-sky-900/60 bg-sky-950/20 p-3">
+              <span className="block text-[11px] font-medium uppercase tracking-wider text-sky-300/90">
+                Quotie task
+              </span>
+              <Field label="Title" hint="Leave blank to auto-title from the outcome.">
+                <input
+                  type="text"
+                  value={qtaskTitle}
+                  onChange={e => setQtaskTitle(e.target.value)}
+                  className={inputClass}
+                  placeholder={eodName.trim() ? `Task for ${eodName.trim()}` : "Task title"}
+                />
+              </Field>
+              <Field label="Due date">
+                <div className="mb-2 grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Tomorrow", days: 1 },
+                    { label: "3 days", days: 3 },
+                    { label: "1 week", days: 7 },
+                  ].map(q => {
+                    const val = isoInDays(q.days);
+                    return (
+                      <button
+                        key={q.label}
+                        type="button"
+                        onClick={() => setQtaskDue(val)}
+                        className={
+                          qtaskDue === val
+                            ? "rounded border border-emerald-600 bg-emerald-600/20 px-2 py-1.5 text-center text-xs font-medium text-emerald-300"
+                            : "rounded border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-center text-xs text-zinc-400 hover:border-zinc-600"
+                        }
+                      >
+                        {q.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  type="date"
+                  value={qtaskDue}
+                  onChange={e => setQtaskDue(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Notes" hint="Optional.">
+                <textarea
+                  value={qtaskNotes}
+                  onChange={e => setQtaskNotes(e.target.value)}
+                  rows={2}
+                  className={inputClass}
+                />
+              </Field>
             </div>
           )}
 
-          {savedCount !== null && !error && (
-            <div className="rounded border border-emerald-900/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
-              {savedCount === 0 ? (
-                pipelineNote || "Done."
+          {/* Sticky action bar — pinned to the popup bottom so Log it (and the
+              task checkbox) are always reachable without scrolling. Banners
+              live here too so submit feedback is visible without scrolling. */}
+          <div className="sticky bottom-0 space-y-2 border-t border-zinc-800 bg-zinc-950 pb-2 pt-3 shadow-[0_-8px_16px_-8px_rgba(0,0,0,0.8)]">
+            {error && (
+              <div className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+                {error}
+              </div>
+            )}
+
+            {savedCount !== null && !error && (
+              <div className="rounded border border-emerald-900/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
+                {savedCount === 0 ? (
+                  pipelineNote || "Done."
+                ) : (
+                  <>
+                    Saved {savedCount === 1 ? "1 activity" : `${savedCount} activities`}. It&apos;s in the reports + dashboard.
+                    {pipelineNote && pipelineOk && (
+                      <span className="mt-0.5 block text-emerald-400">Pipeline: {pipelineNote} ✓</span>
+                    )}
+                    {pipelineNote && !pipelineOk && (
+                      <span className="mt-0.5 block text-amber-300/90">Pipeline not moved: {pipelineNote}</span>
+                    )}
+                    {quotieResult && quotieResult.ok && (
+                      <span className="mt-0.5 block text-sky-300">
+                        ✓ {quotieKindDone === "site_visit"
+                          ? (quotieTaskDone ? "Site visit + task created in Quotie" : "Site visit booked in Quotie")
+                          : "Task created in Quotie"}
+                        {quotieResult.detail ? ` · ${quotieResult.detail}` : ""}
+                      </span>
+                    )}
+                    {quotieResult && !quotieResult.ok && (
+                      <span className="mt-0.5 block text-amber-300/90">
+                        ⚠ Quotie: {quotieResult.detail || "action not created"}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3">
+              {quotieEnabled && eventType === "eod_update" ? (
+                <label className="flex min-w-0 items-center gap-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={qtaskEnabled}
+                    onChange={e => {
+                      userTouchedTask.current = true;
+                      setQtaskEnabled(e.target.checked);
+                    }}
+                    className="rounded border-zinc-600 bg-zinc-900"
+                  />
+                  <span className="truncate font-medium text-zinc-200">Also create a Quotie task</span>
+                </label>
               ) : (
-                <>
-                  Saved {savedCount === 1 ? "1 activity" : `${savedCount} activities`}. It&apos;s in the reports + dashboard.
-                  {pipelineNote && pipelineOk && (
-                    <span className="mt-0.5 block text-emerald-400">Pipeline: {pipelineNote} ✓</span>
-                  )}
-                  {pipelineNote && !pipelineOk && (
-                    <span className="mt-0.5 block text-amber-300/90">Pipeline not moved: {pipelineNote}</span>
-                  )}
-                  {quotieResult && quotieResult.ok && (
-                    <span className="mt-0.5 block text-sky-300">
-                      ✓ {quotieKindDone === "site_visit" ? "Site visit booked in Quotie" : "Task created in Quotie"}
-                      {quotieResult.detail ? ` · ${quotieResult.detail}` : ""}
-                    </span>
-                  )}
-                  {quotieResult && !quotieResult.ok && (
-                    <span className="mt-0.5 block text-amber-300/90">
-                      ⚠ Quotie: {quotieResult.detail || "action not created"}
-                    </span>
-                  )}
-                </>
+                <span />
               )}
+              <button
+                type="submit"
+                disabled={pending}
+                className="shrink-0 rounded bg-emerald-600/90 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+              >
+                {pending ? "Saving…" : "Log it"}
+              </button>
             </div>
-          )}
-
-          <div className="flex items-center justify-end border-t border-zinc-800 pt-3.5">
-            <button
-              type="submit"
-              disabled={pending}
-              className="rounded bg-emerald-600/90 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-            >
-              {pending ? "Saving…" : "Log it"}
-            </button>
           </div>
         </form>
     </div>
