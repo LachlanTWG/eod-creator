@@ -98,6 +98,13 @@ export type QuotieCallResult = {
   ok: boolean;
   warnings?: string[];
   error?: string;
+  /** GHL appointment result from a successful api-site-visits response. */
+  ghl?: {
+    status?: string;
+    assigned_user_name?: string | null;
+    assigned_user_id?: string | null;
+    assignment_source?: string;
+  };
 };
 
 type QuotieTaskInput = {
@@ -170,14 +177,22 @@ export async function getQuotieTeamMembers(
         `HTTP ${res.status}`;
       return { ok: false, members: [], error: detail };
     }
-    const data =
+    // Quotie returns the payload bare (top-level), not wrapped in {data: ...}.
+    // Read from top-level first; fall back to parsed.data.members for safety.
+    type RawMember = { ghl_user_id?: unknown; name?: unknown; is_primary?: unknown; quotie_auth_id?: unknown };
+    const topLevelMembers =
+      parsed && typeof parsed === "object" && "members" in parsed && Array.isArray((parsed as { members?: unknown }).members)
+        ? (parsed as { members: RawMember[] }).members
+        : null;
+    const dataObj =
       parsed && typeof parsed === "object" && "data" in parsed
         ? (parsed as { data?: unknown }).data
         : null;
-    const rawMembers =
-      data && typeof data === "object" && "members" in data && Array.isArray((data as { members?: unknown }).members)
-        ? (data as { members: Array<{ ghl_user_id?: unknown; name?: unknown; is_primary?: unknown; quotie_auth_id?: unknown }> }).members
-        : [];
+    const fallbackMembers =
+      dataObj && typeof dataObj === "object" && "members" in dataObj && Array.isArray((dataObj as { members?: unknown }).members)
+        ? (dataObj as { members: RawMember[] }).members
+        : null;
+    const rawMembers = topLevelMembers ?? fallbackMembers ?? [];
     const members = rawMembers.map(m => ({
       ghl_user_id: String(m.ghl_user_id || ""),
       name: m.name != null ? String(m.name) : null,
@@ -238,7 +253,26 @@ async function postQuotie(
       parsed && typeof parsed === "object" && Array.isArray((parsed as { warnings?: unknown }).warnings)
         ? ((parsed as { warnings?: string[] }).warnings as string[])
         : undefined;
-    return { ok: true, warnings };
+    const rawGhl =
+      parsed && typeof parsed === "object" && "ghl" in parsed && parsed !== null
+        ? (parsed as { ghl?: unknown }).ghl
+        : undefined;
+    const ghl =
+      rawGhl && typeof rawGhl === "object"
+        ? {
+            status: "status" in rawGhl && rawGhl.status != null ? String((rawGhl as { status: unknown }).status) : undefined,
+            assigned_user_name: "assigned_user_name" in rawGhl
+              ? ((rawGhl as { assigned_user_name?: unknown }).assigned_user_name as string | null | undefined)
+              : undefined,
+            assigned_user_id: "assigned_user_id" in rawGhl
+              ? ((rawGhl as { assigned_user_id?: unknown }).assigned_user_id as string | null | undefined)
+              : undefined,
+            assignment_source: "assignment_source" in rawGhl && (rawGhl as { assignment_source?: unknown }).assignment_source != null
+              ? String((rawGhl as { assignment_source: unknown }).assignment_source)
+              : undefined,
+          }
+        : undefined;
+    return { ok: true, warnings, ghl };
   } catch (e) {
     const msg = (e as Error).name === "AbortError" ? "Quotie timed out" : (e as Error).message;
     return { ok: false, error: msg };

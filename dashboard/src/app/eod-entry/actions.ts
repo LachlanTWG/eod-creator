@@ -512,7 +512,18 @@ export async function submitEodEntry(input: EodEntryInput): Promise<EodEntryResu
         details: input.quotie.details,
         ghl_assigned_user_id: input.quotie.ghl_assigned_user_id,
       });
-      visitRes = { ok: res.ok, detail: res.ok ? res.warnings?.join("; ") : res.error };
+      if (res.ok) {
+        const parts: string[] = [];
+        // Prepend GHL appointment assignee when the appointment was created.
+        if (res.ghl?.status === "created") {
+          const assignee = res.ghl.assigned_user_name || res.ghl.assigned_user_id;
+          if (assignee) parts.push(`GHL appt → ${assignee}`);
+        }
+        if (res.warnings?.length) parts.push(res.warnings.join("; "));
+        visitRes = { ok: true, detail: parts.join("; ") || undefined };
+      } else {
+        visitRes = { ok: false, detail: res.error };
+      }
     } else {
       // Legacy: an old client sent quotie.type === 'task' (new clients send
       // quotie_task instead). Keep it working across a deploy boundary.
