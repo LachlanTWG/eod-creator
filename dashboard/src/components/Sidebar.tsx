@@ -23,7 +23,6 @@ const STORAGE_KEY = "sidebar-collapsed";
 export type NavIcon =
   | "me" | "overview" | "execs" | "reports"
   | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail" | "accounts" | "conversion" | "studio"
-<<<<<<< HEAD
   | "ads" | "setters" | "closers" | "eod" | "eow" | "sales" | "reviews" | "settings";
 
 const ICONS: Record<NavIcon, typeof User> = {
