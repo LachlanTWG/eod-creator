@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { createClient } from "./supabase/server";
 import { betaCompany, betaViewer, isBeta } from "./beta";
+import { parseTheme, type Theme } from "./theme";
 
 export type AppRole = "owner" | "twg" | "conversion" | "team" | "client";
 export type CompanyAccess = "leader" | "conversion" | "member" | "client" | "twg";
@@ -34,6 +35,7 @@ export type Viewer = {
   canSeeHealth: boolean;
   canSeeExecs: boolean;
   canWriteSales: boolean;
+  theme: Theme;
 };
 
 function asRole(raw: string | null | undefined): AppRole {
@@ -52,7 +54,7 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("is_admin, is_viewer, role, twg_see_all_clients")
+    .select("is_admin, is_viewer, role, twg_see_all_clients, theme")
     .eq("id", user.id)
     .single();
 
@@ -102,6 +104,7 @@ export const getViewer = cache(async function getViewer(): Promise<Viewer> {
     canSeeHealth: isAdmin,
     canSeeExecs: !isClient,
     canWriteSales: isAdmin || (!!salesPersonName && !isClient && !isTwg),
+    theme: parseTheme(profile?.theme),
   };
 });
 

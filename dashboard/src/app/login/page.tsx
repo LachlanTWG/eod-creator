@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { parseTheme, THEME_COOKIE, THEME_COOKIE_OPTS } from "@/lib/theme";
 
 async function signIn(formData: FormData) {
   "use server";
@@ -11,6 +12,13 @@ async function signIn(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`);
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase.from("profiles").select("theme").eq("id", user.id).maybeSingle();
+    const jar = await cookies();
+    jar.set(THEME_COOKIE, parseTheme(profile?.theme), THEME_COOKIE_OPTS);
+  }
   redirect("/me");
 }
 
@@ -24,9 +32,6 @@ export default async function LoginPage({
 
   return (
     <main className="relative min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="absolute left-4 top-4">
-        <ThemeToggle />
-      </div>
       <div className="w-full max-w-sm space-y-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">The Sales Department</h1>

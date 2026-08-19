@@ -1,6 +1,7 @@
 import { getViewer } from "@/lib/viewer";
 import { isBeta } from "@/lib/beta";
 import { Sidebar, type NavItem } from "@/components/Sidebar";
+import { ThemeSync } from "@/components/ThemeSync";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await getViewer();
@@ -42,10 +43,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (viewer.canSeeHealth)    navItems.push({ href: "/health",     label: "Health",                                    icon: "health" });
   if (viewer.canWriteSales)   navItems.push({ href: "/settings/email", label: "Email tracking",                         icon: "gmail" });
   if (showAdminNav)           navItems.push({ href: "/settings/accounts", label: "Accounts",                            icon: "accounts" });
+                              navItems.push({ href: "/settings",    label: "Settings",     exact: true,                  icon: "settings" });
   }
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
+      <ThemeSync theme={viewer.theme} />
       <Sidebar
         email={viewer.user.email || ""}
         isAdmin={viewer.isAdmin}

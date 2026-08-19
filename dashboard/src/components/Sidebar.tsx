@@ -12,9 +12,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   ChevronLeft, ChevronRight, LogOut,
-  User, LayoutDashboard, Users, FileText, ListChecks, Trophy, Inbox, Activity, Copy, CalendarDays, FileWarning, Mail, TrendingUp, Clapperboard, Megaphone, Phone, Handshake, ClipboardList, CalendarRange, Medal, Headphones,
+  User, LayoutDashboard, Users, FileText, ListChecks, Trophy, Inbox, Activity, Copy, CalendarDays, FileWarning, Mail, TrendingUp, Clapperboard, Megaphone, Phone, Handshake, ClipboardList, CalendarRange, Medal, Headphones, Settings,
 } from "lucide-react";
-import { ThemeToggle } from "./ThemeToggle";
 
 const STORAGE_KEY = "sidebar-collapsed";
 
@@ -24,7 +23,8 @@ const STORAGE_KEY = "sidebar-collapsed";
 export type NavIcon =
   | "me" | "overview" | "execs" | "reports"
   | "activities" | "duplicates" | "missing" | "wins" | "backlog" | "health" | "visits" | "gmail" | "accounts" | "conversion" | "studio"
-  | "ads" | "setters" | "closers" | "eod" | "eow" | "sales" | "reviews";
+<<<<<<< HEAD
+  | "ads" | "setters" | "closers" | "eod" | "eow" | "sales" | "reviews" | "settings";
 
 const ICONS: Record<NavIcon, typeof User> = {
   me:         User,
@@ -49,6 +49,7 @@ const ICONS: Record<NavIcon, typeof User> = {
   eow:        CalendarRange,
   sales:      Medal,
   reviews:    Headphones,
+  settings:   Settings,
 };
 
 export type NavItem = { href: string; label: string; icon: NavIcon; exact?: boolean };
@@ -101,7 +102,6 @@ export function Sidebar({
             </div>
           )}
           <div className={`flex items-center gap-1 ${collapsed ? "mx-auto flex-col" : ""}`}>
-            <ThemeToggle collapsed={collapsed} />
             <button
               type="button"
               onClick={toggle}

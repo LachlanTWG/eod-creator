@@ -56,6 +56,7 @@ export function betaViewer(): Viewer {
     canSeeHealth: false,
     canSeeExecs: true,
     canWriteSales: false,
+    theme: "dark",
   };
 }
 
