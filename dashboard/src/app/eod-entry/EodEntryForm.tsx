@@ -90,6 +90,16 @@ const emptyItem = (
 
 const FALLBACK_OPTIONS: EodOptions = { stages: [], outcomes: [], sources: [] };
 
+// Display-only short labels for the EOD 1 stage buttons. The submitted VALUES
+// stay the long-form DEFAULT_STAGES strings — GHL pipeline workflows branch on
+// string equality against them (see data.ts DEFAULT_STAGES) — so only the
+// button text is shortened. Unknown (learned) stages render their full name.
+const STAGE_SHORT_LABELS: Record<string, string> = {
+  "New Leads": "New Lead",
+  "Pre-Quote Follow Up": "Pre Quote",
+  "Post Quote Follow Up": "Post Quote",
+};
+
 /** YYYY-MM-DD `days` from now, in local time. */
 function isoInDays(days: number): string {
   const d = new Date();
@@ -797,10 +807,25 @@ export function EodEntryForm({
               </Field>
 
               <Field label="EOD 1 · Stage">
-                <select value={stage} onChange={e => setStage(e.target.value)} className={inputClass}>
-                  {options.stages.map(s => <option key={s} value={s}>{s}</option>)}
-                  {stage && !options.stages.includes(stage) && <option value={stage}>{stage}</option>}
-                </select>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ...options.stages,
+                    ...(stage && !options.stages.includes(stage) ? [stage] : []),
+                  ].map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setStage(s)}
+                      className={
+                        stage === s
+                          ? "rounded border border-sky-600 bg-sky-600/20 px-3 py-2 text-sm font-medium text-sky-300"
+                          : "rounded border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-400 hover:border-zinc-600"
+                      }
+                    >
+                      {STAGE_SHORT_LABELS[s] ?? s}
+                    </button>
+                  ))}
+                </div>
               </Field>
 
               <Field label="EOD 2 · Answered?">
