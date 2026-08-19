@@ -15,6 +15,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const navItems: NavItem[] = [];
   if (beta) {
     navItems.push({ href: "/conversion", label: "Overview", exact: true, icon: "overview" });
+    navItems.push({ href: "/conversion/sales", label: "Sales overview", icon: "sales" });
+    navItems.push({ href: "/conversion/reviews", label: "Call reviews", icon: "reviews" });
     navItems.push({ href: "/conversion/ads", label: "Paid ads", icon: "ads" });
     navItems.push({ href: "/conversion/setters", label: "Setters", icon: "setters" });
     navItems.push({ href: "/conversion/closers", label: "Closers", icon: "closers" });

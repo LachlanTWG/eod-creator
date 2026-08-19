@@ -3,12 +3,11 @@ import { formatCurrency } from "@/lib/format";
 import {
   formatKpi,
   formatPct,
-  formatWatch,
   type Kpi,
   type QuotieSnapshot,
   type ReasonRow,
 } from "@/lib/quotieFunnel";
-import { closerScorecard, setterScorecard } from "@/lib/scorecard";
+import { adsScorecard, closerScorecard, setterScorecard } from "@/lib/scorecard";
 import { ScorecardGrid } from "./ScorecardGrid";
 
 export type QuotieTab = "overview" | "ads" | "setters" | "closers";
@@ -199,77 +198,26 @@ function OverviewBody({ snap, top }: { snap: QuotieSnapshot; top: QuotieSnapshot
 }
 
 function AdsBody({ snap }: { snap: QuotieSnapshot }) {
-  const adsKpis = snap.kpis.filter(k => k.owner === "ads" || k.owner === "page");
+  const adsConstraints = snap.constraints.filter(x => x.owner === "ads" || x.owner === "page");
   return (
     <>
-      <KpiTable kpis={adsKpis} />
-      <section className="grid gap-3 grid-cols-2 md:grid-cols-4">
-        <Hero label="Ad spend" value={formatCurrency(snap.hero.spend)} />
-        <Hero label="Clicks" value={snap.meta.clicks.toLocaleString()} hint={`${formatPct(snap.meta.ctr)} CTR`} />
-        <Hero
-          label="Cost / LP view"
-          value={snap.meta.costPerLpView != null ? formatCurrency(snap.meta.costPerLpView) : "—"}
-        />
-        <Hero
-          label="Cost / booked"
-          value={snap.hero.costPerBooked != null ? formatCurrency(snap.hero.costPerBooked) : "—"}
-        />
-      </section>
-      <section className="grid gap-3 lg:grid-cols-2">
-        <Panel title="Meta" hint="Ads Manager · campaign roll-up">
-          <StatGrid
-            rows={[
-              ["Spend", formatCurrency(snap.meta.spend)],
-              ["Impressions", snap.meta.impressions.toLocaleString()],
-              ["Clicks", snap.meta.clicks.toLocaleString()],
-              ["CTR", formatPct(snap.meta.ctr)],
-              ["CPC", formatCurrency(snap.meta.cpc)],
-              ["CPM", formatCurrency(snap.meta.cpm)],
-              ["LP views", snap.meta.lpViews.toLocaleString()],
-              ["Cost / LP view", snap.meta.costPerLpView != null ? formatCurrency(snap.meta.costPerLpView) : "—"],
-            ]}
-          />
-        </Panel>
-        <Panel title="Opt-in · /opt-in" hint={snap.optIn.source}>
-          <StatGrid
-            rows={[
-              ["Page views", snap.optIn.views.toLocaleString()],
-              ["Opt-ins", String(snap.optIn.submits)],
-              ["Opt-in rate", formatPct(snap.optIn.rate)],
-              ["Cost / view", snap.optIn.costPerView != null ? formatCurrency(snap.optIn.costPerView) : "—"],
-              ["Cost / opt-in", snap.optIn.costPerOptIn != null ? formatCurrency(snap.optIn.costPerOptIn) : "—"],
-            ]}
-          />
-        </Panel>
-        <Panel title="VSL · /apply" hint="Plays, watch time, playthrough">
-          <StatGrid
-            rows={[
-              ["Page views", String(snap.vsl.pageViews)],
-              ["Plays", String(snap.vsl.plays)],
-              ["Avg watch", formatWatch(snap.vsl.avgWatchSec)],
-              ["25% / 50%", `${snap.vsl.q25} / ${snap.vsl.q50}`],
-              ["75% / 100%", `${snap.vsl.q75} / ${snap.vsl.q100}`],
-              ["Playthrough (75%+)", formatPct(snap.vsl.playthroughRate)],
-              ["Cost / play", snap.vsl.costPerPlay != null ? formatCurrency(snap.vsl.costPerPlay) : "—"],
-              ["Cost / playthrough", snap.vsl.costPerPlaythrough != null ? formatCurrency(snap.vsl.costPerPlaythrough) : "—"],
-            ]}
-          />
-        </Panel>
-        <Panel title="Apply + book" hint="Direct = Cal. Manual = setter booked.">
-          <StatGrid
-            rows={[
-              ["Form starts", String(snap.apply.starts)],
-              ["Submits", String(snap.apply.submits)],
-              ["YES / Maybe", String(snap.apply.yesMaybe)],
-              ["NO (received)", String(snap.apply.no)],
-              ["Calendar views", String(snap.book.calendarViews)],
-              ["Direct bookings", String(snap.book.direct)],
-              ["Manual bookings", String(snap.book.manual)],
-              ["Cost / booked", snap.book.costPerBooked != null ? formatCurrency(snap.book.costPerBooked) : "—"],
-            ]}
-          />
-        </Panel>
-      </section>
+      {adsConstraints.length > 0 && (
+        <section className="grid gap-3 md:grid-cols-2">
+          {adsConstraints.map(x => (
+            <div key={x.key} className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+              <div className="text-[11px] font-medium uppercase tracking-wider text-amber-800">{x.label}</div>
+              <div className="mt-0.5 text-sm tabular-nums text-slate-800">
+                {x.actual} now · {x.target} target · {x.gap} short
+              </div>
+              <p className="mt-2 text-xs text-slate-600">{x.detail}</p>
+            </div>
+          ))}
+        </section>
+      )}
+      <p className="text-xs text-slate-500">
+        One column per day including weekends — ads still spend. Amber rows are the rates and costs that show the leak. Scroll sideways for more days.
+      </p>
+      <ScorecardGrid title="Paid ads scorecard" card={adsScorecard(snap.from, snap.to)} />
     </>
   );
 }

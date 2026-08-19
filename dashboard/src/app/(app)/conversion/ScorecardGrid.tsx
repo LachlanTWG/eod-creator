@@ -6,8 +6,9 @@ function fmt(kind: ScoreRow["kind"], v: ScoreCell): string {
   if (typeof v !== "number" || !Number.isFinite(v)) return "—";
   if (kind === "pct") return `${Math.round(v * 100)}%`;
   if (kind === "money") {
-    if (v === 0) return "$0";
+    if (v === 0) return "$0.00";
     if (Math.abs(v) >= 1000) return `$${Math.round(v / 100) / 10}k`.replace(".0k", "k");
+    if (Math.abs(v) < 100) return `$${v.toFixed(2)}`;
     return `$${Math.round(v)}`;
   }
   if (kind === "time") {
