@@ -23,6 +23,13 @@ import {
 import { MeView, TabBar, TodayView } from "./views";
 import { EodEntryForm } from "./EodEntryForm";
 import { safeQuotieActions, type QuotieConfig } from "./quotie";
+import { ThemeToggle } from "./ThemeToggle";
+
+// Runs after the root THEME_BOOT (which defaults to "light") and overrides the
+// theme to dark for this route. Reads the EOD-specific storage key so the
+// popup's preference never fights the dashboard's. Defaults to "dark" so the
+// popup looks as it always did before the dashboard's light-theme rollout.
+const EOD_THEME_BOOT = `(function(){try{var t=localStorage.getItem("tsd-eod-theme");var q=new URLSearchParams(location.search).get("theme");if(q==="dark"||q==="light")t=q;if(t!=="dark"&&t!=="light")t="dark";var r=document.documentElement;r.classList.toggle("dark",t==="dark");r.style.colorScheme=t;}catch(e){}})();`;
 
 export const metadata: Metadata = {
   title: "EOD Entry",
@@ -45,9 +52,12 @@ function todayIn(timeZone: string): string {
 
 function Notice({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-6">
-      <p className="max-w-sm text-center text-sm text-zinc-400">{children}</p>
-    </main>
+    <>
+      <script dangerouslySetInnerHTML={{ __html: EOD_THEME_BOOT }} />
+      <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-6">
+        <p className="max-w-sm text-center text-sm text-zinc-400">{children}</p>
+      </main>
+    </>
   );
 }
 
@@ -162,11 +172,19 @@ export default async function EodEntryPage({
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="mx-auto max-w-md px-5 py-4">
-        <TabBar active={activeTab} base={base} />
-        {content}
-      </div>
-    </main>
+    <>
+      <script dangerouslySetInnerHTML={{ __html: EOD_THEME_BOOT }} />
+      <main className="min-h-screen bg-zinc-950 text-zinc-100">
+        <div className="mx-auto max-w-md px-5 py-4">
+          <div className="relative">
+            <TabBar active={activeTab} base={base} />
+            <div className="absolute right-0 top-0 flex items-center py-1 pr-1">
+              <ThemeToggle />
+            </div>
+          </div>
+          {content}
+        </div>
+      </main>
+    </>
   );
 }
