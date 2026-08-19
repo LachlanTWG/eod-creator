@@ -68,10 +68,10 @@ export async function POST(req: Request) {
     p_payload: { via: "collect" },
   };
 
-  // Prefer the ON CONFLICT DO NOTHING rpc so a remount / refresh does not
-  // surface conversion_events_pixel_uidx as an error. Fall back to insert
-  // (and treat 23505 as success) until the migration is applied.
   const { error: rpcError } = await admin.rpc("record_pixel_conversion", args);
+  if (isUniqueViolation(rpcError)) {
+    return NextResponse.json({ ok: true }, { headers: CORS });
+  }
   if (rpcError && !isMissingRpc(rpcError)) {
     return NextResponse.json({ error: rpcError.message }, { status: 500, headers: CORS });
   }
@@ -98,11 +98,16 @@ export async function POST(req: Request) {
       value: args.p_value,
       payload: args.p_payload,
     });
-    if (error && error.code !== "23505") {
+    if (error && !isUniqueViolation(error)) {
       return NextResponse.json({ error: error.message }, { status: 500, headers: CORS });
     }
   }
   return NextResponse.json({ ok: true }, { headers: CORS });
+}
+
+function isUniqueViolation(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  return err.code === "23505" || /duplicate key value/i.test(err.message || "");
 }
 
 function isMissingRpc(err: { code?: string; message?: string }): boolean {
