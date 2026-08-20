@@ -39,8 +39,9 @@ export async function loadExecWonJobsSummary(
 ): Promise<WonJobsSummary> {
   const { data: salesRows } = await supabase
     .from("sales_people")
-    .select("id")
-    .ilike("name", execName);
+    .select("id, companies!inner(active)")
+    .ilike("name", execName)
+    .eq("companies.active", true);
   const ids = (salesRows || []).map(r => r.id as string);
   if (ids.length === 0) {
     return {

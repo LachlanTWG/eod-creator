@@ -67,11 +67,14 @@ export default async function ActivitiesPage({
   const salesPeople = (peopleRows || []) as { id: string; name: string; company_id: string }[];
 
   // Build the query. RLS handles admin vs exec automatically.
+  // Inactive clients (paused / offboarded) stay out of every exec surface.
+  const activeIds = companies.map(c => c.id);
   let q = supabase
     .from("activities")
     .select("id, company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_address, outcome, quote_job_value, appointment_at", { count: "exact" })
     .gte("occurred_on", filters.from)
     .lte("occurred_on", filters.to)
+    .in("company_id", activeIds.length ? activeIds : ["00000000-0000-0000-0000-000000000000"])
     .order("occurred_on", { ascending: false })
     .order("created_at", { ascending: false });
 

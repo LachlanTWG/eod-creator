@@ -199,7 +199,18 @@ export async function loadSiteVisits(
   // returning one lets TS infer the builder type without fragile generics.
   function scoped() {
     let q = supabase.from("activities").select(SELECT).eq("event_type", "site_visit_booked");
-    if (companyId) q = q.eq("company_id", companyId);
+    const activeIds = [...companyTzById.keys()];
+    if (companyId) {
+      if (!companyTzById.has(companyId)) {
+        q = q.eq("company_id", "00000000-0000-0000-0000-000000000000");
+      } else {
+        q = q.eq("company_id", companyId);
+      }
+    } else if (activeIds.length > 0) {
+      q = q.in("company_id", activeIds);
+    } else {
+      q = q.eq("company_id", "00000000-0000-0000-0000-000000000000");
+    }
     if (salesPersonIds) q = q.in("sales_person_id", salesPersonIds);
     return q;
   }

@@ -152,8 +152,9 @@ export async function gateCompanySlug(
 
   const { data: company } = await supabase
     .from("companies")
-    .select("id, name, slug, timezone, owner_name")
+    .select("id, name, slug, timezone, owner_name, active")
     .eq("slug", slug)
+    .eq("active", true)
     .single();
   if (!company) return null;
   if (viewer.seesAll) return company;

@@ -52,6 +52,7 @@ export default async function DuplicatesPage({
         "id, company_id, sales_person_id, sales_person_name, occurred_on, event_type, contact_name, contact_address, quote_job_value, appointment_at, source, created_at",
       )
       .in("event_type", typeFilter ? [typeFilter] : (SCANNED_EVENT_TYPES as readonly string[]))
+      .in("company_id", companies.length ? companies.map(c => c.id) : ["00000000-0000-0000-0000-000000000000"])
       .order("occurred_on", { ascending: true })
       .order("created_at", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);

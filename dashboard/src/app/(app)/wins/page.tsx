@@ -50,6 +50,8 @@ export default async function WinsPage({ searchParams }: { searchParams: Promise
   const mySalesPersonIds = new Set((mineRows || []).map(r => r.id as string));
 
   const companies = await listCompanies(supabase);
+  const activeIds = companies.map(c => c.id);
+  const activeCompanyFilter = activeIds.length ? activeIds : ["00000000-0000-0000-0000-000000000000"];
   const { data: peopleRows } = await supabase
     .from("sales_people")
     .select("id, name, company_id")
@@ -59,7 +61,8 @@ export default async function WinsPage({ searchParams }: { searchParams: Promise
   // Pipeline totals (all matching rows, not paged) — for the stat strip.
   let totalsQ = supabase
     .from("won_jobs")
-    .select("stage, commission_amount, job_value");
+    .select("stage, commission_amount, job_value")
+    .in("company_id", activeCompanyFilter);
   if (filters.company) totalsQ = totalsQ.eq("company_id", filters.company);
   if (filters.person)  totalsQ = totalsQ.eq("sales_person_id", filters.person);
   if (filters.q)       totalsQ = totalsQ.ilike("contact_name", `%${filters.q}%`);
@@ -86,7 +89,8 @@ export default async function WinsPage({ searchParams }: { searchParams: Promise
     .select(
       "id, company_id, sales_person_id, contact_name, contact_address, contact_id, job_value, commission_amount, type, stage, verbal_at, approved_at, invoiced_at, paid_at, invoice_number, notes",
       { count: "exact" },
-    );
+    )
+    .in("company_id", activeCompanyFilter);
   if (filters.company) q = q.eq("company_id", filters.company);
   if (filters.person)  q = q.eq("sales_person_id", filters.person);
   if (filters.stage)   q = q.eq("stage", filters.stage);

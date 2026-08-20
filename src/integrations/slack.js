@@ -110,6 +110,11 @@ async function sendSlackViaBotToken(token, channel, text, { username, icon_emoji
 async function sendReportToSlack(company, reportType, message, opts) {
   const slack = company.slack || {};
 
+  if (slack.enabled === false) {
+    console.log(`Slack paused for ${company.name} — skipping ${String(reportType).toUpperCase()}.`);
+    return;
+  }
+
   if (slack.webhookUrl) {
     await sendSlackMessage(slack.webhookUrl, message, undefined, opts);
     console.log(`Sent ${reportType.toUpperCase()} to Slack (webhook) for ${company.name}.`);

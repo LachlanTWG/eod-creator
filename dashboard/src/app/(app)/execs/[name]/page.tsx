@@ -62,8 +62,9 @@ export default async function ExecDetail({
   // includes clients the exec is still active on.
   const { data: targetRows } = await supabase
     .from("sales_people")
-    .select("id, company_id, active")
-    .ilike("name", name);
+    .select("id, company_id, active, companies!inner(active)")
+    .ilike("name", name)
+    .eq("companies.active", true);
   const targetSalesPersonIds = new Set((targetRows || []).map(r => r.id as string));
   const targetCompanyIds = new Set(
     (targetRows || []).filter(r => r.active).map(r => r.company_id as string),
